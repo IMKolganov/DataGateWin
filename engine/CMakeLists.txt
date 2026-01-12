@@ -4,6 +4,11 @@ project(engine LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if (MSVC)
+    # Correct values: MultiThreadedDLL / MultiThreadedDebugDLL
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(engine
         src/main.cpp
 )
@@ -40,29 +45,33 @@ add_library(ovpn3-core STATIC
         ${OPENVPN3_CORE_SOURCES}
 )
 
-# Expose headers to consumers (engine)
 target_include_directories(ovpn3-core PUBLIC
         "${O3_DIR}"
         "${O3_DIR}/client"
 )
 
-# Locate tap-windows.h (required by TunWin)
+# ---- tap-windows.h (header only; driver must be installed separately) ----
+# Try to locate via vcpkg paths first.
+set(_vcpkg_inc "")
+if (DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+    set(_vcpkg_inc "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+endif()
+
 find_path(TAP_HEADERS_DIR
         NAMES tap-windows.h
-        HINTS
-        "${O3_DIR}/build/msvc/amd64/vcpkg_installed/x64-windows/include"
-        "${O3_DIR}/build"
+        PATHS
+        "${_vcpkg_inc}"
+        "F:/C++/vcpkg/installed/x64-windows/include"
 )
 
 if (NOT TAP_HEADERS_DIR)
-    message(FATAL_ERROR "tap-windows.h not found. Expected under ${O3_DIR}/build/msvc/amd64/vcpkg_installed/x64-windows/include")
+    message(FATAL_ERROR "tap-windows.h not found. Expected it under vcpkg include.")
 endif()
 
 target_include_directories(ovpn3-core PRIVATE
         "${TAP_HEADERS_DIR}"
 )
 
-# Make consumers inherit the exact same defines (engine includes OpenVPN headers too)
 target_compile_definitions(ovpn3-core PUBLIC
         _WIN32_WINNT=0x0A00
         ASIO_STANDALONE
@@ -71,7 +80,6 @@ target_compile_definitions(ovpn3-core PUBLIC
         USE_OPENSSL
 )
 
-# Link deps as PUBLIC so engine inherits include dirs + proper linkage
 target_link_libraries(ovpn3-core PUBLIC
         OpenSSL::SSL
         OpenSSL::Crypto
@@ -81,7 +89,6 @@ target_link_libraries(ovpn3-core PUBLIC
         xxHash::xxhash
 )
 
-# Windows system libs needed by TunWin / WFP / proxy code
 target_link_libraries(ovpn3-core PRIVATE
         ws2_32
         iphlpapi
@@ -96,7 +103,7 @@ target_link_libraries(ovpn3-core PRIVATE
 
 target_link_libraries(engine PRIVATE ovpn3-core)
 
-# Helpful for debugging crashes
+# Big object for ovpncli.cpp
 if (MSVC)
     foreach(_src IN LISTS OPENVPN3_CORE_SOURCES)
         if (_src MATCHES ".*/client/ovpncli\\.cpp$")
