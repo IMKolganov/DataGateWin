@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+.idea
+
+# My
+/build/
+/**/build/
+/**/cmake-build-*/
+.idea/
+
+# My files for test connect
+ovpnfiles
