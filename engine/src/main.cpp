@@ -1,32 +1,29 @@
 #include <iostream>
 #include <string>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
 
 #include <eh.h>
 
-#include <client/ovpncli.hpp>
 #include <openvpn/common/file.hpp>
 #include <openvpn/common/exception.hpp>
 
-// Windows headers: include late to avoid winsock header conflicts
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <windows.h>
 #include <dbghelp.h>
 
-
 #pragma comment(lib, "Dbghelp.lib")
+
+#include "DnsProxy.h"
+#include "VpnClient.h"
+
+// -------------------- Crash dump helpers --------------------
 
 static std::string ToHex(unsigned int code)
 {
@@ -122,80 +119,78 @@ static void SehTranslator(unsigned int code, _EXCEPTION_POINTERS*)
     throw std::runtime_error(std::string("SEH exception ") + ToHex(code));
 }
 
-class MyClient : public openvpn::ClientAPI::OpenVPNClient
+// -------------------- Small helpers --------------------
+
+static int RunCommand(const std::string& cmd)
+{
+    std::cout << "[cmd] " << cmd << std::endl;
+    return system(cmd.c_str());
+}
+
+// -------------------- AppMain --------------------
+
+class AppMain
 {
 public:
-    std::mutex mtx;
-    std::condition_variable cv;
-    std::atomic<bool> done{false};
-    bool connected = false;
-    std::string last_event_name;
-    std::string last_event_info;
-
-    bool pause_on_connection_timeout() override { return false; }
-
-    void event(const openvpn::ClientAPI::Event& ev) override
+    int Run()
     {
-        {
-            std::lock_guard<std::mutex> lock(mtx);
-            last_event_name = ev.name;
-            last_event_info = ev.info;
+        SetUnhandledExceptionFilter(UnhandledExceptionFilterFn);
+        _set_se_translator(SehTranslator);
 
-            std::cout << "[event] name=" << ev.name << " info=" << ev.info << std::endl;
-
-            if (ev.name == "CONNECTED")
-            {
-                connected = true;
-                done = true;
-            }
-            if (ev.name == "DISCONNECTED" || ev.name == "AUTH_FAILED")
-            {
-                connected = false;
-                done = true;
-            }
-        }
-        cv.notify_all();
-    }
-
-    void acc_event(const openvpn::ClientAPI::AppCustomControlMessageEvent&) override
-    {
-        std::cout << "[acc_event]" << std::endl;
-    }
-
-    void log(const openvpn::ClientAPI::LogInfo& log) override
-    {
-        std::cout << "[log] " << log.text << std::endl;
-    }
-
-    void external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest&) override {}
-    void external_pki_sign_request(openvpn::ClientAPI::ExternalPKISignRequest&) override {}
-};
-
-int main()
-{
-    SetUnhandledExceptionFilter(UnhandledExceptionFilterFn);
-    _set_se_translator(SehTranslator);
-
-    try
-    {
         const char* ovpnPath = "F:\\C++\\DataGateWin\\ovpnfiles\\win-test-udp-0.ovpn";
         std::cout << "ovpnPath: " << ovpnPath << std::endl;
-
-        MyClient client;
-
 
         openvpn::ClientAPI::Config cfg;
         cfg.content = openvpn::read_text_utf8(ovpnPath);
 
-        // Optional: force TAP instead of Wintun
-        cfg.wintun = false;
+        VpnClient vpn;
 
-        // Optional: if you want to avoid DCO during experiments
-        // cfg.dco = false;
+        vpn.OnConnected = [&](const VpnClient::ConnectedInfo& ci)
+        {
+            std::cout << "[app] connected: ifIndex=" << ci.vpnIfIndex
+                      << " vpnIpv4=" << ci.vpnIpv4
+                      << std::endl;
 
-        auto eval = client.eval_config(cfg);
-        if (eval.error) return 2;
+            if (ci.vpnIfIndex <= 0 || ci.vpnIpv4.empty())
+            {
+                std::cerr << "[app] missing ifIndex or vpnIpv4, dns proxy will not start" << std::endl;
+                return;
+            }
 
+            vpnIfIndex_ = ci.vpnIfIndex;
+            vpnIp_ = ci.vpnIpv4;
+
+            // IMPORTANT: listen on VPN interface IP, not 127.0.0.1.
+            // This is much more compatible with block-outside-dns behavior.
+            DnsProxy::Config dcfg;
+            dcfg.listenIp = ci.vpnIpv4;
+            dcfg.listenPort = 53;
+            dcfg.upstreamIp = "8.8.8.8";
+            dcfg.upstreamPort = 53;
+            dcfg.vpnBindIp = ci.vpnIpv4;
+
+            if (!dns_.Start(dcfg))
+            {
+                std::cerr << "[app] dns proxy failed to start" << std::endl;
+                return;
+            }
+
+            // Set DNS server for the VPN interface to our local DNS proxy (on VPN IP).
+            std::ostringstream cmd;
+            cmd << "netsh interface ip set dnsservers " << ci.vpnIfIndex
+                << " static " << ci.vpnIpv4 << " register=primary validate=no";
+            RunCommand(cmd.str());
+        };
+
+        vpn.OnDisconnected = [&](const std::string& reason)
+        {
+            std::cout << "[app] disconnected reason=" << reason << std::endl;
+
+            dns_.Stop();
+            RestoreDnsIfNeeded();
+        };
+
+        auto eval = vpn.Eval(cfg);
         std::cout << "eval.error: " << eval.error << std::endl;
         std::cout << "eval.message: " << eval.message << std::endl;
         std::cout << "eval.windowsDriver: " << eval.windowsDriver << std::endl;
@@ -208,34 +203,62 @@ int main()
 
         std::cout << "Connecting..." << std::endl;
 
-        auto status = client.connect();
+        auto status = vpn.Connect();
         std::cout << "connect() error: " << status.error
                   << " status: " << status.status
                   << " message: " << status.message << std::endl;
 
-        {
-            std::unique_lock<std::mutex> lock(client.mtx);
-            client.cv.wait(lock, [&] { return client.done.load(); });
-        }
+        vpn.WaitDone();
 
-        if (client.connected)
+        if (!vpn.IsConnected())
         {
-            std::cout << "Connected successfully." << std::endl;
-            std::cout << "Press Enter to disconnect..." << std::endl;
-            std::string line;
-            std::getline(std::cin, line);
-
-            client.stop();
-            std::cout << "stop() called" << std::endl;
-        }
-        else
-        {
-            std::cout << "Not connected. Last event: " << client.last_event_name
-                      << " info: " << client.last_event_info << std::endl;
+            std::cout << "Not connected. Last event: " << vpn.LastEventName()
+                      << " info: " << vpn.LastEventInfo() << std::endl;
+            RestoreDnsIfNeeded();
             return 3;
         }
 
+        std::cout << "Connected successfully." << std::endl;
+        std::cout << "Press Enter to disconnect..." << std::endl;
+
+        std::string line;
+        std::getline(std::cin, line);
+
+        vpn.stop();
+        std::cout << "stop() called" << std::endl;
+
+        dns_.Stop();
+        RestoreDnsIfNeeded();
+
         return 0;
+    }
+
+private:
+    void RestoreDnsIfNeeded()
+    {
+        if (vpnIfIndex_ <= 0)
+            return;
+
+        std::ostringstream restore;
+        restore << "netsh interface ip set dnsservers " << vpnIfIndex_ << " dhcp";
+        RunCommand(restore.str());
+
+        vpnIfIndex_ = -1;
+        vpnIp_.clear();
+    }
+
+private:
+    DnsProxy dns_{};
+    int vpnIfIndex_ = -1;
+    std::string vpnIp_{};
+};
+
+int main()
+{
+    try
+    {
+        AppMain app;
+        return app.Run();
     }
     catch (const openvpn::Exception& e)
     {

@@ -1,0 +1,15 @@
+PS C:\Users\imkol> cd F:\C++\DataGateWin\drivers\dist.win10\amd64
+PS F:\C++\DataGateWin\drivers\dist.win10\amd64> pnputil /add-driver OemVista.inf /install
+Microsoft PnP Utility
+
+Adding driver package:  OemVista.inf
+Driver package added successfully.
+Published Name:         oem7.inf
+
+Total driver packages:  1
+Added driver packages:  1
+PS F:\C++\DataGateWin\drivers\dist.win10\amd64> .\devcon.exe install OemVista.inf tap0901
+Device node created. Install is complete when drivers are installed...
+Updating drivers for tap0901 from F:\C++\DataGateWin\drivers\dist.win10\amd64\OemVista.inf.
+Drivers installed successfully.
+PS F:\C++\DataGateWin\drivers\dist.win10\amd64>

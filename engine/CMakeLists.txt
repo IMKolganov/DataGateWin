@@ -5,12 +5,19 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (MSVC)
-    # Correct values: MultiThreadedDLL / MultiThreadedDebugDLL
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
 add_executable(engine
         src/main.cpp
+        src/VpnClient.cpp
+        src/DnsProxy.cpp
+        engine.rc
+)
+
+# Make sure your own sources also see these defines.
+target_compile_definitions(engine PRIVATE
+        _WIN32_WINNT=0x0A00
 )
 
 # ---- Dependencies from vcpkg ----
@@ -28,7 +35,6 @@ file(GLOB_RECURSE OPENVPN3_CORE_SOURCES
         "${O3_DIR}/openvpn/*.cpp"
 )
 
-# Normalize paths to forward slashes so regex works on Windows
 set(_tmp_sources "")
 foreach(_s IN LISTS OPENVPN3_CORE_SOURCES)
     file(TO_CMAKE_PATH "${_s}" _s_norm)
@@ -37,7 +43,6 @@ endforeach()
 set(OPENVPN3_CORE_SOURCES "${_tmp_sources}")
 unset(_tmp_sources)
 
-# Exclude desktop-only parts
 list(FILTER OPENVPN3_CORE_SOURCES EXCLUDE REGEX ".*/openvpn/ovpnagent/.*")
 list(FILTER OPENVPN3_CORE_SOURCES EXCLUDE REGEX ".*/openvpn/omi/.*")
 
@@ -50,8 +55,7 @@ target_include_directories(ovpn3-core PUBLIC
         "${O3_DIR}/client"
 )
 
-# ---- tap-windows.h (header only; driver must be installed separately) ----
-# Try to locate via vcpkg paths first.
+# ---- tap-windows.h (header only) ----
 set(_vcpkg_inc "")
 if (DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
     set(_vcpkg_inc "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
@@ -73,6 +77,7 @@ target_include_directories(ovpn3-core PRIVATE
 )
 
 target_compile_definitions(ovpn3-core PUBLIC
+        TAP_WIN_COMPONENT_ID=tap0901
         _WIN32_WINNT=0x0A00
         ASIO_STANDALONE
         USE_ASIO
@@ -101,9 +106,12 @@ target_link_libraries(ovpn3-core PRIVATE
         fwpuclnt
 )
 
-target_link_libraries(engine PRIVATE ovpn3-core)
+target_link_libraries(engine PRIVATE
+        ovpn3-core
+        Dbghelp
+        Ws2_32
+)
 
-# Big object for ovpncli.cpp
 if (MSVC)
     foreach(_src IN LISTS OPENVPN3_CORE_SOURCES)
         if (_src MATCHES ".*/client/ovpncli\\.cpp$")
