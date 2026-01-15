@@ -165,7 +165,7 @@ public:
             DnsProxy::Config dcfg;
             dcfg.listenIp = ci.vpnIpv4;
             dcfg.listenPort = 53;
-            dcfg.upstreamIp = "8.8.8.8";
+            dcfg.upstreamIp = "8.8.8.8:53";
             dcfg.upstreamPort = 53;
             dcfg.vpnBindIp = ci.vpnIpv4;
 

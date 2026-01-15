@@ -7,9 +7,12 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <random>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -20,14 +23,53 @@ namespace
 struct Pending
 {
     sockaddr_in client{};
+    uint16_t originalTxId{};
     std::chrono::steady_clock::time_point ts{};
 };
+
+static bool IsLikelyDnsPacket(const uint8_t* buf, int len)
+{
+    return len >= 12;
+}
 
 static uint16_t ReadTxId(const uint8_t* buf, int len)
 {
     if (len < 2) return 0;
     return (static_cast<uint16_t>(buf[0]) << 8) | static_cast<uint16_t>(buf[1]);
 }
+
+static void WriteTxId(uint8_t* buf, int len, uint16_t txid)
+{
+    if (len < 2) return;
+    buf[0] = static_cast<uint8_t>((txid >> 8) & 0xFF);
+    buf[1] = static_cast<uint8_t>(txid & 0xFF);
+}
+
+static void SockaddrToIpPort(const sockaddr_in& a, char* ipBuf, size_t ipBufLen, uint16_t& portOut)
+{
+    ipBuf[0] = '\0';
+    inet_ntop(AF_INET, &a.sin_addr, ipBuf, (socklen_t)ipBufLen);
+    portOut = ntohs(a.sin_port);
+}
+
+class TxIdGenerator
+{
+public:
+    TxIdGenerator()
+    {
+        std::random_device rd;
+        rng_.seed(rd());
+    }
+
+    uint16_t Next()
+    {
+        return static_cast<uint16_t>(dist_(rng_));
+    }
+
+private:
+    std::mt19937 rng_{};
+    std::uniform_int_distribution<uint32_t> dist_{1u, 65535u};
+};
 } // namespace
 
 DnsProxy::~DnsProxy()
@@ -126,6 +168,7 @@ void DnsProxy::WorkerLoop()
 
     std::vector<uint8_t> buf(4096);
     std::unordered_map<uint16_t, Pending> pending;
+    TxIdGenerator txgen;
 
     auto cleanup = [&]()
     {
@@ -133,10 +176,26 @@ void DnsProxy::WorkerLoop()
         for (auto it = pending.begin(); it != pending.end();)
         {
             if ((now - it->second.ts) > std::chrono::seconds(10))
+            {
+                std::cout << "[dns] pending timeout newtxid=" << it->first << std::endl;
                 it = pending.erase(it);
+            }
             else
+            {
                 ++it;
+            }
         }
+    };
+
+    auto allocateTxId = [&]() -> uint16_t
+    {
+        for (int i = 0; i < 64; ++i)
+        {
+            uint16_t id = txgen.Next();
+            if (pending.find(id) == pending.end())
+                return id;
+        }
+        return txgen.Next();
     };
 
     std::cout << "[dns] started listen=" << cfg_.listenIp << ":" << cfg_.listenPort
@@ -176,12 +235,48 @@ void DnsProxy::WorkerLoop()
             int n = recvfrom(sListen, (char*)buf.data(), (int)buf.size(), 0, (sockaddr*)&client, &clen);
             if (n > 0)
             {
-                uint16_t txid = ReadTxId(buf.data(), n);
-                pending[txid] = Pending{ client, std::chrono::steady_clock::now() };
+                if (!IsLikelyDnsPacket(buf.data(), n))
+                {
+                    std::cout << "[dns] q drop non-dns len=" << n << std::endl;
+                    continue;
+                }
+
+                uint16_t originalTxId = ReadTxId(buf.data(), n);
+                uint16_t newTxId = allocateTxId();
+
+                char clientIp[INET_ADDRSTRLEN]{};
+                uint16_t clientPort = 0;
+                SockaddrToIpPort(client, clientIp, sizeof(clientIp), clientPort);
+
+                std::cout << "[dns] q from " << clientIp << ":" << clientPort
+                          << " len=" << n
+                          << " txid=" << originalTxId
+                          << " newtxid=" << newTxId
+                          << std::endl;
+
+                WriteTxId(buf.data(), n, newTxId);
+                pending[newTxId] = Pending{ client, originalTxId, std::chrono::steady_clock::now() };
 
                 int sent = sendto(sUp, (const char*)buf.data(), n, 0, (sockaddr*)&upAddr, sizeof(upAddr));
                 if (sent <= 0)
-                    std::cerr << "[dns] sendto upstream failed err=" << WSAGetLastError() << std::endl;
+                {
+                    int err = WSAGetLastError();
+                    pending.erase(newTxId);
+                    std::cerr << "[dns] sendto upstream failed err=" << err
+                              << " len=" << n
+                              << " newtxid=" << newTxId
+                              << std::endl;
+                }
+                else
+                {
+                    std::cout << "[dns] sent to upstream len=" << sent
+                              << " newtxid=" << newTxId
+                              << std::endl;
+                }
+            }
+            else if (n == SOCKET_ERROR)
+            {
+                std::cerr << "[dns] recvfrom listen failed err=" << WSAGetLastError() << std::endl;
             }
         }
 
@@ -193,17 +288,60 @@ void DnsProxy::WorkerLoop()
             int n = recvfrom(sUp, (char*)buf.data(), (int)buf.size(), 0, (sockaddr*)&from, &flen);
             if (n > 0)
             {
-                uint16_t txid = ReadTxId(buf.data(), n);
-                auto it = pending.find(txid);
-                if (it != pending.end())
+                if (!IsLikelyDnsPacket(buf.data(), n))
                 {
-                    sockaddr_in client = it->second.client;
-                    pending.erase(it);
-
-                    int sent = sendto(sListen, (const char*)buf.data(), n, 0, (sockaddr*)&client, sizeof(client));
-                    if (sent <= 0)
-                        std::cerr << "[dns] sendto client failed err=" << WSAGetLastError() << std::endl;
+                    std::cout << "[dns] r drop non-dns len=" << n << std::endl;
+                    continue;
                 }
+
+                uint16_t newTxId = ReadTxId(buf.data(), n);
+
+                char fromIp[INET_ADDRSTRLEN]{};
+                uint16_t fromPort = 0;
+                SockaddrToIpPort(from, fromIp, sizeof(fromIp), fromPort);
+
+                std::cout << "[dns] r from " << fromIp << ":" << fromPort
+                          << " len=" << n
+                          << " newtxid=" << newTxId
+                          << std::endl;
+
+                auto it = pending.find(newTxId);
+                if (it == pending.end())
+                {
+                    std::cout << "[dns] r dropped no pending newtxid=" << newTxId << std::endl;
+                    continue;
+                }
+
+                sockaddr_in client = it->second.client;
+                uint16_t originalTxId = it->second.originalTxId;
+                pending.erase(it);
+
+                WriteTxId(buf.data(), n, originalTxId);
+
+                char clientIp[INET_ADDRSTRLEN]{};
+                uint16_t clientPort = 0;
+                SockaddrToIpPort(client, clientIp, sizeof(clientIp), clientPort);
+
+                int sent = sendto(sListen, (const char*)buf.data(), n, 0, (sockaddr*)&client, sizeof(client));
+                if (sent <= 0)
+                {
+                    int err = WSAGetLastError();
+                    std::cerr << "[dns] sendto client failed err=" << err
+                              << " len=" << n
+                              << " client=" << clientIp << ":" << clientPort
+                              << std::endl;
+                }
+                else
+                {
+                    std::cout << "[dns] sent to client len=" << sent
+                              << " client=" << clientIp << ":" << clientPort
+                              << " txid=" << originalTxId
+                              << std::endl;
+                }
+            }
+            else if (n == SOCKET_ERROR)
+            {
+                std::cerr << "[dns] recvfrom upstream failed err=" << WSAGetLastError() << std::endl;
             }
         }
     }
