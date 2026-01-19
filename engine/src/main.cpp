@@ -20,7 +20,6 @@
 
 #pragma comment(lib, "Dbghelp.lib")
 
-#include "DnsProxy.h"
 #include "VpnClient.h"
 
 // -------------------- Crash dump helpers --------------------
@@ -119,14 +118,6 @@ static void SehTranslator(unsigned int code, _EXCEPTION_POINTERS*)
     throw std::runtime_error(std::string("SEH exception ") + ToHex(code));
 }
 
-// -------------------- Small helpers --------------------
-
-static int RunCommand(const std::string& cmd)
-{
-    std::cout << "[cmd] " << cmd << std::endl;
-    return system(cmd.c_str());
-}
-
 // -------------------- AppMain --------------------
 
 class AppMain
@@ -151,43 +142,13 @@ public:
                       << " vpnIpv4=" << ci.vpnIpv4
                       << std::endl;
 
-            if (ci.vpnIfIndex <= 0 || ci.vpnIpv4.empty())
-            {
-                std::cerr << "[app] missing ifIndex or vpnIpv4, dns proxy will not start" << std::endl;
-                return;
-            }
-
-            vpnIfIndex_ = ci.vpnIfIndex;
-            vpnIp_ = ci.vpnIpv4;
-
-            // IMPORTANT: listen on VPN interface IP, not 127.0.0.1.
-            // This is much more compatible with block-outside-dns behavior.
-            DnsProxy::Config dcfg;
-            dcfg.listenIp = ci.vpnIpv4;
-            dcfg.listenPort = 53;
-            dcfg.upstreamIp = "8.8.8.8:53";
-            dcfg.upstreamPort = 53;
-            dcfg.vpnBindIp = ci.vpnIpv4;
-
-            if (!dns_.Start(dcfg))
-            {
-                std::cerr << "[app] dns proxy failed to start" << std::endl;
-                return;
-            }
-
-            // Set DNS server for the VPN interface to our local DNS proxy (on VPN IP).
-            std::ostringstream cmd;
-            cmd << "netsh interface ip set dnsservers " << ci.vpnIfIndex
-                << " static " << ci.vpnIpv4 << " register=primary validate=no";
-            RunCommand(cmd.str());
+            // No custom DNS proxy here.
+            // DNS handling is done by OpenVPN Core + Windows (NRPT/WFP/ICS depending on settings).
         };
 
         vpn.OnDisconnected = [&](const std::string& reason)
         {
             std::cout << "[app] disconnected reason=" << reason << std::endl;
-
-            dns_.Stop();
-            RestoreDnsIfNeeded();
         };
 
         auto eval = vpn.Eval(cfg);
@@ -214,7 +175,6 @@ public:
         {
             std::cout << "Not connected. Last event: " << vpn.LastEventName()
                       << " info: " << vpn.LastEventInfo() << std::endl;
-            RestoreDnsIfNeeded();
             return 3;
         }
 
@@ -227,30 +187,8 @@ public:
         vpn.stop();
         std::cout << "stop() called" << std::endl;
 
-        dns_.Stop();
-        RestoreDnsIfNeeded();
-
         return 0;
     }
-
-private:
-    void RestoreDnsIfNeeded()
-    {
-        if (vpnIfIndex_ <= 0)
-            return;
-
-        std::ostringstream restore;
-        restore << "netsh interface ip set dnsservers " << vpnIfIndex_ << " dhcp";
-        RunCommand(restore.str());
-
-        vpnIfIndex_ = -1;
-        vpnIp_.clear();
-    }
-
-private:
-    DnsProxy dns_{};
-    int vpnIfIndex_ = -1;
-    std::string vpnIp_{};
 };
 
 int main()
