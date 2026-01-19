@@ -11,7 +11,6 @@ endif()
 add_executable(engine
         src/main.cpp
         src/VpnClient.cpp
-        src/DnsProxy.cpp
         engine.rc
 )
 
