@@ -12,11 +12,16 @@ add_executable(engine
         src/main.cpp
         src/VpnClient.cpp
         engine.rc
+        src/WssTcpBridge.cpp
+        src/WssTcpBridge.h
 )
 
 # Make sure your own sources also see these defines.
+# Do NOT define ASIO_STANDALONE here (it breaks Boost.Beast/Boost.Asio usage in WssTcpBridge).
 target_compile_definitions(engine PRIVATE
         _WIN32_WINNT=0x0A00
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
 )
 
 # ---- Dependencies from vcpkg ----
@@ -25,6 +30,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(jsoncpp CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
+find_package(Boost REQUIRED)
 
 # ---- OpenVPN3 source root ----
 set(O3_DIR "${CMAKE_CURRENT_LIST_DIR}/../openvpn3")
@@ -75,13 +81,20 @@ target_include_directories(ovpn3-core PRIVATE
         "${TAP_HEADERS_DIR}"
 )
 
+# These must be visible to engine too, because engine sources include OpenVPN3 headers.
 target_compile_definitions(ovpn3-core PUBLIC
-        TAP_WIN_COMPONENT_ID=tap0901
         _WIN32_WINNT=0x0A00
-        ASIO_STANDALONE
         USE_ASIO
-        HAVE_LZ4
         USE_OPENSSL
+        HAVE_LZ4
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+)
+
+# These must NOT leak into engine (ASIO_STANDALONE breaks Boost.Beast in WssTcpBridge).
+target_compile_definitions(ovpn3-core PRIVATE
+        ASIO_STANDALONE
+        TAP_WIN_COMPONENT_ID=tap0901
 )
 
 target_link_libraries(ovpn3-core PUBLIC
@@ -109,6 +122,7 @@ target_link_libraries(engine PRIVATE
         ovpn3-core
         Dbghelp
         Ws2_32
+        Boost::boost
 )
 
 if (MSVC)

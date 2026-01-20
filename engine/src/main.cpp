@@ -21,6 +21,7 @@
 #pragma comment(lib, "Dbghelp.lib")
 
 #include "VpnClient.h"
+#include "WssTcpBridge.h"
 
 // -------------------- Crash dump helpers --------------------
 
@@ -118,6 +119,58 @@ static void SehTranslator(unsigned int code, _EXCEPTION_POINTERS*)
     throw std::runtime_error(std::string("SEH exception ") + ToHex(code));
 }
 
+static std::string ForceTcpToLocalBridge(const std::string& originalOvpn, const std::string& localHost, uint16_t localPort)
+{
+    std::istringstream in(originalOvpn);
+    std::ostringstream out;
+
+    std::string line;
+    bool replacedRemote = false;
+    bool hasProto = false;
+
+    while (std::getline(in, line))
+    {
+        std::string trimmed = line;
+        while (!trimmed.empty() && (trimmed.back() == '\r' || trimmed.back() == '\n'))
+            trimmed.pop_back();
+
+        if (trimmed.rfind("remote ", 0) == 0)
+        {
+            if (!replacedRemote)
+            {
+                out << "remote " << localHost << " " << localPort << "\n";
+                replacedRemote = true;
+            }
+            else
+            {
+                out << "; " << trimmed << "\n";
+            }
+            continue;
+        }
+
+        if (trimmed.rfind("proto ", 0) == 0)
+        {
+            hasProto = true;
+            out << "proto tcp-client\n";
+            continue;
+        }
+
+        out << trimmed << "\n";
+    }
+
+    if (!replacedRemote)
+    {
+        out << "remote " << localHost << " " << localPort << "\n";
+    }
+
+    if (!hasProto)
+    {
+        out << "proto tcp-client\n";
+    }
+
+    return out.str();
+}
+
 // -------------------- AppMain --------------------
 
 class AppMain
@@ -128,11 +181,33 @@ public:
         SetUnhandledExceptionFilter(UnhandledExceptionFilterFn);
         _set_se_translator(SehTranslator);
 
-        const char* ovpnPath = "F:\\C++\\DataGateWin\\ovpnfiles\\win-test-udp-0.ovpn";
+        const char* ovpnPath = "F:\\C++\\DataGateWin\\ovpnfiles\\test-win-wss.ovpn";
         std::cout << "ovpnPath: " << ovpnPath << std::endl;
 
         openvpn::ClientAPI::Config cfg;
         cfg.content = openvpn::read_text_utf8(ovpnPath);
+
+        // 1) Start local TCP -> WSS bridge
+        WssTcpBridge::Options bridgeOpt;
+        bridgeOpt.host = "dev-s1.datagateapp.com";
+        bridgeOpt.port = "443";
+        bridgeOpt.path = "/api/proxy";
+        bridgeOpt.sni = "dev-s1.datagateapp.com";
+        bridgeOpt.listenIp = "127.0.0.1";
+        bridgeOpt.listenPort = 18080;
+        bridgeOpt.verifyServerCert = false;
+
+        // If your backend requires auth, set it here:
+        // bridgeOpt.authorizationHeader = "Bearer <token>";
+
+        WssTcpBridge bridge(bridgeOpt);
+        bridge.Start();
+
+        std::cout << "[bridge] listening on " << bridgeOpt.listenIp << ":" << bridgeOpt.listenPort
+                  << " -> wss://" << bridgeOpt.host << bridgeOpt.path << std::endl;
+
+        // 2) Force OpenVPN profile to connect to local bridge via TCP
+        cfg.content = ForceTcpToLocalBridge(cfg.content, bridgeOpt.listenIp, bridgeOpt.listenPort);
 
         VpnClient vpn;
 
@@ -141,9 +216,6 @@ public:
             std::cout << "[app] connected: ifIndex=" << ci.vpnIfIndex
                       << " vpnIpv4=" << ci.vpnIpv4
                       << std::endl;
-
-            // No custom DNS proxy here.
-            // DNS handling is done by OpenVPN Core + Windows (NRPT/WFP/ICS depending on settings).
         };
 
         vpn.OnDisconnected = [&](const std::string& reason)
@@ -159,6 +231,7 @@ public:
         if (eval.error)
         {
             std::cerr << "Config evaluation failed" << std::endl;
+            bridge.Stop();
             return 2;
         }
 
@@ -175,6 +248,7 @@ public:
         {
             std::cout << "Not connected. Last event: " << vpn.LastEventName()
                       << " info: " << vpn.LastEventInfo() << std::endl;
+            bridge.Stop();
             return 3;
         }
 
@@ -186,6 +260,9 @@ public:
 
         vpn.stop();
         std::cout << "stop() called" << std::endl;
+
+        bridge.Stop();
+        std::cout << "[bridge] stopped" << std::endl;
 
         return 0;
     }
