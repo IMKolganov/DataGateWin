@@ -157,6 +157,8 @@ namespace datagate::ipc
             _eventsClient.store(hPipe);
             _lastClientSeenMs.store(NowMs());
 
+            WriteEventsLine(MakeEventLine(EventType::EngineReady, "{}"));
+
             while (_running.load())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
