@@ -10,11 +10,9 @@ namespace datagate::ipc
         return GetTickCount64();
     }
 
-    static void CloseHandleSafe(std::atomic<HANDLE>& h)
+    static void ClearHandle(std::atomic<HANDLE>& h)
     {
-        HANDLE old = h.exchange(INVALID_HANDLE_VALUE);
-        if (old != INVALID_HANDLE_VALUE)
-            CloseHandle(old);
+        h.store(INVALID_HANDLE_VALUE);
     }
 
     IpcServer::IpcServer(std::string sessionId)
@@ -61,8 +59,8 @@ namespace datagate::ipc
         if (!_running.exchange(false))
             return;
 
-        CloseHandleSafe(_controlClient);
-        CloseHandleSafe(_eventsClient);
+        ClearHandle(_controlClient);
+        ClearHandle(_eventsClient);
 
         if (_controlThread.joinable()) _controlThread.join();
         if (_eventsThread.joinable())  _eventsThread.join();
@@ -126,7 +124,7 @@ namespace datagate::ipc
             ReadControlLines(hPipe);
 
             _lastClientSeenMs.store(NowMs());
-            CloseHandleSafe(_controlClient);
+            ClearHandle(_controlClient);
 
             DisconnectNamedPipe(hPipe);
             CloseHandle(hPipe);
@@ -167,7 +165,7 @@ namespace datagate::ipc
             }
 
             _lastClientSeenMs.store(NowMs());
-            CloseHandleSafe(_eventsClient);
+            ClearHandle(_eventsClient);
 
             DisconnectNamedPipe(hPipe);
             CloseHandle(hPipe);
