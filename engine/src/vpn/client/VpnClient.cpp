@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 
+// IMPORTANT: include ovpncli.hpp ONLY here in the whole engine project
 #include <client/ovpncli.hpp>
 
 class VpnClient : public openvpn::ClientAPI::OpenVPNClient

@@ -1,4 +1,4 @@
-﻿#include "WssTcpBridge.h"
+﻿#include "../client/WssTcpBridge.h"
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
