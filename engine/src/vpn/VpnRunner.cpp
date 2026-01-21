@@ -1,7 +1,6 @@
 ﻿#include "VpnRunner.h"
 
-#include "client/VpnClient.h"
-#include <client/ovpncli.hpp>
+#include "vpn/client/VpnClient.h"
 
 namespace datagate::vpn
 {
@@ -17,7 +16,7 @@ namespace datagate::vpn
         _client.reset();
     }
 
-    bool VpnRunner::Start(const openvpn::ClientAPI::Config& cfg, std::string& outError)
+    bool VpnRunner::Start(const std::string& ovpnContentUtf8, std::string& outError)
     {
         std::lock_guard<std::mutex> lock(_mtx);
 
@@ -31,21 +30,22 @@ namespace datagate::vpn
 
         _client->OnConnected = [&](const VpnClient::ConnectedInfo& ci)
         {
-            if (OnConnected)
-            {
-                ConnectedInfo x;
-                x.vpnIfIndex = ci.vpnIfIndex;
-                x.vpnIpv4 = ci.vpnIpv4;
-                OnConnected(x);
-            }
+            if (!OnConnected)
+                return;
+
+            ConnectedInfo x;
+            x.vpnIfIndex = ci.vpnIfIndex;
+            x.vpnIpv4 = ci.vpnIpv4;
+            OnConnected(x);
         };
 
         _client->OnDisconnected = [&](const std::string& reason)
         {
-            if (OnDisconnected) OnDisconnected(reason);
+            if (OnDisconnected)
+                OnDisconnected(reason);
         };
 
-        auto eval = _client->Eval(cfg);
+        auto eval = _client->Eval(ovpnContentUtf8);
         if (eval.error)
         {
             outError = "Eval failed: " + eval.message;
@@ -78,7 +78,7 @@ namespace datagate::vpn
 
         try
         {
-            local->stop();
+            local->Stop();
         }
         catch (...)
         {

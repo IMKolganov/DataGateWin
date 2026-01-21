@@ -1,36 +1,63 @@
 ﻿#pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 
-#include "../openvpn_clientapi_fwd.h"
-
-class VpnClient
+namespace datagate::vpn
 {
-public:
-    struct ConnectedInfo
+    class VpnClient
     {
-        int vpnIfIndex = -1;
-        std::string vpnIpv4;
+    public:
+        struct ConnectedInfo
+        {
+            int vpnIfIndex = -1;
+            std::string vpnIpv4;
+            std::string rawInfo;
+        };
+
+        struct EvalResult
+        {
+            bool error = false;
+            std::string message;
+            std::string profileName;
+            std::string friendlyName;
+            bool autologin = false;
+            std::string windowsDriver;
+        };
+
+        struct StatusResult
+        {
+            bool error = false;
+            std::string status;
+            std::string message;
+        };
+
+        std::function<void(const ConnectedInfo&)> OnConnected;
+        std::function<void(const std::string& reason)> OnDisconnected;
+        std::function<void(const std::string& line)> OnLog;
+
+        VpnClient();
+        ~VpnClient();
+
+        VpnClient(const VpnClient&) = delete;
+        VpnClient& operator=(const VpnClient&) = delete;
+
+        EvalResult Eval(const std::string& ovpnContent);
+        StatusResult Connect();
+
+        void Stop();
+        void WaitDone();
+
+        bool IsConnected() const;
+        std::string LastEventName() const;
+        std::string LastEventInfo() const;
+
+    private:
+        class Impl;
+        std::unique_ptr<Impl> _impl;
     };
-
-    std::function<void(const ConnectedInfo&)> OnConnected;
-    std::function<void(const std::string&)> OnDisconnected;
-
-public:
-    VpnClient();
-    ~VpnClient();
-
-    openvpn::ClientAPI::EvalConfig Eval(const openvpn::ClientAPI::Config& cfg);
-    openvpn::ClientAPI::Status Connect();
-
-    void Stop();
-    void WaitDone();
-
-    bool IsConnected() const;
-    std::string LastEventName() const;
-    std::string LastEventInfo() const;
-
-private:
-    // Keep your internal fields here (pImpl, flags, threads, etc.)
-};
+}

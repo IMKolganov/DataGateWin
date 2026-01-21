@@ -5,8 +5,8 @@
 #include <mutex>
 #include <string>
 #include <functional>
+#include "vpn/VpnRunner.h"
 
-class VpnClient;      // from your existing codebase
 class WssTcpBridge;   // from your existing codebase
 
 namespace datagate::session
@@ -75,7 +75,7 @@ namespace datagate::session
 
         // Owned runtime objects
         WssTcpBridge* _bridge = nullptr;
-        VpnClient* _vpn = nullptr;
+        datagate::vpn::VpnRunner _vpn;
 
         StartOptions _lastStart; // optional, if you want "reconnect" later
     };
