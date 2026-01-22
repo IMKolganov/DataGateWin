@@ -3,6 +3,8 @@
 // IMPORTANT: the only translation unit that includes OpenVPN Client API header.
 #include <client/ovpncli.hpp>
 
+#include <cctype>
+#include <exception>
 #include <utility>
 
 namespace datagate::vpn
@@ -33,7 +35,7 @@ namespace datagate::vpn
                 try
                 {
                     const auto info = connection_info();
-                    ci.vpnIfIndex = -1;          // IfIndex not always available here; keep -1 unless you extract it elsewhere
+                    ci.vpnIfIndex = -1;
                     ci.vpnIpv4 = info.vpnIp4;
                     ci.rawInfo = info.serverHost + ":" + info.serverPort + " proto=" + info.serverProto;
                 }
@@ -63,7 +65,17 @@ namespace datagate::vpn
         void log(const openvpn::ClientAPI::LogInfo& logInfo) override
         {
             if (_owner.OnLog)
+            {
                 _owner.OnLog(logInfo.text);
+
+                const auto& t = logInfo.text;
+                if (t.find("wintun") != std::string::npos || t.find("Wintun") != std::string::npos)
+                    _owner.OnLog("Driver hint: wintun (from core log)");
+                else if (t.find("tap") != std::string::npos || t.find("TAP") != std::string::npos)
+                    _owner.OnLog("Driver hint: tap (from core log)");
+                else if (t.find("dco") != std::string::npos || t.find("DCO") != std::string::npos)
+                    _owner.OnLog("Driver hint: dco (from core log)");
+            }
         }
 
         void external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest&) override {}
@@ -74,8 +86,14 @@ namespace datagate::vpn
             openvpn::ClientAPI::Config cfg;
             cfg.content = ovpnContent;
 
-            openvpn::ClientAPI::OpenVPNClientHelper helper;
-            const auto ev = helper.eval_config(cfg);
+            const auto ev = openvpn::ClientAPI::OpenVPNClient::eval_config(cfg);
+            if (_owner.OnLog)
+            {
+                if (!ev.windowsDriver.empty())
+                    _owner.OnLog("OpenVPN selected Windows driver: " + ev.windowsDriver);
+                else
+                    _owner.OnLog("OpenVPN selected Windows driver: <none>");
+            }
 
             VpnClient::EvalResult r;
             r.error = ev.error;
@@ -94,14 +112,24 @@ namespace datagate::vpn
             _done = false;
             _connected = false;
 
-            // OpenVPN core connect() blocks until disconnect, so caller must run this on a worker thread
-            const auto st = openvpn::ClientAPI::OpenVPNClient::connect();
+            try
+            {
+                const auto st = openvpn::ClientAPI::OpenVPNClient::connect();
+                r.error = st.error;
+                r.status = st.status;
+                r.message = st.message;
+            }
+            catch (const std::exception& ex)
+            {
+                r.error = true;
+                r.message = std::string("connect() threw: ") + ex.what();
+            }
+            catch (...)
+            {
+                r.error = true;
+                r.message = "connect() threw: unknown exception";
+            }
 
-            r.error = st.error;
-            r.status = st.status;
-            r.message = st.message;
-
-            // If connect() returns, we are done
             _connected = false;
             SignalDone();
             return r;
@@ -161,6 +189,9 @@ namespace datagate::vpn
 
         std::string _lastEventName{};
         std::string _lastEventInfo{};
+
+        openvpn::ClientAPI::Config _cfg{};
+        bool _hasCfg = false;
     };
 
     VpnClient::VpnClient()

@@ -376,6 +376,7 @@ int AppMain::Run(int argc, char** argv)
     });
 
     ipc.Start();
+    std::cerr << "[engine] ipc started, sending EngineReady" << std::endl;
     ipc.SendEvent(datagate::ipc::EventType::EngineReady, "{}");
 
     const uint64_t idleExitAfterMs = 10 * 1000;

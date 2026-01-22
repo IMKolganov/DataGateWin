@@ -1,13 +1,15 @@
 ﻿#pragma once
 
 #include "SessionState.h"
-
-#include <mutex>
-#include <string>
-#include <functional>
 #include "vpn/VpnRunner.h"
 
-class WssTcpBridge;   // from your existing codebase
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+
+class WssTcpBridge;
 
 namespace datagate::session
 {
@@ -50,33 +52,34 @@ namespace datagate::session
         SessionController(const SessionController&) = delete;
         SessionController& operator=(const SessionController&) = delete;
 
-        // Wire callbacks (AppMain will connect these to IpcServer events)
         StateChangedCallback OnStateChanged;
         LogCallback          OnLog;
         ErrorCallback        OnError;
         ConnectedCallback    OnConnected;
         DisconnectedCallback OnDisconnected;
 
-        // Main commands
         bool Start(const StartOptions& opt, std::string& outError);
         void Stop();
 
         SessionState GetState() const;
 
     private:
-        void SetPhase(SessionPhase phase);
-        void SetError(const std::string& code, const std::string& message, bool fatal);
+        static std::string PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort);
 
-        static std::string ForceTcpToLocalBridge(const std::string& originalOvpn, const std::string& localHost, uint16_t localPort);
+        void StopLockedNoCallbacks();
+        void PublishState(const SessionState& snapshot);
+        void PublishError(const std::string& code, const std::string& message, bool fatal);
+
+        static std::string DefaultListenIp(const StartOptions& opt);
+        static uint16_t DefaultListenPort(const StartOptions& opt);
 
     private:
         mutable std::mutex _mtx;
-        SessionState _state;
+        SessionState _state{};
 
-        // Owned runtime objects
-        WssTcpBridge* _bridge = nullptr;
+        std::unique_ptr<WssTcpBridge> _bridge;
         datagate::vpn::VpnRunner _vpn;
 
-        StartOptions _lastStart; // optional, if you want "reconnect" later
+        StartOptions _lastStart{};
     };
 }

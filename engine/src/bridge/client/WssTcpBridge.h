@@ -15,7 +15,7 @@ public:
         std::string listenIp = "127.0.0.1";
         uint16_t listenPort = 18080;
 
-        bool verifyServerCert = true;
+        bool verifyServerCert = false;
         std::string authorizationHeader;
     };
 

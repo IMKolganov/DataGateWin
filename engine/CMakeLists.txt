@@ -41,6 +41,8 @@ add_executable(engine
         src/util/OvpnTransform.cpp
         src/util/OvpnTransform.h
         src/vpn/openvpn_clientapi_fwd.h
+        src/util/DatagateJsonLite.cpp
+        src/util/DatagateJsonLite.h
 )
 
 target_compile_definitions(engine PRIVATE

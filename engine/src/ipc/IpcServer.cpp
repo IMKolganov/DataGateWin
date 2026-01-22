@@ -20,15 +20,18 @@ namespace datagate::ipc
           _pipes(MakePipeNames(_sessionId))
     {
         _lastClientSeenMs.store(NowMs());
+        std::cerr << "[ipc] ctor sessionId=" << _sessionId << std::endl;
     }
 
     IpcServer::~IpcServer()
     {
+        std::cerr << "[ipc] dtor sessionId=" << _sessionId << std::endl;
         Stop();
     }
 
     void IpcServer::SetCommandHandler(CommandHandler handler)
     {
+        std::cerr << "[ipc] command handler set" << std::endl;
         _handler = std::move(handler);
     }
 
@@ -48,8 +51,19 @@ namespace datagate::ipc
         if (_running.exchange(true))
             return true;
 
-        _controlThread = std::thread([this] { ControlAcceptLoop(); });
-        _eventsThread  = std::thread([this] { EventsAcceptLoop(); });
+        std::cerr << "[ipc] Start() sessionId=" << _sessionId << std::endl;
+
+        _controlThread = std::thread([this] {
+            std::cerr << "[ipc][control] accept thread started" << std::endl;
+            ControlAcceptLoop();
+            std::cerr << "[ipc][control] accept thread stopped" << std::endl;
+        });
+
+        _eventsThread = std::thread([this] {
+            std::cerr << "[ipc][events] accept thread started" << std::endl;
+            EventsAcceptLoop();
+            std::cerr << "[ipc][events] accept thread stopped" << std::endl;
+        });
 
         return true;
     }
@@ -58,6 +72,8 @@ namespace datagate::ipc
     {
         if (!_running.exchange(false))
             return;
+
+        std::cerr << "[ipc] Stop()" << std::endl;
 
         ClearHandle(_controlClient);
         ClearHandle(_eventsClient);
@@ -68,22 +84,27 @@ namespace datagate::ipc
 
     void IpcServer::SendEvent(EventType type, const std::string& payloadJson)
     {
+        std::cerr << "[ipc][events] send event type=" << EventTypeToString(type) << std::endl;
         WriteEventsLine(MakeEventLine(type, payloadJson));
     }
 
     void IpcServer::ReplyOk(const std::string& id, const std::string& payloadJson)
     {
+        std::cerr << "[ipc][control] reply OK id=" << id << std::endl;
         WriteControlLine(MakeOkResponseLine(id, payloadJson));
     }
 
     void IpcServer::ReplyError(const std::string& id, const std::string& code, const std::string& message)
     {
+        std::cerr << "[ipc][control] reply ERROR id=" << id
+                  << " code=" << code
+                  << " message=" << message << std::endl;
         WriteControlLine(MakeErrorResponseLine(id, code, message));
     }
 
     HANDLE IpcServer::CreatePipeServer(const std::string& fullName, DWORD openMode, DWORD pipeMode)
     {
-        return CreateNamedPipeA(
+        HANDLE h = CreateNamedPipeA(
             fullName.c_str(),
             openMode,
             pipeMode,
@@ -93,6 +114,23 @@ namespace datagate::ipc
             0,
             nullptr
         );
+
+        if (h == INVALID_HANDLE_VALUE)
+        {
+            DWORD err = GetLastError();
+            if (err == ERROR_PIPE_BUSY)
+            {
+                std::cerr << "[ipc] pipe name already in use: " << fullName << " (ERROR_PIPE_BUSY)" << std::endl;
+                // optional: sleep a bit to avoid log spam
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+            else
+            {
+                std::cerr << "[ipc] CreateNamedPipe failed: " << fullName << " err=" << err << std::endl;
+            }
+        }
+
+        return h;
     }
 
     void IpcServer::ControlAcceptLoop()
@@ -107,21 +145,30 @@ namespace datagate::ipc
 
             if (hPipe == INVALID_HANDLE_VALUE)
             {
+                std::cerr << "[ipc][control] CreateNamedPipe failed err=" << GetLastError() << std::endl;
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 continue;
             }
 
-            BOOL ok = ConnectNamedPipe(hPipe, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+            BOOL ok = ConnectNamedPipe(hPipe, nullptr)
+                ? TRUE
+                : (GetLastError() == ERROR_PIPE_CONNECTED);
+
             if (!ok)
             {
+                std::cerr << "[ipc][control] ConnectNamedPipe failed err=" << GetLastError() << std::endl;
                 CloseHandle(hPipe);
                 continue;
             }
+
+            std::cerr << "[ipc][control] client connected" << std::endl;
 
             _controlClient.store(hPipe);
             _lastClientSeenMs.store(NowMs());
 
             ReadControlLines(hPipe);
+
+            std::cerr << "[ipc][control] client disconnected" << std::endl;
 
             _lastClientSeenMs.store(NowMs());
             ClearHandle(_controlClient);
@@ -143,20 +190,28 @@ namespace datagate::ipc
 
             if (hPipe == INVALID_HANDLE_VALUE)
             {
+                std::cerr << "[ipc][events] CreateNamedPipe failed err=" << GetLastError() << std::endl;
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 continue;
             }
 
-            BOOL ok = ConnectNamedPipe(hPipe, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+            BOOL ok = ConnectNamedPipe(hPipe, nullptr)
+                ? TRUE
+                : (GetLastError() == ERROR_PIPE_CONNECTED);
+
             if (!ok)
             {
+                std::cerr << "[ipc][events] ConnectNamedPipe failed err=" << GetLastError() << std::endl;
                 CloseHandle(hPipe);
                 continue;
             }
 
+            std::cerr << "[ipc][events] client connected" << std::endl;
+
             _eventsClient.store(hPipe);
             _lastClientSeenMs.store(NowMs());
 
+            std::cerr << "[ipc][events] sending EngineReady" << std::endl;
             WriteEventsLine(MakeEventLine(EventType::EngineReady, "{}"));
 
             while (_running.load())
@@ -165,6 +220,8 @@ namespace datagate::ipc
                 if (_eventsClient.load() == INVALID_HANDLE_VALUE)
                     break;
             }
+
+            std::cerr << "[ipc][events] client disconnected" << std::endl;
 
             _lastClientSeenMs.store(NowMs());
             ClearHandle(_eventsClient);
@@ -186,10 +243,12 @@ namespace datagate::ipc
         {
             BOOL ok = ReadFile(hPipe, temp, sizeof(temp), &read, nullptr);
             if (!ok || read == 0)
+            {
+                std::cerr << "[ipc][control] ReadFile failed or EOF err=" << GetLastError() << std::endl;
                 break;
+            }
 
             _lastClientSeenMs.store(NowMs());
-
             buffer.append(temp, temp + read);
 
             for (;;)
@@ -204,9 +263,14 @@ namespace datagate::ipc
                 Command cmd{};
                 if (!TryParseCommandLine(line, cmd))
                 {
+                    std::cerr << "[ipc][control] bad command line: " << line << std::endl;
                     ReplyError("?", "bad_request", "Invalid command line");
                     continue;
                 }
+
+                std::cerr << "[ipc][control] command id=" << cmd.id
+                          << " type=" << CommandTypeToString(cmd.type)
+                          << std::endl;
 
                 if (_handler)
                     _handler(cmd);
@@ -220,7 +284,10 @@ namespace datagate::ipc
     {
         HANDLE h = _controlClient.load();
         if (h == INVALID_HANDLE_VALUE)
+        {
+            std::cerr << "[ipc][control] write skipped (no client)" << std::endl;
             return;
+        }
 
         std::string msg = line;
         msg.push_back('\n');
@@ -228,6 +295,7 @@ namespace datagate::ipc
         DWORD written = 0;
         WriteFile(h, msg.data(), (DWORD)msg.size(), &written, nullptr);
 
+        std::cerr << "[ipc][control] wrote " << written << " bytes" << std::endl;
         _lastClientSeenMs.store(NowMs());
     }
 
@@ -235,7 +303,10 @@ namespace datagate::ipc
     {
         HANDLE h = _eventsClient.load();
         if (h == INVALID_HANDLE_VALUE)
+        {
+            std::cerr << "[ipc][events] write skipped (no client)" << std::endl;
             return;
+        }
 
         std::string msg = line;
         msg.push_back('\n');
@@ -243,6 +314,7 @@ namespace datagate::ipc
         DWORD written = 0;
         WriteFile(h, msg.data(), (DWORD)msg.size(), &written, nullptr);
 
+        std::cerr << "[ipc][events] wrote " << written << " bytes" << std::endl;
         _lastClientSeenMs.store(NowMs());
     }
 
@@ -276,7 +348,8 @@ namespace datagate::ipc
         if (p == std::string::npos) return false;
 
         std::string payload = line.substr(p + 1);
-        while (!payload.empty() && payload.front() == ' ') payload.erase(payload.begin());
+        while (!payload.empty() && payload.front() == ' ')
+            payload.erase(payload.begin());
 
         cmd.payloadJson = payload;
         return true;
