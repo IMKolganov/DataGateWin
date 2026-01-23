@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENGINE_SHOW_INCLUDES "Enable MSVC /showIncludes for debugging include duplication" OFF)
+option(ENGINE_ENABLE_TAP "Enable TAP-Windows backend (requires tap-windows.h)" OFF)
 
 if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -43,6 +44,7 @@ add_executable(engine
         src/vpn/openvpn_clientapi_fwd.h
         src/util/DatagateJsonLite.cpp
         src/util/DatagateJsonLite.h
+
         src/vpn/WintunHolder.cpp
         src/vpn/WintunHolder.h
 )
@@ -90,7 +92,6 @@ list(FILTER OPENVPN3_CORE_SOURCES EXCLUDE REGEX ".*/openvpn/omi/.*")
 
 add_library(ovpn3-core STATIC ${OPENVPN3_CORE_SOURCES})
 
-# Expose only the canonical root. Do not add "${O3_DIR}/client".
 target_include_directories(ovpn3-core PUBLIC
         "${O3_DIR}"
 )
@@ -106,24 +107,6 @@ if (MSVC AND ENGINE_SHOW_INCLUDES)
     target_compile_options(ovpn3-core PRIVATE /showIncludes)
 endif()
 
-set(_vcpkg_inc "")
-if (DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-    set(_vcpkg_inc "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
-endif()
-
-find_path(TAP_HEADERS_DIR
-        NAMES tap-windows.h
-        PATHS
-        "${_vcpkg_inc}"
-        "F:/C++/vcpkg/installed/x64-windows/include"
-)
-
-if (NOT TAP_HEADERS_DIR)
-    message(FATAL_ERROR "tap-windows.h not found")
-endif()
-
-target_include_directories(ovpn3-core PRIVATE "${TAP_HEADERS_DIR}")
-
 target_compile_definitions(ovpn3-core PUBLIC
         _WIN32_WINNT=0x0A00
         USE_ASIO
@@ -135,8 +118,29 @@ target_compile_definitions(ovpn3-core PUBLIC
 
 target_compile_definitions(ovpn3-core PRIVATE
         ASIO_STANDALONE
-        TAP_WIN_COMPONENT_ID=tap0901
 )
+
+# Optional TAP-Windows support
+set(_vcpkg_inc "")
+if (DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+    set(_vcpkg_inc "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
+endif()
+
+if (ENGINE_ENABLE_TAP)
+    find_path(TAP_HEADERS_DIR
+            NAMES tap-windows.h
+            PATHS
+            "${_vcpkg_inc}"
+            "F:/C++/vcpkg/installed/x64-windows/include"
+    )
+
+    if (NOT TAP_HEADERS_DIR)
+        message(FATAL_ERROR "ENGINE_ENABLE_TAP=ON but tap-windows.h not found")
+    endif()
+
+    target_include_directories(ovpn3-core PRIVATE "${TAP_HEADERS_DIR}")
+    target_compile_definitions(ovpn3-core PRIVATE TAP_WIN_COMPONENT_ID=tap0901)
+endif()
 
 target_link_libraries(ovpn3-core PUBLIC
         OpenSSL::SSL

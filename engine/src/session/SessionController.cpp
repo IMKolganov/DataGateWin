@@ -59,10 +59,14 @@ namespace datagate::session
             {
                 std::lock_guard<std::mutex> lock(_mtx);
 
-                if (OnConnected) onConnected = OnConnected;
-                if (OnStateChanged) onStateChanged = OnStateChanged;
+                onConnected = OnConnected;
+                onStateChanged = OnStateChanged;
 
-                _state.phase = SessionPhase::Connected;
+                _disconnectEmitted = false; // new attempt, allow future disconnect emit
+
+                if (_state.phase != SessionPhase::Connected)
+                    _state.phase = SessionPhase::Connected;
+
                 snapshot = _state;
             }
 
@@ -82,24 +86,38 @@ namespace datagate::session
         {
             DisconnectedCallback onDisconnected;
             StateChangedCallback onStateChanged;
+
             SessionState snapshot;
+            bool shouldEmitDisconnected = false;
+            bool shouldEmitStateChanged = false;
 
             {
                 std::lock_guard<std::mutex> lock(_mtx);
 
-                if (OnDisconnected) onDisconnected = OnDisconnected;
-                if (OnStateChanged) onStateChanged = OnStateChanged;
+                onDisconnected = OnDisconnected;
+                onStateChanged = OnStateChanged;
 
-                if (_state.phase == SessionPhase::Connected || _state.phase == SessionPhase::Connecting)
+                // Emit Disconnected only once per attempt
+                if (!_disconnectEmitted)
+                {
+                    _disconnectEmitted = true;
+                    shouldEmitDisconnected = true;
+                }
+
+                // Change phase to Stopped only if it actually changes
+                if (_state.phase == SessionPhase::Connected || _state.phase == SessionPhase::Connecting || _state.phase == SessionPhase::Starting)
+                {
                     _state.phase = SessionPhase::Stopped;
+                    shouldEmitStateChanged = true;
+                }
 
                 snapshot = _state;
             }
 
-            if (onDisconnected)
+            if (shouldEmitDisconnected && onDisconnected)
                 onDisconnected(reason);
 
-            if (onStateChanged)
+            if (shouldEmitStateChanged && onStateChanged)
                 onStateChanged(snapshot);
         };
     }
@@ -137,9 +155,12 @@ namespace datagate::session
             }
 
             _lastStart = opt;
+
             _state.lastErrorCode.clear();
             _state.lastErrorMessage.clear();
             _state.phase = SessionPhase::Starting;
+
+            _disconnectEmitted = false; // reset per Start attempt
 
             onStateChanged = OnStateChanged;
             onError = OnError;
@@ -203,7 +224,9 @@ namespace datagate::session
             {
                 std::lock_guard<std::mutex> lock(_mtx);
                 _bridge = std::move(bridge);
-                _state.phase = SessionPhase::Connecting;
+
+                if (_state.phase != SessionPhase::Connecting)
+                    _state.phase = SessionPhase::Connecting;
             }
 
             if (onStateChanged) onStateChanged(GetState());
@@ -298,27 +321,46 @@ namespace datagate::session
     void SessionController::Stop()
     {
         StateChangedCallback onStateChanged;
+        bool shouldEmitStopping = false;
+        bool shouldEmitStopped = false;
 
         {
             std::lock_guard<std::mutex> lock(_mtx);
 
-            if (!_state.IsRunning() && _state.phase != SessionPhase::Error)
-                return;
-
-            _state.phase = SessionPhase::Stopping;
             onStateChanged = OnStateChanged;
+
+            if (_state.IsRunning() || _state.phase == SessionPhase::Error)
+            {
+                if (_state.phase != SessionPhase::Stopping)
+                {
+                    _state.phase = SessionPhase::Stopping;
+                    shouldEmitStopping = true;
+                }
+            }
+            else
+            {
+                return; // already stopped/idle
+            }
         }
 
-        if (onStateChanged) onStateChanged(GetState());
+        if (shouldEmitStopping && onStateChanged)
+            onStateChanged(GetState());
 
         {
             std::lock_guard<std::mutex> lock(_mtx);
             StopLockedNoCallbacks();
-            _state.phase = SessionPhase::Stopped;
+
+            if (_state.phase != SessionPhase::Stopped)
+            {
+                _state.phase = SessionPhase::Stopped;
+                shouldEmitStopped = true;
+            }
+
             onStateChanged = OnStateChanged;
         }
 
-        if (onStateChanged) onStateChanged(GetState());
+        if (shouldEmitStopped && onStateChanged)
+            onStateChanged(GetState());
     }
 
     SessionState SessionController::GetState() const

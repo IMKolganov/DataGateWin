@@ -32,7 +32,7 @@ namespace datagate::vpn
         std::function<void(const std::string& reason)> OnDisconnected;
 
     private:
-        void ResetClient();
+        void ResetClientLocked();
 
         mutable std::mutex _mtx{};
         std::unique_ptr<VpnClient> _client;

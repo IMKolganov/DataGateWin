@@ -10,6 +10,7 @@
 #include <eh.h>
 
 #include <atomic>
+#include <cctype>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -270,20 +271,28 @@ int AppMain::Run(int argc, char** argv)
     datagate::ipc::IpcServer ipc(sessionId);
     datagate::session::SessionController session;
 
-    // Session -> IPC events
+    // Session -> IPC events (and console mirror)
     session.OnStateChanged = [&](const datagate::session::SessionState& st)
     {
+        std::cerr << "[state] " << datagate::session::ToString(st.phase) << std::endl;
         ipc.SendEvent(datagate::ipc::EventType::StateChanged, MakeStatePayload(st));
     };
 
     session.OnLog = [&](const std::string& line)
     {
+        std::cerr << line << std::endl;
+
         std::string payload = std::string("{\"line\":\"") + datagate::ipc::JsonEscape(line) + "\"}";
         ipc.SendEvent(datagate::ipc::EventType::Log, payload);
     };
 
     session.OnError = [&](const std::string& code, const std::string& message, bool fatal)
     {
+        std::cerr << "[error] code=" << code
+                  << " fatal=" << (fatal ? "true" : "false")
+                  << " message=" << message
+                  << std::endl;
+
         std::ostringstream oss;
         oss << "{\"code\":\"" << datagate::ipc::JsonEscape(code)
             << "\",\"message\":\"" << datagate::ipc::JsonEscape(message)
@@ -293,6 +302,10 @@ int AppMain::Run(int argc, char** argv)
 
     session.OnConnected = [&](const datagate::session::ConnectedInfo& ci)
     {
+        std::cerr << "[connected] ifIndex=" << ci.vpnIfIndex
+                  << " vpnIpv4=" << ci.vpnIpv4
+                  << std::endl;
+
         std::ostringstream oss;
         oss << "{\"ifIndex\":" << ci.vpnIfIndex
             << ",\"vpnIpv4\":\"" << datagate::ipc::JsonEscape(ci.vpnIpv4) << "\"}";
@@ -301,6 +314,8 @@ int AppMain::Run(int argc, char** argv)
 
     session.OnDisconnected = [&](const std::string& reason)
     {
+        std::cerr << "[disconnected] " << reason << std::endl;
+
         std::string payload = std::string("{\"reason\":\"") + datagate::ipc::JsonEscape(reason) + "\"}";
         ipc.SendEvent(datagate::ipc::EventType::Disconnected, payload);
     };

@@ -3,14 +3,13 @@
 
 #include "SessionState.h"
 #include "vpn/VpnRunner.h"
+#include "vpn/WintunHolder.h"
 
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
-
-#include "vpn/WintunHolder.h"
 
 class WssTcpBridge;
 
@@ -88,5 +87,8 @@ namespace datagate::session
 
         datagate::wintun::WintunHolder _tun;
         bool _tunReady = false;
+
+        // Deduplicate DISCONNECTED events (OpenVPN core can emit more than one per attempt)
+        bool _disconnectEmitted = false;
     };
 }
