@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// SessionController.h
+#pragma once
 
 #include "SessionState.h"
 #include "vpn/VpnRunner.h"
@@ -8,6 +9,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+
+#include "vpn/WintunHolder.h"
 
 class WssTcpBridge;
 
@@ -65,6 +68,7 @@ namespace datagate::session
 
     private:
         static std::string PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort);
+        static std::string PrependWindowsDriverWintun(const std::string& ovpn);
 
         void StopLockedNoCallbacks();
         void PublishState(const SessionState& snapshot);
@@ -81,5 +85,8 @@ namespace datagate::session
         datagate::vpn::VpnRunner _vpn;
 
         StartOptions _lastStart{};
+
+        datagate::wintun::WintunHolder _tun;
+        bool _tunReady = false;
     };
 }

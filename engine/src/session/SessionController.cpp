@@ -1,4 +1,5 @@
-﻿#include "SessionController.h"
+﻿// SessionController.cpp
+#include "SessionController.h"
 
 #include "bridge/client/WssTcpBridge.h"
 #include "vpn/VpnRunner.h"
@@ -28,6 +29,15 @@ namespace datagate::session
         return patched;
     }
 
+    std::string SessionController::PrependWindowsDriverWintun(const std::string& ovpn)
+    {
+        std::string out;
+        out.reserve(ovpn.size() + 64);
+        out += "windows-driver wintun\n";
+        out += ovpn;
+        return out;
+    }
+
     std::string SessionController::DefaultListenIp(const StartOptions& opt)
     {
         return opt.bridge.listenIp.empty() ? std::string("127.0.0.1") : opt.bridge.listenIp;
@@ -40,7 +50,6 @@ namespace datagate::session
 
     SessionController::SessionController()
     {
-        // Wire VPN callbacks once. They read user callbacks atomically (copy under lock), then invoke outside lock.
         _vpn.OnConnected = [this](const datagate::vpn::VpnRunner::ConnectedInfo& ci)
         {
             ConnectedCallback onConnected;
@@ -139,6 +148,42 @@ namespace datagate::session
 
         if (onStateChanged) onStateChanged(GetState());
 
+        // 0) Ensure Wintun adapter exists and is kept open for engine lifetime
+        {
+            std::string tunErr;
+            const std::wstring adapterName = L"DataGate";
+            const std::wstring tunnelType  = L"DataGate";
+
+            if (!_tun.EnsureAdapter(adapterName, tunnelType, tunErr))
+            {
+                const std::string code = "tun_init_failed";
+                const std::string msg = "Failed to init Wintun adapter: " + tunErr;
+
+                {
+                    std::lock_guard<std::mutex> lock(_mtx);
+                    _state.lastErrorCode = code;
+                    _state.lastErrorMessage = msg;
+                    _state.phase = SessionPhase::Error;
+                }
+
+                if (onError) onError(code, msg, true);
+                if (onStateChanged) onStateChanged(GetState());
+
+                outError = msg;
+                return false;
+            }
+
+            _tunReady = true;
+
+            if (onLog)
+            {
+                if (auto idx = _tun.GetIfIndex())
+                    onLog("[session] wintun adapter ifIndex=" + std::to_string(*idx));
+                else
+                    onLog("[session] wintun adapter ifIndex=<unknown>");
+            }
+        }
+
         // 1) Start local WSS->TCP bridge
         try
         {
@@ -183,13 +228,15 @@ namespace datagate::session
         }
 
         // 2) Patch OVPN to point to local bridge
-        const auto ovpnPatched = PatchOvpnRemoteToLocal(
+        auto ovpnPatched = PatchOvpnRemoteToLocal(
             opt.ovpnContentUtf8,
             DefaultListenIp(opt),
             DefaultListenPort(opt)
         );
 
-        // Optional debug signal (no secrets printed)
+        // 2.1) Force driver hint for Windows
+        ovpnPatched = PrependWindowsDriverWintun(ovpnPatched);
+
         if (onLog)
         {
             const bool hasCert = ovpnPatched.find("<cert>") != std::string::npos;
@@ -202,18 +249,18 @@ namespace datagate::session
                 + " has<key>=" + (hasKey ? "1" : "0"));
         }
 
-        // 3) Start VPN
-        std::string vpnErr;
-
         auto has = [&](const char* x){ return ovpnPatched.find(x) != std::string::npos; };
 
-        if (OnLog)
+        if (onLog)
         {
-            OnLog(std::string("[session] has <ca>=") + (has("<ca>") ? "1":"0") +
-                  " <cert>=" + (has("<cert>") ? "1":"0") +
-                  " <key>=" + (has("<key>") ? "1":"0") +
-                  " tls-crypt=" + (has("<tls-crypt>") ? "1":"0"));
+            onLog(std::string("[session] has <ca>=") + (has("<ca>") ? "1":"0") +
+                 " <cert>=" + (has("<cert>") ? "1":"0") +
+                 " <key>=" + (has("<key>") ? "1":"0") +
+                 " tls-crypt=" + (has("<tls-crypt>") ? "1":"0"));
         }
+
+        // 3) Start VPN
+        std::string vpnErr;
         if (!_vpn.Start(ovpnPatched, vpnErr))
         {
             const std::string code = "vpn_start_failed";
@@ -228,7 +275,6 @@ namespace datagate::session
 
             if (onError) onError(code, msg, true);
 
-            // Stop bridge safely (no callbacks under lock)
             Stop();
 
             outError = msg;
@@ -240,7 +286,6 @@ namespace datagate::session
 
     void SessionController::StopLockedNoCallbacks()
     {
-        // Caller holds _mtx
         try { _vpn.Stop(); } catch (...) { }
 
         if (_bridge)

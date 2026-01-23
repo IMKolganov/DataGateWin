@@ -1,14 +1,5 @@
 ﻿#include "../client/WssTcpBridge.h"
 
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/beast.hpp>
-#include <boost/beast/ssl.hpp>
-#include <boost/beast/websocket.hpp>
-
-#include <iostream>
-#include <array>
-
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -18,10 +9,22 @@
 #endif
 #endif
 
-namespace basio = boost::asio;
-namespace bssl  = basio::ssl;
+#include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
+#include <boost/beast.hpp>
+#include <boost/beast/ssl.hpp>
+#include <boost/beast/websocket.hpp>
+
+#include <array>
+#include <atomic>
+#include <iostream>
+#include <memory>
+#include <thread>
+
+namespace basio  = boost::asio;
+namespace bssl   = basio::ssl;
 namespace bbeast = boost::beast;
-namespace bws   = bbeast::websocket;
+namespace bws    = bbeast::websocket;
 
 using btcp = basio::ip::tcp;
 
@@ -34,14 +37,22 @@ struct WssTcpBridge::Impl
     std::atomic<bool> stopped{false};
 };
 
+static void LogStep(const char* step, const WssTcpBridge::Options& opt)
+{
+    std::cerr << "[wss-bridge] " << step
+              << " host=" << opt.host
+              << " port=" << opt.port
+              << " path=" << opt.path
+              << " sni=" << (opt.sni.empty() ? opt.host : opt.sni)
+              << std::endl;
+}
+
 WssTcpBridge::WssTcpBridge(Options opt)
     : opt_(std::move(opt)),
       impl_(new Impl())
 {
     impl_->sslCtx.set_default_verify_paths();
-    impl_->sslCtx.set_verify_mode(
-        opt_.verifyServerCert ? bssl::verify_peer : bssl::verify_none
-    );
+    impl_->sslCtx.set_verify_mode(opt_.verifyServerCert ? bssl::verify_peer : bssl::verify_none);
 }
 
 WssTcpBridge::~WssTcpBridge()
@@ -52,10 +63,7 @@ WssTcpBridge::~WssTcpBridge()
 
 void WssTcpBridge::Start()
 {
-    btcp::endpoint ep(
-        basio::ip::make_address(opt_.listenIp),
-        opt_.listenPort
-    );
+    btcp::endpoint ep(basio::ip::make_address(opt_.listenIp), opt_.listenPort);
 
     impl_->acceptor.open(ep.protocol());
     impl_->acceptor.set_option(basio::socket_base::reuse_address(true));
@@ -85,12 +93,21 @@ void WssTcpBridge::DoAccept()
         {
             if (!ec && !impl_->stopped.load())
             {
-                std::thread(
-                    [this, s = std::move(socket)]() mutable
-                    {
-                        HandleClient(&s);
-                    }
-                ).detach();
+                // Heap-own the socket (shared_ptr) and pass it as opaque pointer.
+                auto* psock = new std::shared_ptr<btcp::socket>(std::make_shared<btcp::socket>(std::move(socket)));
+
+                std::thread([this, psock]()
+                {
+                    HandleClient(reinterpret_cast<void*>(psock));
+                }).detach();
+            }
+            else
+            {
+                if (ec && !impl_->stopped.load())
+                {
+                    std::cerr << "[wss-bridge] accept error: " << ec.message()
+                              << " (" << ec.value() << ")" << std::endl;
+                }
             }
 
             if (!impl_->stopped.load())
@@ -101,28 +118,36 @@ void WssTcpBridge::DoAccept()
 
 void WssTcpBridge::HandleClient(void* nativeSocket)
 {
-    auto& clientSock = *reinterpret_cast<btcp::socket*>(nativeSocket);
+    // Take ownership of the heap pointer and guarantee delete.
+    std::unique_ptr<std::shared_ptr<btcp::socket>> holder(
+        reinterpret_cast<std::shared_ptr<btcp::socket>*>(nativeSocket)
+    );
+
+    auto client = *holder; // copy shared_ptr
 
     try
     {
+        LogStep("client accepted", opt_);
+
         btcp::resolver resolver(impl_->ioc);
+
+        LogStep("resolve", opt_);
         auto results = resolver.resolve(opt_.host, opt_.port);
 
-        bbeast::ssl_stream<bbeast::tcp_stream> tlsStream(
-            impl_->ioc,
-            impl_->sslCtx
-        );
+        LogStep("create tls stream", opt_);
+        bbeast::ssl_stream<bbeast::tcp_stream> tlsStream(impl_->ioc, impl_->sslCtx);
 
         const std::string sni = opt_.sni.empty() ? opt_.host : opt_.sni;
         SSL_set_tlsext_host_name(tlsStream.native_handle(), sni.c_str());
 
+        LogStep("tcp connect", opt_);
         bbeast::get_lowest_layer(tlsStream).connect(results);
+
+        LogStep("tls handshake", opt_);
         tlsStream.handshake(bssl::stream_base::client);
 
-        bws::stream<
-            bbeast::ssl_stream<bbeast::tcp_stream>
-        > ws(std::move(tlsStream));
-
+        LogStep("create ws stream", opt_);
+        bws::stream<bbeast::ssl_stream<bbeast::tcp_stream>> ws(std::move(tlsStream));
         ws.binary(true);
 
         ws.set_option(bws::stream_base::decorator(
@@ -130,38 +155,49 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
             {
                 req.set(bbeast::http::field::user_agent, "DataGateWin/1.0");
                 if (!opt_.authorizationHeader.empty())
-                    req.set(
-                        bbeast::http::field::authorization,
-                        opt_.authorizationHeader
-                    );
+                    req.set(bbeast::http::field::authorization, opt_.authorizationHeader);
             }
         ));
 
+        LogStep("ws handshake", opt_);
         ws.handshake(opt_.host, opt_.path);
 
         std::atomic<bool> done{false};
 
-        std::thread t1([&]
+        std::thread t1([&, client]
         {
             std::array<uint8_t, 16 * 1024> buf{};
             while (!done.load())
             {
                 bbeast::error_code ec;
-                size_t n = clientSock.read_some(basio::buffer(buf), ec);
-                if (ec || n == 0) break;
-                ws.write(basio::buffer(buf.data(), n));
+                size_t n = client->read_some(basio::buffer(buf), ec);
+                if (ec || n == 0)
+                    break;
+
+                bbeast::error_code wec;
+                ws.write(basio::buffer(buf.data(), n), wec);
+                if (wec)
+                    break;
             }
             done.store(true);
         });
 
-        std::thread t2([&]
+        std::thread t2([&, client]
         {
             bbeast::flat_buffer buf;
             while (!done.load())
             {
                 buf.clear();
-                ws.read(buf);
-                basio::write(clientSock, buf.data());
+
+                bbeast::error_code ec;
+                ws.read(buf, ec);
+                if (ec)
+                    break;
+
+                bbeast::error_code wtec;
+                basio::write(*client, buf.data(), wtec);
+                if (wtec)
+                    break;
             }
             done.store(true);
         });
@@ -169,11 +205,26 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
         t1.join();
         t2.join();
 
+        bbeast::error_code ec;
         if (ws.is_open())
-            ws.close(bws::close_code::normal);
+            ws.close(bws::close_code::normal, ec);
+
+        bbeast::error_code sec;
+        client->shutdown(btcp::socket::shutdown_both, sec);
+        client->close(sec);
+
+        LogStep("session done", opt_);
+    }
+    catch (const boost::system::system_error& e)
+    {
+        std::cerr << "[wss-bridge] error code=" << e.code().value()
+                  << " category=" << e.code().category().name()
+                  << " message=" << e.code().message()
+                  << " what=" << e.what()
+                  << std::endl;
     }
     catch (const std::exception& e)
     {
-        std::cerr << "WSS bridge error: " << e.what() << std::endl;
+        std::cerr << "[wss-bridge] error what=" << e.what() << std::endl;
     }
 }

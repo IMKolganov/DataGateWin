@@ -43,6 +43,8 @@ add_executable(engine
         src/vpn/openvpn_clientapi_fwd.h
         src/util/DatagateJsonLite.cpp
         src/util/DatagateJsonLite.h
+        src/vpn/WintunHolder.cpp
+        src/vpn/WintunHolder.h
 )
 
 target_compile_definitions(engine PRIVATE
