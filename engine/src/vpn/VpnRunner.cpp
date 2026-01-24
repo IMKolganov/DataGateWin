@@ -1,4 +1,5 @@
-﻿#include "VpnRunner.h"
+﻿// src/vpn/VpnRunner.cpp
+#include "VpnRunner.h"
 
 #include "vpn/client/VpnClient.h"
 
@@ -49,6 +50,18 @@ namespace datagate::vpn
                 cb(reason);
         };
 
+        // NEW: forward log lines from core
+        client->OnLog = [this](const std::string& line)
+        {
+            std::function<void(const std::string&)> cb;
+            {
+                std::lock_guard<std::mutex> lock(_mtx);
+                cb = OnLog;
+            }
+            if (cb)
+                cb(line);
+        };
+
         {
             std::lock_guard<std::mutex> lock(_mtx);
             if (_client)
@@ -65,6 +78,10 @@ namespace datagate::vpn
             c = _client.get();
         }
 
+        // helpful stage logs
+        if (OnLog)
+            OnLog("[vpn] Eval()...");
+
         auto eval = c->Eval(ovpnContentUtf8);
         if (eval.error)
         {
@@ -73,6 +90,9 @@ namespace datagate::vpn
             ResetClientLocked();
             return false;
         }
+
+        if (OnLog)
+            OnLog("[vpn] Connect()...");
 
         auto status = c->Connect();
         if (status.error)
@@ -99,7 +119,6 @@ namespace datagate::vpn
             return;
 
         try { local->Stop(); } catch (...) {}
-
         try { local->WaitDone(); } catch (...) {}
     }
 

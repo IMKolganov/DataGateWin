@@ -4,16 +4,12 @@
 #include "bridge/client/WssTcpBridge.h"
 #include "vpn/VpnRunner.h"
 
+#include <algorithm>
+#include <sstream>
 #include <utility>
 
 namespace datagate::session
 {
-    static SessionState WithPhase(SessionState st, SessionPhase phase)
-    {
-        st.phase = phase;
-        return st;
-    }
-
     std::string SessionController::PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort)
     {
         std::string patched;
@@ -48,8 +44,59 @@ namespace datagate::session
         return opt.bridge.listenPort == 0 ? static_cast<uint16_t>(18080) : opt.bridge.listenPort;
     }
 
+    static std::string FirstLines(const std::string& s, size_t maxLines, size_t maxChars)
+    {
+        std::string out;
+        out.reserve(std::min(maxChars, s.size()));
+
+        size_t lines = 0;
+        for (size_t i = 0; i < s.size() && out.size() < maxChars; ++i)
+        {
+            const char c = s[i];
+            out.push_back(c);
+            if (c == '\n')
+            {
+                ++lines;
+                if (lines >= maxLines)
+                    break;
+            }
+        }
+        return out;
+    }
+
+    static std::string ExtractLinesWithPrefix(const std::string& s, const char* prefix, size_t maxHits)
+    {
+        std::istringstream iss(s);
+        std::string line;
+        std::ostringstream out;
+
+        size_t hits = 0;
+        while (std::getline(iss, line))
+        {
+            if (line.rfind(prefix, 0) == 0)
+            {
+                out << line << "\n";
+                if (++hits >= maxHits)
+                    break;
+            }
+        }
+        return out.str();
+    }
+
     SessionController::SessionController()
     {
+        // Forward OpenVPN/VpnRunner logs to SessionController log callback.
+        _vpn.OnLog = [this](const std::string& line)
+        {
+            LogCallback onLog;
+            {
+                std::lock_guard<std::mutex> lock(_mtx);
+                onLog = OnLog;
+            }
+            if (onLog)
+                onLog("[ovpn] " + line);
+        };
+
         _vpn.OnConnected = [this](const datagate::vpn::VpnRunner::ConnectedInfo& ci)
         {
             ConnectedCallback onConnected;
@@ -105,7 +152,9 @@ namespace datagate::session
                 }
 
                 // Change phase to Stopped only if it actually changes
-                if (_state.phase == SessionPhase::Connected || _state.phase == SessionPhase::Connecting || _state.phase == SessionPhase::Starting)
+                if (_state.phase == SessionPhase::Connected ||
+                    _state.phase == SessionPhase::Connecting ||
+                    _state.phase == SessionPhase::Starting)
                 {
                     _state.phase = SessionPhase::Stopped;
                     shouldEmitStateChanged = true;
@@ -129,13 +178,21 @@ namespace datagate::session
 
     void SessionController::PublishState(const SessionState& snapshot)
     {
-        auto cb = OnStateChanged;
+        StateChangedCallback cb;
+        {
+            std::lock_guard<std::mutex> lock(_mtx);
+            cb = OnStateChanged;
+        }
         if (cb) cb(snapshot);
     }
 
     void SessionController::PublishError(const std::string& code, const std::string& message, bool fatal)
     {
-        auto cb = OnError;
+        ErrorCallback cb;
+        {
+            std::lock_guard<std::mutex> lock(_mtx);
+            cb = OnError;
+        }
         if (cb) cb(code, message, fatal);
     }
 
@@ -173,7 +230,7 @@ namespace datagate::session
         {
             std::string tunErr;
             const std::wstring adapterName = L"DataGate";
-            const std::wstring tunnelType  = L"DataGate";
+            const std::wstring tunnelType = L"DataGate";
 
             if (!_tun.EnsureAdapter(adapterName, tunnelType, tunErr))
             {
@@ -254,32 +311,53 @@ namespace datagate::session
         auto ovpnPatched = PatchOvpnRemoteToLocal(
             opt.ovpnContentUtf8,
             DefaultListenIp(opt),
-            DefaultListenPort(opt)
-        );
+            DefaultListenPort(opt));
 
         // 2.1) Force driver hint for Windows
         ovpnPatched = PrependWindowsDriverWintun(ovpnPatched);
 
+        auto has = [&](const char* x) { return ovpnPatched.find(x) != std::string::npos; };
+
         if (onLog)
         {
-            const bool hasCert = ovpnPatched.find("<cert>") != std::string::npos;
-            const bool hasKey  = ovpnPatched.find("<key>")  != std::string::npos;
-            const bool hasCa   = ovpnPatched.find("<ca>")   != std::string::npos;
+            const bool hasCert = has("<cert>");
+            const bool hasKey = has("<key>");
+            const bool hasCa = has("<ca>");
 
             onLog(std::string("[session] ovpn bytes=") + std::to_string(ovpnPatched.size())
                 + " has<ca>=" + (hasCa ? "1" : "0")
                 + " has<cert>=" + (hasCert ? "1" : "0")
                 + " has<key>=" + (hasKey ? "1" : "0"));
-        }
 
-        auto has = [&](const char* x){ return ovpnPatched.find(x) != std::string::npos; };
+            onLog(std::string("[session] has <ca>=") + (has("<ca>") ? "1" : "0") +
+                " <cert>=" + (has("<cert>") ? "1" : "0") +
+                " <key>=" + (has("<key>") ? "1" : "0") +
+                " tls-crypt=" + (has("<tls-crypt>") ? "1" : "0"));
 
-        if (onLog)
-        {
-            onLog(std::string("[session] has <ca>=") + (has("<ca>") ? "1":"0") +
-                 " <cert>=" + (has("<cert>") ? "1":"0") +
-                 " <key>=" + (has("<key>") ? "1":"0") +
-                 " tls-crypt=" + (has("<tls-crypt>") ? "1":"0"));
+            // Show the first lines of the exact config passed to OpenVPN core.
+            onLog("[session] ovpn preview (first lines) begin");
+            onLog(FirstLines(ovpnPatched, /*maxLines*/ 40, /*maxChars*/ 2000));
+            onLog("[session] ovpn preview (first lines) end");
+
+            // Explicitly show all windows-driver lines (helps detect duplicates/overrides).
+            const auto wdLines = ExtractLinesWithPrefix(ovpnPatched, "windows-driver", 8);
+            if (!wdLines.empty())
+            {
+                onLog("[session] ovpn windows-driver lines:");
+                onLog(wdLines);
+            }
+            else
+            {
+                onLog("[session] ovpn windows-driver lines: <none>");
+            }
+
+            // Optional: show dev/dev-type (helps detect layer2 vs layer3 intent).
+            const auto devLines = ExtractLinesWithPrefix(ovpnPatched, "dev", 8);
+            if (!devLines.empty())
+            {
+                onLog("[session] ovpn dev/dev-type lines:");
+                onLog(devLines);
+            }
         }
 
         // 3) Start VPN
@@ -309,11 +387,11 @@ namespace datagate::session
 
     void SessionController::StopLockedNoCallbacks()
     {
-        try { _vpn.Stop(); } catch (...) { }
+        try { _vpn.Stop(); } catch (...) {}
 
         if (_bridge)
         {
-            try { _bridge->Stop(); } catch (...) { }
+            try { _bridge->Stop(); } catch (...) {}
             _bridge.reset();
         }
     }

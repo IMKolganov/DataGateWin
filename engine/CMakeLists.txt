@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENGINE_SHOW_INCLUDES "Enable MSVC /showIncludes for debugging include duplication" OFF)
 option(ENGINE_ENABLE_TAP "Enable TAP-Windows backend (requires tap-windows.h)" OFF)
+option(ENGINE_OPENVPN_DEBUG "Enable extra OpenVPN3 core debug logging" ON)
 
 if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -119,6 +120,14 @@ target_compile_definitions(ovpn3-core PUBLIC
 target_compile_definitions(ovpn3-core PRIVATE
         ASIO_STANDALONE
 )
+
+# Optional OpenVPN3 core debug (more verbose tun/win logs)
+if (ENGINE_OPENVPN_DEBUG)
+    target_compile_definitions(ovpn3-core PRIVATE
+            OPENVPN_DEBUG
+            OPENVPN_DEBUG_VERBOSE_ERRORS
+    )
+endif()
 
 # Optional TAP-Windows support
 set(_vcpkg_inc "")

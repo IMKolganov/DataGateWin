@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// src/vpn/VpnRunner.h
+#pragma once
 
 #include <functional>
 #include <memory>
@@ -30,6 +31,8 @@ namespace datagate::vpn
 
         std::function<void(const ConnectedInfo&)> OnConnected;
         std::function<void(const std::string& reason)> OnDisconnected;
+
+        std::function<void(const std::string& line)> OnLog;
 
     private:
         void ResetClientLocked();

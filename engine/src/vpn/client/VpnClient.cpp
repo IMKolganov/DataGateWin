@@ -1,9 +1,9 @@
-﻿#include "VpnClient.h"
+﻿// src/vpn/client/VpnClient.cpp
+#include "VpnClient.h"
 
 // IMPORTANT: the only translation unit that includes OpenVPN Client API header.
 #include <client/ovpncli.hpp>
 
-#include <cctype>
 #include <exception>
 #include <utility>
 
@@ -64,18 +64,10 @@ namespace datagate::vpn
 
         void log(const openvpn::ClientAPI::LogInfo& logInfo) override
         {
-            if (_owner.OnLog)
-            {
-                _owner.OnLog(logInfo.text);
+            if (!_owner.OnLog)
+                return;
 
-                const auto& t = logInfo.text;
-                if (t.find("wintun") != std::string::npos || t.find("Wintun") != std::string::npos)
-                    _owner.OnLog("Driver hint: wintun (from core log)");
-                else if (t.find("tap") != std::string::npos || t.find("TAP") != std::string::npos)
-                    _owner.OnLog("Driver hint: tap (from core log)");
-                else if (t.find("dco") != std::string::npos || t.find("DCO") != std::string::npos)
-                    _owner.OnLog("Driver hint: dco (from core log)");
-            }
+            _owner.OnLog(logInfo.text);
         }
 
         void external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest&) override {}
@@ -87,12 +79,12 @@ namespace datagate::vpn
             cfg.content = ovpnContent;
 
             const auto ev = openvpn::ClientAPI::OpenVPNClient::eval_config(cfg);
+
             if (_owner.OnLog)
             {
-                if (!ev.windowsDriver.empty())
-                    _owner.OnLog("OpenVPN selected Windows driver: " + ev.windowsDriver);
-                else
-                    _owner.OnLog("OpenVPN selected Windows driver: <none>");
+                _owner.OnLog(std::string("[vpn][eval] error=") + (ev.error ? "1" : "0") + " msg=" + ev.message);
+                _owner.OnLog(std::string("[vpn][eval] windowsDriver=") + (ev.windowsDriver.empty() ? "<empty>" : ev.windowsDriver));
+                _owner.OnLog(std::string("[vpn][eval] profileName=") + ev.profileName + " friendlyName=" + ev.friendlyName);
             }
 
             VpnClient::EvalResult r;
@@ -189,9 +181,6 @@ namespace datagate::vpn
 
         std::string _lastEventName{};
         std::string _lastEventInfo{};
-
-        openvpn::ClientAPI::Config _cfg{};
-        bool _hasCfg = false;
     };
 
     VpnClient::VpnClient()

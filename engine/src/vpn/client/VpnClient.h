@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// src/vpn/client/VpnClient.h
+#pragma once
 
 #include <atomic>
 #include <condition_variable>
@@ -36,15 +37,8 @@ namespace datagate::vpn
             std::string message;
         };
 
-        std::function<void(const ConnectedInfo&)> OnConnected;
-        std::function<void(const std::string& reason)> OnDisconnected;
-        std::function<void(const std::string& line)> OnLog;
-
         VpnClient();
         ~VpnClient();
-
-        VpnClient(const VpnClient&) = delete;
-        VpnClient& operator=(const VpnClient&) = delete;
 
         EvalResult Eval(const std::string& ovpnContent);
         StatusResult Connect();
@@ -53,8 +47,15 @@ namespace datagate::vpn
         void WaitDone();
 
         bool IsConnected() const;
+
         std::string LastEventName() const;
         std::string LastEventInfo() const;
+
+        std::function<void(const ConnectedInfo&)> OnConnected;
+        std::function<void(const std::string& reason)> OnDisconnected;
+
+        // NEW: core log stream
+        std::function<void(const std::string& line)> OnLog;
 
     private:
         class Impl;
