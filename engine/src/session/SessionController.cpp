@@ -10,18 +10,54 @@
 
 namespace datagate::session
 {
-    std::string SessionController::PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort)
+    static bool StartsWithTokenTrimLeft(const std::string& line, const char* token)
+    {
+        size_t i = 0;
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) i++;
+
+        const size_t n = std::strlen(token);
+        if (line.size() < i + n) return false;
+        if (line.compare(i, n, token) != 0) return false;
+
+        if (line.size() == i + n) return true;
+        const char c = line[i + n];
+        return c == ' ' || c == '\t';
+    }
+
+    std::string SessionController::PatchOvpnRemoteToLocal(
+        const std::string& ovpn,
+        const std::string& localHost,
+        uint16_t localPort)
     {
         std::string patched;
         patched.reserve(ovpn.size() + 128);
 
+        // Add the single local remote first
         patched += "remote ";
         patched += localHost;
         patched += " ";
         patched += std::to_string(localPort);
         patched += "\n";
 
-        patched += ovpn;
+        // Copy everything else, but remove any existing "remote ..." lines
+        size_t start = 0;
+        while (start < ovpn.size())
+        {
+            size_t end = ovpn.find('\n', start);
+            if (end == std::string::npos) end = ovpn.size();
+
+            std::string line = ovpn.substr(start, end - start);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+
+            if (!StartsWithTokenTrimLeft(line, "remote"))
+            {
+                patched += line;
+                patched += "\n";
+            }
+
+            start = (end < ovpn.size()) ? (end + 1) : end;
+        }
+
         return patched;
     }
 
@@ -312,6 +348,30 @@ namespace datagate::session
             opt.ovpnContentUtf8,
             DefaultListenIp(opt),
             DefaultListenPort(opt));
+
+        auto CountRemoteLines = [](const std::string& s) -> int
+        {
+            int count = 0;
+            std::istringstream iss(s);
+            std::string line;
+            while (std::getline(iss, line))
+            {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (StartsWithTokenTrimLeft(line, "remote"))
+                    count++;
+            }
+            return count;
+        };
+
+        if (CountRemoteLines(ovpnPatched) != 1)
+        {
+            const std::string code = "ovpn_invalid_remote";
+            const std::string msg = "WSS mode requires exactly one remote (127.0.0.1).";
+            PublishError(code, msg, true);
+            outError = msg;
+            Stop();
+            return false;
+        }
 
         // 2.1) Force driver hint for Windows
         ovpnPatched = PrependWindowsDriverWintun(ovpnPatched);

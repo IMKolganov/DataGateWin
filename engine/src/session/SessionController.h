@@ -21,9 +21,12 @@ namespace datagate::session
         std::string port;
         std::string path;
         std::string sni;
+
         std::string listenIp;
         uint16_t listenPort = 0;
+
         bool verifyServerCert = false;
+
         std::string authorizationHeader;
     };
 
@@ -31,6 +34,10 @@ namespace datagate::session
     {
         std::string ovpnContentUtf8;
         BridgeOptions bridge;
+
+        // If true: always use local WSS->TCP bridge and force OVPN "remote 127.0.0.1 <port>".
+        // Also implies that original remote/proto/remote-random in the provided ovpn content are ignored/removed.
+        bool forceWssBridge = true;
     };
 
     struct ConnectedInfo

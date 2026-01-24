@@ -44,11 +44,16 @@ struct WssTcpBridge::Impl
     std::atomic<bool> stopped{false};
 };
 
-static std::mutex g_logMu;
-
-static void LogLine(const std::string& s)
+static void EmitLog(const WssTcpBridge::Options& opt, const std::string& s)
 {
-    std::lock_guard<std::mutex> lock(g_logMu);
+    if (opt.log)
+    {
+        opt.log(s);
+        return;
+    }
+
+    static std::mutex mu;
+    std::lock_guard<std::mutex> lock(mu);
     std::cerr << s << std::endl;
 }
 
@@ -57,9 +62,10 @@ static std::string SniOf(const WssTcpBridge::Options& opt)
     return opt.sni.empty() ? opt.host : opt.sni;
 }
 
-static void LogStep(const char* step, const WssTcpBridge::Options& opt)
+static void LogStep(const WssTcpBridge::Options& opt, const char* step)
 {
-    LogLine(
+    EmitLog(
+        opt,
         std::string("[wss-bridge] ") + step +
         " host=" + opt.host +
         " port=" + opt.port +
@@ -68,7 +74,7 @@ static void LogStep(const char* step, const WssTcpBridge::Options& opt)
     );
 }
 
-static void DrainOpenSslErrors(const char* where)
+static void DrainOpenSslErrors(const WssTcpBridge::Options& opt, const char* where)
 {
     unsigned long e = 0;
     bool any = false;
@@ -85,14 +91,14 @@ static void DrainOpenSslErrors(const char* where)
             << " openssl_error=0x" << std::hex << std::uppercase << e
             << " text=" << buf;
 
-        LogLine(oss.str());
+        EmitLog(opt, oss.str());
     }
 
     if (!any)
-        LogLine(std::string("[wss-bridge] ") + where + " openssl_error_queue=<empty>");
+        EmitLog(opt, std::string("[wss-bridge] ") + where + " openssl_error_queue=<empty>");
 }
 
-static void LogEc(const char* where, const boost::system::error_code& ec)
+static void LogEc(const WssTcpBridge::Options& opt, const char* where, const boost::system::error_code& ec)
 {
     if (!ec) return;
 
@@ -102,10 +108,10 @@ static void LogEc(const char* where, const boost::system::error_code& ec)
         << " category=" << ec.category().name()
         << " message=" << ec.message();
 
-    LogLine(oss.str());
+    EmitLog(opt, oss.str());
 
     if (ec.category() == basio::error::get_ssl_category())
-        DrainOpenSslErrors(where);
+        DrainOpenSslErrors(opt, where);
 }
 
 static std::string X509NameToString(X509_NAME* name)
@@ -117,11 +123,11 @@ static std::string X509NameToString(X509_NAME* name)
     return std::string(buf);
 }
 
-static void LogTlsInfo(SSL* ssl, const char* where)
+static void LogTlsInfo(const WssTcpBridge::Options& opt, SSL* ssl, const char* where)
 {
     if (!ssl)
     {
-        LogLine(std::string("[wss-bridge] ") + where + " tls ssl=<null>");
+        EmitLog(opt, std::string("[wss-bridge] ") + where + " tls ssl=<null>");
         return;
     }
 
@@ -130,27 +136,29 @@ static void LogTlsInfo(SSL* ssl, const char* where)
 
     long vr = ::SSL_get_verify_result(ssl);
 
-    std::ostringstream oss;
-    oss << "[wss-bridge] " << where
-        << " tls_version=" << (ver ? ver : "<null>")
-        << " cipher=" << (cip ? cip : "<null>")
-        << " verify_result=" << vr
-        << " verify_text=" << ::X509_verify_cert_error_string(vr);
+    {
+        std::ostringstream oss;
+        oss << "[wss-bridge] " << where
+            << " tls_version=" << (ver ? ver : "<null>")
+            << " cipher=" << (cip ? cip : "<null>")
+            << " verify_result=" << vr
+            << " verify_text=" << ::X509_verify_cert_error_string(vr);
 
-    LogLine(oss.str());
+        EmitLog(opt, oss.str());
+    }
 
     X509* cert = ::SSL_get_peer_certificate(ssl);
     if (!cert)
     {
-        LogLine(std::string("[wss-bridge] ") + where + " peer_cert=<null>");
+        EmitLog(opt, std::string("[wss-bridge] ") + where + " peer_cert=<null>");
         return;
     }
 
     X509_NAME* subj = ::X509_get_subject_name(cert);
     X509_NAME* iss  = ::X509_get_issuer_name(cert);
 
-    LogLine(std::string("[wss-bridge] ") + where + " peer_subject=" + X509NameToString(subj));
-    LogLine(std::string("[wss-bridge] ") + where + " peer_issuer=" + X509NameToString(iss));
+    EmitLog(opt, std::string("[wss-bridge] ") + where + " peer_subject=" + X509NameToString(subj));
+    EmitLog(opt, std::string("[wss-bridge] ") + where + " peer_issuer=" + X509NameToString(iss));
 
     ::X509_free(cert);
 }
@@ -214,7 +222,8 @@ void WssTcpBridge::DoAccept()
             {
                 if (ec && !impl_->stopped.load())
                 {
-                    LogLine(
+                    EmitLog(
+                        opt_,
                         std::string("[wss-bridge] accept error: ") +
                         ec.message() + " (" + std::to_string(ec.value()) + ")"
                     );
@@ -237,28 +246,28 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
 
     try
     {
-        LogStep("client accepted", opt_);
+        LogStep(opt_, "client accepted");
 
         btcp::resolver resolver(impl_->ioc);
 
-        LogStep("resolve", opt_);
+        LogStep(opt_, "resolve");
         auto results = resolver.resolve(opt_.host, opt_.port);
 
-        LogStep("create tls stream", opt_);
+        LogStep(opt_, "create tls stream");
         bbeast::ssl_stream<bbeast::tcp_stream> tlsStream(impl_->ioc, impl_->sslCtx);
 
         const std::string sni = SniOf(opt_);
         ::SSL_set_tlsext_host_name(tlsStream.native_handle(), sni.c_str());
 
-        LogStep("tcp connect", opt_);
+        LogStep(opt_, "tcp connect");
         bbeast::get_lowest_layer(tlsStream).connect(results);
 
-        LogStep("tls handshake", opt_);
+        LogStep(opt_, "tls handshake");
         try
         {
             tlsStream.handshake(bssl::stream_base::client);
-            LogTlsInfo(tlsStream.native_handle(), "after_tls_handshake");
-            DrainOpenSslErrors("after_tls_handshake");
+            LogTlsInfo(opt_, tlsStream.native_handle(), "after_tls_handshake");
+            DrainOpenSslErrors(opt_, "after_tls_handshake");
         }
         catch (const boost::system::system_error& e)
         {
@@ -269,15 +278,15 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 << " message=" << e.code().message()
                 << " what=" << e.what();
 
-            LogLine(oss.str());
+            EmitLog(opt_, oss.str());
 
-            LogTlsInfo(tlsStream.native_handle(), "tls_handshake_exception_tls_info");
-            DrainOpenSslErrors("tls_handshake_exception");
+            LogTlsInfo(opt_, tlsStream.native_handle(), "tls_handshake_exception_tls_info");
+            DrainOpenSslErrors(opt_, "tls_handshake_exception");
 
             throw;
         }
 
-        LogStep("create ws stream", opt_);
+        LogStep(opt_, "create ws stream");
         bws::stream<bbeast::ssl_stream<bbeast::tcp_stream>> ws(std::move(tlsStream));
         ws.binary(true);
 
@@ -290,7 +299,7 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
             }
         ));
 
-        LogStep("ws handshake", opt_);
+        LogStep(opt_, "ws handshake");
         try
         {
             bbeast::http::response<bbeast::http::string_body> res;
@@ -300,18 +309,18 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 std::ostringstream oss;
                 oss << "[wss-bridge] ws_handshake_response status=" << res.result_int()
                     << " reason=" << res.reason();
-                LogLine(oss.str());
+                EmitLog(opt_, oss.str());
             }
 
             for (auto const& h : res)
             {
                 std::ostringstream oss;
                 oss << "[wss-bridge] ws_handshake_header " << h.name_string() << ": " << h.value();
-                LogLine(oss.str());
+                EmitLog(opt_, oss.str());
             }
 
-            LogTlsInfo(ws.next_layer().native_handle(), "after_ws_handshake");
-            DrainOpenSslErrors("after_ws_handshake");
+            LogTlsInfo(opt_, ws.next_layer().native_handle(), "after_ws_handshake");
+            DrainOpenSslErrors(opt_, "after_ws_handshake");
         }
         catch (const boost::system::system_error& e)
         {
@@ -322,10 +331,10 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 << " message=" << e.code().message()
                 << " what=" << e.what();
 
-            LogLine(oss.str());
+            EmitLog(opt_, oss.str());
 
-            LogTlsInfo(ws.next_layer().native_handle(), "ws_handshake_exception_tls_info");
-            DrainOpenSslErrors("ws_handshake_exception");
+            LogTlsInfo(opt_, ws.next_layer().native_handle(), "ws_handshake_exception_tls_info");
+            DrainOpenSslErrors(opt_, "ws_handshake_exception");
 
             throw;
         }
@@ -344,12 +353,12 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
 
                 if (ec)
                 {
-                    LogEc("tcp->ws client read_some", ec);
+                    LogEc(opt_, "tcp->ws client read_some", ec);
                     break;
                 }
                 if (n == 0)
                 {
-                    LogLine("[wss-bridge] tcp->ws client read_some returned 0");
+                    EmitLog(opt_, "[wss-bridge] tcp->ws client read_some returned 0");
                     break;
                 }
 
@@ -359,19 +368,19 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 ws.write(basio::buffer(buf.data(), n), wec);
                 if (wec)
                 {
-                    LogEc("tcp->ws ws.write", wec);
+                    LogEc(opt_, "tcp->ws ws.write", wec);
 
                     if (wec.category() == basio::error::get_ssl_category())
                     {
-                        LogTlsInfo(ws.next_layer().native_handle(), "tcp_to_ws_write_tls_info");
-                        DrainOpenSslErrors("tcp_to_ws_write_ssl_queue");
+                        LogTlsInfo(opt_, ws.next_layer().native_handle(), "tcp_to_ws_write_tls_info");
+                        DrainOpenSslErrors(opt_, "tcp_to_ws_write_ssl_queue");
                     }
 
                     break;
                 }
             }
 
-            LogLine("[wss-bridge] tcp->ws loop exit total_bytes=" + std::to_string(total));
+            EmitLog(opt_, "[wss-bridge] tcp->ws loop exit total_bytes=" + std::to_string(total));
             done.store(true);
         });
 
@@ -389,12 +398,12 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
 
                 if (ec)
                 {
-                    LogEc("ws->tcp ws.read", ec);
+                    LogEc(opt_, "ws->tcp ws.read", ec);
 
                     if (ec.category() == basio::error::get_ssl_category())
                     {
-                        LogTlsInfo(ws.next_layer().native_handle(), "ws_to_tcp_read_tls_info");
-                        DrainOpenSslErrors("ws_to_tcp_read_ssl_queue");
+                        LogTlsInfo(opt_, ws.next_layer().native_handle(), "ws_to_tcp_read_tls_info");
+                        DrainOpenSslErrors(opt_, "ws_to_tcp_read_ssl_queue");
                     }
 
                     if (ec == bws::error::closed)
@@ -405,7 +414,7 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                         oss << "[wss-bridge] ws closed code=" << static_cast<unsigned>(r.code)
                             << " reason=" << r.reason;
 
-                        LogLine(oss.str());
+                        EmitLog(opt_, oss.str());
                     }
 
                     break;
@@ -417,12 +426,12 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 basio::write(*client, buf.data(), wtec);
                 if (wtec)
                 {
-                    LogEc("ws->tcp tcp write", wtec);
+                    LogEc(opt_, "ws->tcp tcp write", wtec);
                     break;
                 }
             }
 
-            LogLine("[wss-bridge] ws->tcp loop exit total_bytes=" + std::to_string(total));
+            EmitLog(opt_, "[wss-bridge] ws->tcp loop exit total_bytes=" + std::to_string(total));
             done.store(true);
         });
 
@@ -432,14 +441,14 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
         boost::system::error_code cec;
         if (ws.is_open())
         {
-            LogLine("[wss-bridge] ws closing...");
+            EmitLog(opt_, "[wss-bridge] ws closing...");
             ws.close(bws::close_code::normal, cec);
-            LogEc("ws.close", cec);
+            LogEc(opt_, "ws.close", cec);
 
             if (cec.category() == basio::error::get_ssl_category())
             {
-                LogTlsInfo(ws.next_layer().native_handle(), "ws_close_tls_info");
-                DrainOpenSslErrors("ws_close_ssl_queue");
+                LogTlsInfo(opt_, ws.next_layer().native_handle(), "ws_close_tls_info");
+                DrainOpenSslErrors(opt_, "ws_close_ssl_queue");
             }
         }
 
@@ -447,7 +456,7 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
         client->shutdown(btcp::socket::shutdown_both, sec);
         client->close(sec);
 
-        LogStep("session done", opt_);
+        LogStep(opt_, "session done");
     }
     catch (const boost::system::system_error& e)
     {
@@ -458,13 +467,13 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
             << " message=" << e.code().message()
             << " what=" << e.what();
 
-        LogLine(oss.str());
+        EmitLog(opt_, oss.str());
 
         if (e.code().category() == basio::error::get_ssl_category())
-            DrainOpenSslErrors("catch_system_error_ssl_queue");
+            DrainOpenSslErrors(opt_, "catch_system_error_ssl_queue");
     }
     catch (const std::exception& e)
     {
-        LogLine(std::string("[wss-bridge] error what=") + e.what());
+        EmitLog(opt_, std::string("[wss-bridge] error what=") + e.what());
     }
 }

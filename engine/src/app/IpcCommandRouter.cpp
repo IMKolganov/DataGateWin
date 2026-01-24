@@ -8,6 +8,8 @@
 #include <sstream>
 #include <string>
 
+// -------------------- tiny json helpers --------------------
+
 static std::string JsonUnescape(const std::string& s)
 {
     std::string out;
@@ -83,12 +85,12 @@ static bool TryExtractJsonBoolField(
     p = json.find(':', p);
     if (p == std::string::npos) return false;
 
-    auto v = json.substr(p + 1);
-    while (!v.empty() && std::isspace((unsigned char)v.front()))
-        v.erase(v.begin());
+    size_t i = p + 1;
+    while (i < json.size() && std::isspace((unsigned char)json[i]))
+        i++;
 
-    if (v.rfind("true", 0) == 0)  { outValue = true;  return true; }
-    if (v.rfind("false", 0) == 0) { outValue = false; return true; }
+    if (json.compare(i, 4, "true") == 0)  { outValue = true;  return true; }
+    if (json.compare(i, 5, "false") == 0) { outValue = false; return true; }
 
     return false;
 }
@@ -122,6 +124,8 @@ static bool TryExtractJsonUInt16Field(
     return true;
 }
 
+// -------------------- status payload --------------------
+
 static std::string BuildStatusPayload(const datagate::session::SessionState& st)
 {
     std::ostringstream oss;
@@ -135,6 +139,8 @@ static std::string BuildStatusPayload(const datagate::session::SessionState& st)
     return oss.str();
 }
 
+// -------------------- ctor --------------------
+
 IpcCommandRouter::IpcCommandRouter(datagate::ipc::IpcServer& ipc,
                                    datagate::session::SessionController& session,
                                    SessionOrchestrator& orchestrator,
@@ -146,6 +152,8 @@ IpcCommandRouter::IpcCommandRouter(datagate::ipc::IpcServer& ipc,
 {
 }
 
+// -------------------- install --------------------
+
 void IpcCommandRouter::Install()
 {
     ipc_.SetCommandHandler([this](const datagate::ipc::Command& cmd)
@@ -155,9 +163,36 @@ void IpcCommandRouter::Install()
         case datagate::ipc::CommandType::StartSession:
         {
             datagate::session::StartOptions opt;
+
+            // Required
             if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
             {
                 ipc_.ReplyError(cmd.id, "bad_payload", "Missing ovpnContent");
+                return;
+            }
+
+            // Bridge fields (your payload puts them at the root, not under bridge:{})
+            TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
+            TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
+            TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
+            TryExtractJsonStringField(cmd.payloadJson, "sni",  opt.bridge.sni);
+
+            TryExtractJsonStringField(cmd.payloadJson, "listenIp", opt.bridge.listenIp);
+            TryExtractJsonUInt16Field(cmd.payloadJson, "listenPort", opt.bridge.listenPort);
+
+            TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
+            TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
+
+            // Defaults (match SessionController defaults)
+            if (opt.bridge.listenIp.empty())
+                opt.bridge.listenIp = "127.0.0.1";
+            if (opt.bridge.listenPort == 0)
+                opt.bridge.listenPort = 18080;
+
+            // Basic validation so we fail fast (no endless OpenVPN reconnect loop)
+            if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty())
+            {
+                ipc_.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path");
                 return;
             }
 
