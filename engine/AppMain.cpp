@@ -1,4 +1,5 @@
-﻿#include "AppMain.h"
+﻿// AppMain.cpp
+#include "AppMain.h"
 
 #include "src/ipc/IpcServer.h"
 #include "src/ipc/IpcProtocol.h"
@@ -16,6 +17,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #pragma comment(lib, "Dbghelp.lib")
 
@@ -73,18 +75,14 @@ static void WriteMiniDump(EXCEPTION_POINTERS* ep)
         nullptr);
 
     if (hFile == INVALID_HANDLE_VALUE)
-    {
-        std::cerr << "CreateFile failed for dump: " << dumpPath
-                  << " lastError=" << GetLastError() << std::endl;
         return;
-    }
 
     MINIDUMP_EXCEPTION_INFORMATION mei{};
     mei.ThreadId = GetCurrentThreadId();
     mei.ExceptionPointers = ep;
     mei.ClientPointers = FALSE;
 
-    BOOL ok = MiniDumpWriteDump(
+    MiniDumpWriteDump(
         GetCurrentProcess(),
         GetCurrentProcessId(),
         hFile,
@@ -95,17 +93,10 @@ static void WriteMiniDump(EXCEPTION_POINTERS* ep)
     );
 
     CloseHandle(hFile);
-
-    std::cerr << "MiniDumpWriteDump: " << (ok ? "OK" : "FAILED")
-              << " path=" << dumpPath
-              << " lastError=" << GetLastError()
-              << std::endl;
 }
 
 static LONG WINAPI UnhandledExceptionFilterFn(EXCEPTION_POINTERS* ep)
 {
-    auto code = ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0;
-    std::cerr << "Unhandled SEH: " << ToHex(code) << std::endl;
     WriteMiniDump(ep);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -126,6 +117,21 @@ static std::string GetArgValue(int argc, char** argv, const char* key)
     }
     return {};
 }
+
+static std::string MakeStatePayload(const datagate::session::SessionState& st)
+{
+    std::ostringstream oss;
+    oss << "{\"state\":\"" << datagate::session::ToString(st.phase) << "\"";
+    if (!st.lastErrorCode.empty() || !st.lastErrorMessage.empty())
+    {
+        oss << ",\"error\":{\"code\":\"" << datagate::ipc::JsonEscape(st.lastErrorCode)
+            << "\",\"message\":\"" << datagate::ipc::JsonEscape(st.lastErrorMessage) << "\"}";
+    }
+    oss << "}";
+    return oss.str();
+}
+
+// -------------------- JSON helpers --------------------
 
 static std::string JsonUnescape(const std::string& s)
 {
@@ -152,16 +158,17 @@ static std::string JsonUnescape(const std::string& s)
         case 'n':  out.push_back('\n'); break;
         case 'r':  out.push_back('\r'); break;
         case 't':  out.push_back('\t'); break;
-        default:
-            out.push_back(n);
-            break;
+        default:   out.push_back(n);    break;
         }
     }
 
     return out;
 }
 
-static bool TryExtractJsonStringField(const std::string& json, const char* field, std::string& outValue)
+static bool TryExtractJsonStringField(
+    const std::string& json,
+    const char* field,
+    std::string& outValue)
 {
     std::string key = std::string("\"") + field + "\"";
     auto p = json.find(key);
@@ -189,7 +196,10 @@ static bool TryExtractJsonStringField(const std::string& json, const char* field
     return true;
 }
 
-static bool TryExtractJsonBoolField(const std::string& json, const char* field, bool& outValue)
+static bool TryExtractJsonBoolField(
+    const std::string& json,
+    const char* field,
+    bool& outValue)
 {
     std::string key = std::string("\"") + field + "\"";
     auto p = json.find(key);
@@ -208,7 +218,10 @@ static bool TryExtractJsonBoolField(const std::string& json, const char* field, 
     return false;
 }
 
-static bool TryExtractJsonUInt16Field(const std::string& json, const char* field, uint16_t& outValue)
+static bool TryExtractJsonUInt16Field(
+    const std::string& json,
+    const char* field,
+    uint16_t& outValue)
 {
     std::string key = std::string("\"") + field + "\"";
     auto p = json.find(key);
@@ -230,21 +243,8 @@ static bool TryExtractJsonUInt16Field(const std::string& json, const char* field
     unsigned long v = std::stoul(json.substr(p, e - p));
     if (v > 65535) return false;
 
-    outValue = (uint16_t)v;
+    outValue = static_cast<uint16_t>(v);
     return true;
-}
-
-static std::string MakeStatePayload(const datagate::session::SessionState& st)
-{
-    std::ostringstream oss;
-    oss << "{\"state\":\"" << datagate::session::ToString(st.phase) << "\"";
-    if (!st.lastErrorCode.empty() || !st.lastErrorMessage.empty())
-    {
-        oss << ",\"error\":{\"code\":\"" << datagate::ipc::JsonEscape(st.lastErrorCode)
-            << "\",\"message\":\"" << datagate::ipc::JsonEscape(st.lastErrorMessage) << "\"}";
-    }
-    oss << "}";
-    return oss.str();
 }
 
 // -------------------- AppMain --------------------
@@ -256,22 +256,50 @@ int AppMain::Run(int argc, char** argv)
 
     const std::string sessionId = GetArgValue(argc, argv, "--session-id");
     if (sessionId.empty())
-    {
-        std::cerr << "Missing required arg: --session-id <value>" << std::endl;
         return 2;
+
+    // Single instance per session-id
+    std::string mutexName = "Global\\datagate.engine." + sessionId + ".mutex";
+    HANDLE hMutex = CreateMutexA(nullptr, TRUE, mutexName.c_str());
+    if (!hMutex)
+        return 4;
+
+    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        std::cerr << "[engine] already running for sessionId=" << sessionId << std::endl;
+        CloseHandle(hMutex);
+        return 0;
     }
 
     HANDLE hStop = CreateEventA(nullptr, TRUE, FALSE, nullptr);
     if (!hStop)
     {
-        std::cerr << "CreateEvent failed lastError=" << GetLastError() << std::endl;
+        ReleaseMutex(hMutex);
+        CloseHandle(hMutex);
         return 3;
     }
 
     datagate::ipc::IpcServer ipc(sessionId);
     datagate::session::SessionController session;
 
-    // Session -> IPC events (and console mirror)
+    std::atomic_bool shuttingDown{ false };
+    std::atomic_bool startInProgress{ false };
+    std::thread startThread;
+
+    auto JoinStartThreadIfNeeded = [&]()
+    {
+        if (startThread.joinable())
+            startThread.join();
+    };
+
+    auto StopSessionSafe = [&]()
+    {
+        JoinStartThreadIfNeeded();
+        session.Stop();
+    };
+
+    // ---- Session callbacks ----
+
     session.OnStateChanged = [&](const datagate::session::SessionState& st)
     {
         std::cerr << "[state] " << datagate::session::ToString(st.phase) << std::endl;
@@ -281,18 +309,14 @@ int AppMain::Run(int argc, char** argv)
     session.OnLog = [&](const std::string& line)
     {
         std::cerr << line << std::endl;
-
-        std::string payload = std::string("{\"line\":\"") + datagate::ipc::JsonEscape(line) + "\"}";
-        ipc.SendEvent(datagate::ipc::EventType::Log, payload);
+        ipc.SendEvent(
+            datagate::ipc::EventType::Log,
+            std::string("{\"line\":\"") + datagate::ipc::JsonEscape(line) + "\"}"
+        );
     };
 
     session.OnError = [&](const std::string& code, const std::string& message, bool fatal)
     {
-        std::cerr << "[error] code=" << code
-                  << " fatal=" << (fatal ? "true" : "false")
-                  << " message=" << message
-                  << std::endl;
-
         std::ostringstream oss;
         oss << "{\"code\":\"" << datagate::ipc::JsonEscape(code)
             << "\",\"message\":\"" << datagate::ipc::JsonEscape(message)
@@ -302,10 +326,6 @@ int AppMain::Run(int argc, char** argv)
 
     session.OnConnected = [&](const datagate::session::ConnectedInfo& ci)
     {
-        std::cerr << "[connected] ifIndex=" << ci.vpnIfIndex
-                  << " vpnIpv4=" << ci.vpnIpv4
-                  << std::endl;
-
         std::ostringstream oss;
         oss << "{\"ifIndex\":" << ci.vpnIfIndex
             << ",\"vpnIpv4\":\"" << datagate::ipc::JsonEscape(ci.vpnIpv4) << "\"}";
@@ -314,119 +334,125 @@ int AppMain::Run(int argc, char** argv)
 
     session.OnDisconnected = [&](const std::string& reason)
     {
-        std::cerr << "[disconnected] " << reason << std::endl;
-
-        std::string payload = std::string("{\"reason\":\"") + datagate::ipc::JsonEscape(reason) + "\"}";
-        ipc.SendEvent(datagate::ipc::EventType::Disconnected, payload);
+        ipc.SendEvent(
+            datagate::ipc::EventType::Disconnected,
+            std::string("{\"reason\":\"") + datagate::ipc::JsonEscape(reason) + "\"}"
+        );
     };
 
-    // IPC -> Session commands
+    // ---- IPC commands ----
+
     ipc.SetCommandHandler([&](const datagate::ipc::Command& cmd)
     {
+
+        // std::cerr << "[ipc][control] cmd type=" << datagate::ipc::ToString(cmd.type)
+        //   << " id=" << cmd.id
+        //   << " payload=" << cmd.payloadJson << std::endl;
+
         switch (cmd.type)
         {
-            case datagate::ipc::CommandType::StartSession: {
-                datagate::session::StartOptions opt;
-
-                if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
-                {
-                    ipc.ReplyError(cmd.id, "bad_payload", "Missing field: ovpnContent");
-                    return;
-                }
-
-                TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
-                TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
-                TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
-                TryExtractJsonStringField(cmd.payloadJson, "sni", opt.bridge.sni);
-                TryExtractJsonStringField(cmd.payloadJson, "listenIp", opt.bridge.listenIp);
-                TryExtractJsonUInt16Field(cmd.payloadJson, "listenPort", opt.bridge.listenPort);
-                TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
-                TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
-
-                if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty()
-                    || opt.bridge.listenIp.empty() || opt.bridge.listenPort == 0)
-                {
-                    ipc.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path/listenIp/listenPort");
-                    return;
-                }
-
-                // ACK immediately to avoid UI timeout
-                ipc.ReplyOk(cmd.id, "{}");
-
-                std::thread([&session, opt = std::move(opt), &ipc]() mutable {
-                    std::string err;
-                    if (!session.Start(opt, err))
-                    {
-                        std::ostringstream oss;
-                        oss << "{\"code\":\"start_failed\",\"message\":\""
-                            << datagate::ipc::JsonEscape(err) << "\",\"fatal\":true}";
-                        ipc.SendEvent(datagate::ipc::EventType::Error, oss.str());
-                    }
-                }).detach();
-
+        case datagate::ipc::CommandType::StartSession:
+        {
+            datagate::session::StartOptions opt;
+            if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
+            {
+                ipc.ReplyError(cmd.id, "bad_payload", "Missing ovpnContent");
                 return;
             }
 
+            // TODO: parse your bridge fields here too if needed
+
+            ipc.ReplyOk(cmd.id, "{}");
+
+            bool expected = false;
+            if (!startInProgress.compare_exchange_strong(expected, true))
+                return;
+
+            JoinStartThreadIfNeeded();
+
+            startThread = std::thread([&, opt = std::move(opt)]() mutable
+            {
+                std::string err;
+                if (!shuttingDown.load())
+                    session.Start(opt, err);
+
+                startInProgress.store(false);
+            });
+
+            return;
+        }
+
         case datagate::ipc::CommandType::StopSession:
-        {
-            session.Stop();
+            StopSessionSafe();
             ipc.ReplyOk(cmd.id, "{}");
             return;
-        }
 
         case datagate::ipc::CommandType::GetStatus:
-        {
-            auto st = session.GetState();
-            ipc.ReplyOk(cmd.id, MakeStatePayload(st));
+            ipc.ReplyOk(cmd.id, MakeStatePayload(session.GetState()));
             return;
-        }
 
         case datagate::ipc::CommandType::StopEngine:
-        {
-            session.Stop();
+            shuttingDown.store(true);
+            StopSessionSafe();
             ipc.ReplyOk(cmd.id, "{}");
             SetEvent(hStop);
             return;
-        }
 
         default:
-            ipc.ReplyError(cmd.id.empty() ? "?" : cmd.id, "unknown_command", "Unknown command type");
+            ipc.ReplyError(cmd.id, "unknown_command", "Unknown command");
             return;
         }
     });
 
     ipc.Start();
-    std::cerr << "[engine] ipc started, sending EngineReady" << std::endl;
     ipc.SendEvent(datagate::ipc::EventType::EngineReady, "{}");
 
-    const uint64_t idleExitAfterMs = 10 * 1000;
+    // ---- Main loop ----
+
+    const uint64_t idleExitAfterMs = 5ull * 60ull * 1000ull;
     const uint64_t startMs = GetTickCount64();
+    uint64_t lastPrintedSec = 0;
 
     for (;;)
     {
-        DWORD w = WaitForSingleObject(hStop, 500);
-        if (w == WAIT_OBJECT_0)
+        if (WaitForSingleObject(hStop, 500) == WAIT_OBJECT_0)
             break;
 
-        auto st = session.GetState();
-        if (st.IsRunning())
+        if (session.GetState().IsRunning())
+        {
+            lastPrintedSec = 0;
             continue;
+        }
 
-        const bool hasClients = ipc.HasAnyClient();
-        if (hasClients)
+        if (ipc.HasAnyClient())
+        {
+            lastPrintedSec = 0;
             continue;
+        }
 
         uint64_t lastSeen = ipc.LastClientSeenTickMs();
-        if (lastSeen == 0)
-            lastSeen = startMs;
+        if (!lastSeen) lastSeen = startMs;
 
-        const uint64_t now = GetTickCount64();
-        if ((now - lastSeen) >= idleExitAfterMs)
+        uint64_t idleForMs = GetTickCount64() - lastSeen;
+        if (idleForMs >= idleExitAfterMs)
             break;
+
+        uint64_t sec = (idleExitAfterMs - idleForMs + 999) / 1000;
+        if (sec != lastPrintedSec)
+        {
+            lastPrintedSec = sec;
+            std::cerr << "[engine] idle shutdown in " << sec << "s" << std::endl;
+        }
     }
 
-    session.Stop();
+    shuttingDown.store(true);
+    StopSessionSafe();
     ipc.Stop();
+
     CloseHandle(hStop);
+
+    ReleaseMutex(hMutex);
+    CloseHandle(hMutex);
+
     return 0;
 }

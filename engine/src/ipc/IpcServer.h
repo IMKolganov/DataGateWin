@@ -32,6 +32,8 @@ namespace datagate::ipc
         void ReplyError(const std::string& id, const std::string& code, const std::string& message);
 
         bool HasAnyClient() const;
+
+        // last time ANY IPC client actually did something (connect / read / write)
         uint64_t LastClientSeenTickMs() const;
 
     private:
@@ -43,21 +45,21 @@ namespace datagate::ipc
         void WriteEventsLine(const std::string& line);
 
         static bool TryParseCommandLine(const std::string& line, Command& cmd);
-
         static HANDLE CreatePipeServer(const std::string& fullName, DWORD openMode, DWORD pipeMode);
-        std::atomic<uint64_t> _lastClientSeenMs{0};
 
     private:
         std::string _sessionId;
         PipeNames _pipes;
 
-        std::atomic<bool> _running{false};
+        std::atomic<bool> _running{ false };
 
         std::thread _controlThread;
         std::thread _eventsThread;
 
-        std::atomic<HANDLE> _controlClient{INVALID_HANDLE_VALUE};
-        std::atomic<HANDLE> _eventsClient{INVALID_HANDLE_VALUE};
+        std::atomic<HANDLE> _controlClient{ INVALID_HANDLE_VALUE };
+        std::atomic<HANDLE> _eventsClient{ INVALID_HANDLE_VALUE };
+
+        std::atomic<uint64_t> _lastClientSeenMs{ 0 };
 
         CommandHandler _handler;
     };
