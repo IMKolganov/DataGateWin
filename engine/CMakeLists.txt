@@ -6,14 +6,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENGINE_SHOW_INCLUDES "Enable MSVC /showIncludes for debugging include duplication" OFF)
 option(ENGINE_ENABLE_TAP "Enable TAP-Windows backend (requires tap-windows.h)" OFF)
-option(ENGINE_OPENVPN_DEBUG "Enable extra OpenVPN3 core debug logging" ON)
 
 if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     add_compile_options(/FS)
-    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT
-            "$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>"
-    )
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>")
 endif()
 
 add_executable(engine
@@ -79,7 +76,6 @@ find_package(lz4 CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
 find_package(Boost REQUIRED)
 
-# Canonicalize OpenVPN3 root path to avoid pragma-once duplication via different paths
 set(O3_DIR_RAW "${CMAKE_CURRENT_LIST_DIR}/../openvpn3")
 get_filename_component(O3_DIR "${O3_DIR_RAW}" REALPATH)
 
@@ -88,8 +84,13 @@ file(GLOB_RECURSE OPENVPN3_CORE_SOURCES
         "${O3_DIR}/openvpn/*.cpp"
 )
 
+# Exclude agent
 list(FILTER OPENVPN3_CORE_SOURCES EXCLUDE REGEX ".*/openvpn/ovpnagent/.*")
-list(FILTER OPENVPN3_CORE_SOURCES EXCLUDE REGEX ".*/openvpn/omi/.*")
+
+# OMI is useful for option plumbing, but openvpn/omi/openvpn.cpp pulls unix peercred
+if (WIN32)
+    list(FILTER OPENVPN3_CORE_SOURCES EXCLUDE REGEX ".*/openvpn/omi/openvpn\\.cpp$")
+endif()
 
 add_library(ovpn3-core STATIC ${OPENVPN3_CORE_SOURCES})
 
@@ -120,14 +121,6 @@ target_compile_definitions(ovpn3-core PUBLIC
 target_compile_definitions(ovpn3-core PRIVATE
         ASIO_STANDALONE
 )
-
-# Optional OpenVPN3 core debug (more verbose tun/win logs)
-if (ENGINE_OPENVPN_DEBUG)
-    target_compile_definitions(ovpn3-core PRIVATE
-            OPENVPN_DEBUG
-            OPENVPN_DEBUG_VERBOSE_ERRORS
-    )
-endif()
 
 # Optional TAP-Windows support
 set(_vcpkg_inc "")
