@@ -47,6 +47,17 @@ static void LogStep(const char* step, const WssTcpBridge::Options& opt)
               << std::endl;
 }
 
+static void LogEc(const char* where, const boost::system::error_code& ec)
+{
+    if (!ec) return;
+
+    std::cerr << "[wss-bridge] " << where
+              << " ec=" << ec.value()
+              << " category=" << ec.category().name()
+              << " message=" << ec.message()
+              << std::endl;
+}
+
 WssTcpBridge::WssTcpBridge(Options opt)
     : opt_(std::move(opt)),
       impl_(new Impl())
@@ -93,8 +104,9 @@ void WssTcpBridge::DoAccept()
         {
             if (!ec && !impl_->stopped.load())
             {
-                // Heap-own the socket (shared_ptr) and pass it as opaque pointer.
-                auto* psock = new std::shared_ptr<btcp::socket>(std::make_shared<btcp::socket>(std::move(socket)));
+                auto* psock = new std::shared_ptr<btcp::socket>(
+                    std::make_shared<btcp::socket>(std::move(socket))
+                );
 
                 std::thread([this, psock]()
                 {
@@ -118,12 +130,11 @@ void WssTcpBridge::DoAccept()
 
 void WssTcpBridge::HandleClient(void* nativeSocket)
 {
-    // Take ownership of the heap pointer and guarantee delete.
     std::unique_ptr<std::shared_ptr<btcp::socket>> holder(
         reinterpret_cast<std::shared_ptr<btcp::socket>*>(nativeSocket)
     );
 
-    auto client = *holder; // copy shared_ptr
+    auto client = *holder;
 
     try
     {
@@ -167,49 +178,93 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
         std::thread t1([&, client]
         {
             std::array<uint8_t, 16 * 1024> buf{};
+            uint64_t total = 0;
+
             while (!done.load())
             {
-                bbeast::error_code ec;
+                boost::system::error_code ec;
                 size_t n = client->read_some(basio::buffer(buf), ec);
-                if (ec || n == 0)
-                    break;
 
-                bbeast::error_code wec;
+                if (ec)
+                {
+                    LogEc("tcp->ws client read_some", ec);
+                    break;
+                }
+                if (n == 0)
+                {
+                    std::cerr << "[wss-bridge] tcp->ws client read_some returned 0" << std::endl;
+                    break;
+                }
+
+                total += static_cast<uint64_t>(n);
+
+                boost::system::error_code wec;
                 ws.write(basio::buffer(buf.data(), n), wec);
                 if (wec)
+                {
+                    LogEc("tcp->ws ws.write", wec);
                     break;
+                }
             }
+
+            std::cerr << "[wss-bridge] tcp->ws loop exit total_bytes=" << total << std::endl;
             done.store(true);
         });
 
         std::thread t2([&, client]
         {
             bbeast::flat_buffer buf;
+            uint64_t total = 0;
+
             while (!done.load())
             {
                 buf.clear();
 
-                bbeast::error_code ec;
+                boost::system::error_code ec;
                 ws.read(buf, ec);
-                if (ec)
-                    break;
 
-                bbeast::error_code wtec;
+                if (ec)
+                {
+                    LogEc("ws->tcp ws.read", ec);
+
+                    if (ec == bws::error::closed)
+                    {
+                        auto r = ws.reason();
+                        std::cerr << "[wss-bridge] ws closed code=" << static_cast<unsigned>(r.code)
+                                  << " reason=" << r.reason
+                                  << std::endl;
+                    }
+
+                    break;
+                }
+
+                total += static_cast<uint64_t>(buf.size());
+
+                boost::system::error_code wtec;
                 basio::write(*client, buf.data(), wtec);
                 if (wtec)
+                {
+                    LogEc("ws->tcp tcp write", wtec);
                     break;
+                }
             }
+
+            std::cerr << "[wss-bridge] ws->tcp loop exit total_bytes=" << total << std::endl;
             done.store(true);
         });
 
         t1.join();
         t2.join();
 
-        bbeast::error_code ec;
+        boost::system::error_code cec;
         if (ws.is_open())
-            ws.close(bws::close_code::normal, ec);
+        {
+            std::cerr << "[wss-bridge] ws closing..." << std::endl;
+            ws.close(bws::close_code::normal, cec);
+            LogEc("ws.close", cec);
+        }
 
-        bbeast::error_code sec;
+        boost::system::error_code sec;
         client->shutdown(btcp::socket::shutdown_both, sec);
         client->close(sec);
 

@@ -325,42 +325,47 @@ int AppMain::Run(int argc, char** argv)
     {
         switch (cmd.type)
         {
-        case datagate::ipc::CommandType::StartSession:
-        {
-            datagate::session::StartOptions opt;
+            case datagate::ipc::CommandType::StartSession: {
+                datagate::session::StartOptions opt;
 
-            if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
-            {
-                ipc.ReplyError(cmd.id, "bad_payload", "Missing field: ovpnContent");
+                if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
+                {
+                    ipc.ReplyError(cmd.id, "bad_payload", "Missing field: ovpnContent");
+                    return;
+                }
+
+                TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
+                TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
+                TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
+                TryExtractJsonStringField(cmd.payloadJson, "sni", opt.bridge.sni);
+                TryExtractJsonStringField(cmd.payloadJson, "listenIp", opt.bridge.listenIp);
+                TryExtractJsonUInt16Field(cmd.payloadJson, "listenPort", opt.bridge.listenPort);
+                TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
+                TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
+
+                if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty()
+                    || opt.bridge.listenIp.empty() || opt.bridge.listenPort == 0)
+                {
+                    ipc.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path/listenIp/listenPort");
+                    return;
+                }
+
+                // ACK immediately to avoid UI timeout
+                ipc.ReplyOk(cmd.id, "{}");
+
+                std::thread([&session, opt = std::move(opt), &ipc]() mutable {
+                    std::string err;
+                    if (!session.Start(opt, err))
+                    {
+                        std::ostringstream oss;
+                        oss << "{\"code\":\"start_failed\",\"message\":\""
+                            << datagate::ipc::JsonEscape(err) << "\",\"fatal\":true}";
+                        ipc.SendEvent(datagate::ipc::EventType::Error, oss.str());
+                    }
+                }).detach();
+
                 return;
             }
-
-            TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
-            TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
-            TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
-            TryExtractJsonStringField(cmd.payloadJson, "sni", opt.bridge.sni);
-            TryExtractJsonStringField(cmd.payloadJson, "listenIp", opt.bridge.listenIp);
-            TryExtractJsonUInt16Field(cmd.payloadJson, "listenPort", opt.bridge.listenPort);
-            TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
-            TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
-
-            if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty()
-                || opt.bridge.listenIp.empty() || opt.bridge.listenPort == 0)
-            {
-                ipc.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path/listenIp/listenPort");
-                return;
-            }
-
-            std::string err;
-            if (!session.Start(opt, err))
-            {
-                ipc.ReplyError(cmd.id, "start_failed", err);
-                return;
-            }
-
-            ipc.ReplyOk(cmd.id, "{}");
-            return;
-        }
 
         case datagate::ipc::CommandType::StopSession:
         {
