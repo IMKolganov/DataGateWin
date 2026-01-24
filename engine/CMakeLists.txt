@@ -45,6 +45,18 @@ add_executable(engine
 
         src/vpn/WintunHolder.cpp
         src/vpn/WintunHolder.h
+        src/app/CrashReporter.cpp
+        src/app/CrashReporter.h
+        src/app/ArgParser.cpp
+        src/app/ArgParser.h
+        src/app/IdleShutdownPolicy.cpp
+        src/app/IdleShutdownPolicy.h
+        src/app/SessionOrchestrator.cpp
+        src/app/SessionOrchestrator.h
+        src/app/IpcCommandRouter.cpp
+        src/app/IpcCommandRouter.h
+        src/app/EngineLifetime.cpp
+        src/app/EngineLifetime.h
 )
 
 target_compile_definitions(engine PRIVATE
