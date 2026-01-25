@@ -35,6 +35,42 @@ static std::string MakeLifecyclePayload(const char* phase, const char* reason, b
     return oss.str();
 }
 
+static std::string MakeLifecyclePayloadWithDelayMs(const char* phase, const char* reason, bool success, int delayMs)
+{
+    std::ostringstream oss;
+    oss << "{"
+        << "\"phase\":\"" << datagate::ipc::JsonEscape(phase) << "\","
+        << "\"reason\":\"" << datagate::ipc::JsonEscape(reason) << "\","
+        << "\"success\":" << (success ? "true" : "false") << ","
+        << "\"delayMs\":" << delayMs
+        << "}";
+    return oss.str();
+}
+
+static bool TryParseRestartDelayMs(const std::string& line, int& outDelayMs)
+{
+    // Example: "Client terminated, restarting in 5000 ms..."
+    const std::string key = "Client terminated, restarting in ";
+    auto p = line.find(key);
+    if (p == std::string::npos)
+        return false;
+
+    p += key.size();
+    auto e = line.find(" ms", p);
+    if (e == std::string::npos || e <= p)
+        return false;
+
+    try
+    {
+        outDelayMs = std::stoi(line.substr(p, e - p));
+        return outDelayMs >= 0;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 SessionOrchestrator::SessionOrchestrator(datagate::session::SessionController& session,
                                          datagate::ipc::IpcServer& ipc)
     : session_(session)
@@ -46,12 +82,24 @@ void SessionOrchestrator::WireCallbacks()
 {
     session_.OnStateChanged = [&](const datagate::session::SessionState& st)
     {
-        std::cerr << "[state] " << datagate::session::ToString(st.phase) << std::endl;
+        // Log transition with prev->new (best-effort)
+        {
+            std::lock_guard<std::mutex> lk(stateMx_);
+            if (lastPhase_.has_value())
+            {
+                std::cerr << "[state] " << datagate::session::ToString(*lastPhase_)
+                          << " -> " << datagate::session::ToString(st.phase)
+                          << std::endl;
+            }
+            else
+            {
+                std::cerr << "[state] " << datagate::session::ToString(st.phase) << std::endl;
+            }
+            lastPhase_ = st.phase;
+        }
 
         ipc_.SendEvent(datagate::ipc::EventType::StateChanged, MakeStatePayload(st));
 
-        // Optionally: signal lifecycle for "connecting/connected/idle"
-        // Keep it conservative to avoid event spam.
         if (st.phase == datagate::session::SessionPhase::Connecting)
         {
             ipc_.SendEvent(
@@ -66,6 +114,13 @@ void SessionOrchestrator::WireCallbacks()
                 MakeLifecyclePayload("idle", "engine", true)
             );
         }
+        else if (st.phase == datagate::session::SessionPhase::Stopping)
+        {
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                MakeLifecyclePayload("stopping", "engine", true)
+            );
+        }
 
         stateCv_.notify_all();
     };
@@ -73,6 +128,28 @@ void SessionOrchestrator::WireCallbacks()
     session_.OnLog = [&](const std::string& line)
     {
         std::cerr << line << std::endl;
+
+        // Detect auto-restart delay from OpenVPN core log
+        int delayMs = 0;
+        if (TryParseRestartDelayMs(line, delayMs))
+        {
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                MakeLifecyclePayloadWithDelayMs("auto_restart_scheduled", "openvpn_core", true, delayMs)
+            );
+        }
+
+        // Detect transport-related lines
+        if (line.find("TCP recv error:") != std::string::npos ||
+            line.find("Transport Error:") != std::string::npos ||
+            line.find("NETWORK_RECV_ERROR") != std::string::npos)
+        {
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                MakeLifecyclePayload("transport_error", "network_recv_error", false)
+            );
+        }
+
         ipc_.SendEvent(
             datagate::ipc::EventType::Log,
             std::string("{\"line\":\"") + datagate::ipc::JsonEscape(line) + "\"}"
@@ -110,6 +187,12 @@ void SessionOrchestrator::WireCallbacks()
 
     session_.OnDisconnected = [&](const std::string& reason)
     {
+        // Extra context: current state
+        const auto st = session_.GetState();
+        std::cerr << "[orchestrator] OnDisconnected reason=" << reason
+                  << " phase=" << datagate::session::ToString(st.phase)
+                  << std::endl;
+
         ipc_.SendEvent(
             datagate::ipc::EventType::Disconnected,
             std::string("{\"reason\":\"") + datagate::ipc::JsonEscape(reason) + "\"}"
@@ -132,11 +215,28 @@ bool SessionOrchestrator::StartAsync(datagate::session::StartOptions opt)
 
     JoinStartThreadIfNeeded();
 
+    std::cerr << "[orchestrator] StartAsync accepted" << std::endl;
+
     startThread_ = std::thread([this, opt = std::move(opt)]() mutable
     {
+        std::cerr << "[orchestrator] StartAsync thread BEGIN" << std::endl;
+
         std::string err;
+        bool ok = false;
+
         if (!shuttingDown_.load())
-            session_.Start(opt, err);
+            ok = session_.Start(opt, err);
+
+        std::cerr << "[orchestrator] StartAsync thread END ok=" << (ok ? "true" : "false")
+                  << " err=" << err << std::endl;
+
+        if (!ok && !err.empty())
+        {
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                MakeLifecyclePayload("start_failed", "start_error", false)
+            );
+        }
 
         startInProgress_.store(false);
         stateCv_.notify_all();
@@ -155,6 +255,8 @@ void SessionOrchestrator::StopAsync()
 
 void SessionOrchestrator::StopSync()
 {
+    std::cerr << "[orchestrator] StopSync ENTER" << std::endl;
+
     ipc_.SendEvent(
         datagate::ipc::EventType::SessionLifecycle,
         MakeLifecyclePayload("stopping", "user_request", true)
@@ -163,8 +265,8 @@ void SessionOrchestrator::StopSync()
     session_.Stop();
     JoinStartThreadIfNeeded();
 
-    // If session_.Stop() doesn't emit Disconnected in some edge cases,
-    // we still want waiters to re-check current state.
+    std::cerr << "[orchestrator] StopSync EXIT state=" << datagate::session::ToString(session_.GetState().phase) << std::endl;
+
     stateCv_.notify_all();
 }
 
@@ -174,6 +276,8 @@ void SessionOrchestrator::ShutdownAsync(HANDLE stopEvent)
 
     std::thread([this, stopEvent]()
     {
+        std::cerr << "[orchestrator] ShutdownAsync ENTER" << std::endl;
+
         ipc_.SendEvent(
             datagate::ipc::EventType::SessionLifecycle,
             MakeLifecyclePayload("stopping", "engine_shutdown", true)
@@ -182,6 +286,8 @@ void SessionOrchestrator::ShutdownAsync(HANDLE stopEvent)
         StopSync();
         if (stopEvent)
             SetEvent(stopEvent);
+
+        std::cerr << "[orchestrator] ShutdownAsync EXIT" << std::endl;
     }).detach();
 }
 
@@ -192,7 +298,6 @@ bool SessionOrchestrator::IsRunning() const
 
 bool SessionOrchestrator::WaitForIdle(uint32_t timeoutMs)
 {
-    // Fast path
     {
         const auto st = session_.GetState();
         if (st.phase == datagate::session::SessionPhase::Idle)

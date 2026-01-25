@@ -7,6 +7,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 class SessionOrchestrator
@@ -30,6 +31,8 @@ public:
     bool WaitForIdle(uint32_t timeoutMs);
 
 private:
+    std::optional<datagate::session::SessionPhase> lastPhase_;
+
     void JoinStartThreadIfNeeded();
 
 private:

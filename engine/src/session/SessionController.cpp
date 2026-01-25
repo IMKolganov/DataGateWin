@@ -13,6 +13,17 @@
 
 namespace datagate::session
 {
+    static const char* GuessStopInitiator(SessionPhase phase)
+    {
+        // Best-effort guess based on current phase at the moment callback fires.
+        // - If we are in Stopping => most likely user initiated StopSession
+        // - Otherwise => transport/network error or remote close
+        if (phase == SessionPhase::Stopping)
+            return "user_stop";
+
+        return "transport_error";
+    }
+
     class SessionController::Impl
     {
     public:
@@ -33,7 +44,6 @@ namespace datagate::session
                 },
                 [this](const datagate::vpn::VpnRunner::ConnectedInfo& ci)
                 {
-                    // Update state to Connected and publish
                     store.ResetDisconnectDedup();
 
                     store.SetPhase(SessionPhase::Connected);
@@ -43,26 +53,57 @@ namespace datagate::session
                     x.vpnIfIndex = ci.vpnIfIndex;
                     x.vpnIpv4 = ci.vpnIpv4;
                     store.PublishConnected(x);
+
+                    std::ostringstream oss;
+                    oss << "[session] connected callback: ifIndex=" << ci.vpnIfIndex
+                        << " ipv4=" << ci.vpnIpv4;
+                    store.PublishLogLine(oss.str());
                 },
                 [this](const std::string& reason)
                 {
-                    const bool shouldEmitDisconnected = store.MarkDisconnectedOnce();
+                    const auto before = store.GetState();
+                    const char* initiator = GuessStopInitiator(before.phase);
 
-                    // Only move to Stopped if it was a running phase
-                    const auto st = store.GetState();
+                    std::ostringstream oss0;
+                    oss0 << "[session] disconnected callback ENTER"
+                         << " initiator=" << initiator
+                         << " prev_phase=" << ToString(before.phase)
+                         << " reason=" << reason;
+                    store.PublishLogLine(oss0.str());
+
+                    const bool shouldEmitDisconnected = store.MarkDisconnectedOnce();
+                    store.PublishLogLine(std::string("[session] disconnected dedup: emit=") + (shouldEmitDisconnected ? "true" : "false"));
+
                     const bool wasRunning =
-                        st.phase == SessionPhase::Connected ||
-                        st.phase == SessionPhase::Connecting ||
-                        st.phase == SessionPhase::Starting;
+                        before.phase == SessionPhase::Connected ||
+                        before.phase == SessionPhase::Connecting ||
+                        before.phase == SessionPhase::Starting;
+
+                    store.PublishLogLine(std::string("[session] disconnected wasRunning=") + (wasRunning ? "true" : "false"));
 
                     if (wasRunning)
                     {
                         store.SetPhase(SessionPhase::Stopped);
                         store.PublishStateSnapshot();
+
+                        const auto after = store.GetState();
+                        std::ostringstream oss1;
+                        oss1 << "[session] phase transition on disconnect: "
+                             << ToString(before.phase) << " -> " << ToString(after.phase);
+                        store.PublishLogLine(oss1.str());
                     }
 
                     if (shouldEmitDisconnected)
+                    {
                         store.PublishDisconnected(reason);
+                        store.PublishLogLine("[session] disconnected event published");
+                    }
+                    else
+                    {
+                        store.PublishLogLine("[session] disconnected event suppressed (dedup)");
+                    }
+
+                    store.PublishLogLine("[session] disconnected callback EXIT");
                 });
         }
 
@@ -73,8 +114,13 @@ namespace datagate::session
 
         void StopAllNoCallbacks()
         {
+            store.PublishLogLine("[session] StopAllNoCallbacks: vpn.Stop()...");
             vpn.Stop();
+            store.PublishLogLine("[session] StopAllNoCallbacks: vpn.Stop() done");
+
+            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Stop()...");
             bridge.Stop();
+            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Stop() done");
         }
     };
 
@@ -100,8 +146,13 @@ namespace datagate::session
     {
         RefreshCallbacksToStore();
 
+        _impl->store.PublishLogLine("[session] Start() ENTER");
+
         if (!_impl->store.TryEnterStarting(outError))
+        {
+            _impl->store.PublishLogLine(std::string("[session] Start() rejected: ") + outError);
             return false;
+        }
 
         _impl->store.SetLastStartOptions(opt);
         _impl->store.PublishStateSnapshot();
@@ -109,6 +160,7 @@ namespace datagate::session
         // 0) Ensure Wintun adapter exists
         {
             std::string tunErr;
+            _impl->store.PublishLogLine("[session] EnsureReady(Wintun)...");
             if (!_impl->wintun.EnsureReady(tunErr))
             {
                 const std::string code = "tun_init_failed";
@@ -119,6 +171,7 @@ namespace datagate::session
                 _impl->store.PublishStateSnapshot();
 
                 outError = msg;
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 return false;
             }
 
@@ -131,6 +184,7 @@ namespace datagate::session
         // 1) Start local WSS->TCP bridge
         {
             std::string bridgeErr;
+            _impl->store.PublishLogLine("[session] bridge.Start()...");
             if (!_impl->bridge.Start(opt, bridgeErr))
             {
                 const std::string code = "bridge_start_failed";
@@ -141,7 +195,16 @@ namespace datagate::session
                 _impl->store.PublishStateSnapshot();
 
                 outError = msg;
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 return false;
+            }
+
+            {
+                std::ostringstream oss;
+                oss << "[session] bridge.Start() OK"
+                    << " listenIp=" << _impl->bridge.ListenIp()
+                    << " listenPort=" << _impl->bridge.ListenPort();
+                _impl->store.PublishLogLine(oss.str());
             }
 
             _impl->store.SetPhase(SessionPhase::Connecting);
@@ -152,10 +215,17 @@ namespace datagate::session
         const std::string localIp = _impl->bridge.ListenIp();
         const uint16_t localPort = _impl->bridge.ListenPort();
 
+        {
+            std::ostringstream oss;
+            oss << "[session] ovpn.BuildForLocalBridge() local=" << localIp << ":" << localPort;
+            _impl->store.PublishLogLine(oss.str());
+        }
+
         auto built = _impl->ovpn.BuildForLocalBridge(opt.ovpnContentUtf8, localIp, localPort);
 
         {
             std::string ovpnErr;
+            _impl->store.PublishLogLine("[session] ovpn.ValidateSingleRemote()...");
             if (!_impl->ovpn.ValidateSingleRemote(built.config, ovpnErr))
             {
                 const std::string code = "ovpn_invalid_remote";
@@ -164,9 +234,11 @@ namespace datagate::session
                 _impl->store.PublishError(code, msg, true);
                 outError = msg;
 
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 Stop();
                 return false;
             }
+            _impl->store.PublishLogLine("[session] ovpn.ValidateSingleRemote() OK");
         }
 
         // 2.2) Log diagnostics (same info as before)
@@ -209,6 +281,7 @@ namespace datagate::session
         // 3) Start VPN
         {
             std::string vpnErr;
+            _impl->store.PublishLogLine("[session] vpn.Start()...");
             if (!_impl->vpn.Start(built.config, vpnErr))
             {
                 const std::string code = "vpn_start_failed";
@@ -217,13 +290,17 @@ namespace datagate::session
                 _impl->store.SetError(code, msg);
                 _impl->store.PublishError(code, msg, true);
 
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 Stop();
 
                 outError = msg;
                 return false;
             }
+
+            _impl->store.PublishLogLine("[session] vpn.Start() OK");
         }
 
+        _impl->store.PublishLogLine("[session] Start() EXIT ok=true");
         return true;
     }
 
@@ -231,24 +308,51 @@ namespace datagate::session
     {
         RefreshCallbacksToStore();
 
-        const auto st = _impl->store.GetState();
-        const bool canStop = st.IsRunning() || st.phase == SessionPhase::Error;
+        const auto before = _impl->store.GetState();
+        {
+            std::ostringstream oss;
+            oss << "[session] Stop() ENTER"
+                << " phase=" << ToString(before.phase);
+            _impl->store.PublishLogLine(oss.str());
+        }
 
+        const bool canStop = before.IsRunning() || before.phase == SessionPhase::Error;
         if (!canStop)
+        {
+            _impl->store.PublishLogLine("[session] Stop() ignored: not running");
             return;
+        }
 
-        if (st.phase != SessionPhase::Stopping)
+        if (before.phase != SessionPhase::Stopping)
         {
             _impl->store.SetPhase(SessionPhase::Stopping);
             _impl->store.PublishStateSnapshot();
+            _impl->store.PublishLogLine("[session] Stop() phase set to Stopping");
         }
 
         _impl->StopAllNoCallbacks();
+
+        const auto mid = _impl->store.GetState();
+        {
+            std::ostringstream oss;
+            oss << "[session] Stop() after StopAllNoCallbacks"
+                << " phase=" << ToString(mid.phase);
+            _impl->store.PublishLogLine(oss.str());
+        }
 
         if (_impl->store.GetState().phase != SessionPhase::Stopped)
         {
             _impl->store.SetPhase(SessionPhase::Stopped);
             _impl->store.PublishStateSnapshot();
+            _impl->store.PublishLogLine("[session] Stop() phase forced to Stopped");
+        }
+
+        const auto after = _impl->store.GetState();
+        {
+            std::ostringstream oss;
+            oss << "[session] Stop() EXIT"
+                << " phase=" << ToString(after.phase);
+            _impl->store.PublishLogLine(oss.str());
         }
     }
 

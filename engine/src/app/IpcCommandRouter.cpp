@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <iostream>
+#include <windows.h>
 
 // -------------------- tiny json helpers --------------------
 
@@ -154,6 +155,13 @@ static std::string BuildLifecyclePayload(const char* phase, const char* reason, 
     return oss.str();
 }
 
+// -------------------- misc --------------------
+
+static uint64_t NowMs()
+{
+    return GetTickCount64();
+}
+
 // -------------------- ctor --------------------
 
 IpcCommandRouter::IpcCommandRouter(datagate::ipc::IpcServer& ipc,
@@ -173,21 +181,18 @@ void IpcCommandRouter::Install()
 {
     ipc_.SetCommandHandler([this](const datagate::ipc::Command& cmd)
     {
-
         switch (cmd.type)
         {
         case datagate::ipc::CommandType::StartSession:
         {
             datagate::session::StartOptions opt;
 
-            // Required
             if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
             {
                 ipc_.ReplyError(cmd.id, "bad_payload", "Missing ovpnContent");
                 return;
             }
 
-            // Bridge fields (payload puts them at the root, not under bridge:{})
             TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
             TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
             TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
@@ -199,24 +204,30 @@ void IpcCommandRouter::Install()
             TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
             TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
 
-            // Defaults (match SessionController defaults)
             if (opt.bridge.listenIp.empty())
                 opt.bridge.listenIp = "127.0.0.1";
             if (opt.bridge.listenPort == 0)
                 opt.bridge.listenPort = 18080;
 
-            // Basic validation so we fail fast (no endless OpenVPN reconnect loop)
             if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty())
             {
                 ipc_.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path");
                 return;
             }
 
-            // Kick off async start first, then reply.
-            // This ensures UI gets immediate response but still receives events later.
+            std::cerr << "[router] StartSession recv id=" << cmd.id
+                      << " host=" << opt.bridge.host
+                      << " port=" << opt.bridge.port
+                      << " path=" << opt.bridge.path
+                      << " listen=" << opt.bridge.listenIp << ":" << opt.bridge.listenPort
+                      << " verifyServerCert=" << (opt.bridge.verifyServerCert ? "true" : "false")
+                      << std::endl;
+
             const bool accepted = orchestrator_.StartAsync(std::move(opt));
             if (!accepted)
             {
+                std::cerr << "[router] StartSession rejected id=" << cmd.id << " reason=start_in_progress" << std::endl;
+
                 ipc_.ReplyError(cmd.id, "start_in_progress", "StartSession rejected (start already in progress)");
                 ipc_.SendEvent(
                     datagate::ipc::EventType::SessionLifecycle,
@@ -224,6 +235,8 @@ void IpcCommandRouter::Install()
                 );
                 return;
             }
+
+            std::cerr << "[router] StartSession accepted id=" << cmd.id << std::endl;
 
             ipc_.ReplyOk(cmd.id, "{}");
             ipc_.SendEvent(
@@ -236,20 +249,47 @@ void IpcCommandRouter::Install()
 
         case datagate::ipc::CommandType::StopSession:
         {
+            const uint64_t t0 = NowMs();
+
+            const auto st0 = session_.GetState();
+            std::cerr << "[router] StopSession recv id=" << cmd.id
+                      << " stateBefore=" << datagate::session::ToString(st0.phase)
+                      << " t0Ms=" << t0
+                      << std::endl;
+
             ipc_.SendEvent(
                 datagate::ipc::EventType::SessionLifecycle,
                 BuildLifecyclePayload("stopping", "user_request", true)
             );
 
-            // IMPORTANT:
-            // Reply must be sent from the same thread/context as the command handler.
-            // Do NOT reply from detached threads unless IpcServer is explicitly designed for it.
-
+            // StopSync (blocking)
+            std::cerr << "[router] StopSession StopSync begin id=" << cmd.id << std::endl;
+            const uint64_t tStopBegin = NowMs();
             orchestrator_.StopSync();
+            const uint64_t tStopEnd = NowMs();
+            std::cerr << "[router] StopSession StopSync end id=" << cmd.id
+                      << " dtMs=" << (tStopEnd - tStopBegin)
+                      << std::endl;
 
+            // Wait for idle (blocking)
+            std::cerr << "[router] StopSession WaitForIdle begin id=" << cmd.id
+                      << " timeoutMs=20000"
+                      << std::endl;
+            const uint64_t tWaitBegin = NowMs();
             const bool stopped = orchestrator_.WaitForIdle(20000);
+            const uint64_t tWaitEnd = NowMs();
+
+            const auto st1 = session_.GetState();
+            std::cerr << "[router] StopSession WaitForIdle end id=" << cmd.id
+                      << " ok=" << (stopped ? "true" : "false")
+                      << " dtMs=" << (tWaitEnd - tWaitBegin)
+                      << " stateAfter=" << datagate::session::ToString(st1.phase)
+                      << std::endl;
+
             if (!stopped)
             {
+                std::cerr << "[router] StopSession timeout id=" << cmd.id << std::endl;
+
                 ipc_.ReplyError(cmd.id, "stop_timeout", "StopSession timed out (did not reach idle)");
                 ipc_.SendEvent(
                     datagate::ipc::EventType::SessionLifecycle,
@@ -258,16 +298,23 @@ void IpcCommandRouter::Install()
                 return;
             }
 
+            std::cerr << "[router] StopSession replying OK id=" << cmd.id << std::endl;
             ipc_.ReplyOk(cmd.id, "{\"state\":\"idle\"}");
+
             ipc_.SendEvent(
                 datagate::ipc::EventType::SessionLifecycle,
                 BuildLifecyclePayload("stopped", "user_request", true)
             );
 
+            const uint64_t t1 = NowMs();
+            std::cerr << "[router] StopSession done id=" << cmd.id
+                      << " totalDtMs=" << (t1 - t0)
+                      << std::endl;
+
             return;
         }
 
-            case datagate::ipc::CommandType::GetStatus:
+        case datagate::ipc::CommandType::GetStatus:
         {
             const auto st = session_.GetState();
             const std::string payload = BuildStatusPayload(st);
@@ -284,6 +331,8 @@ void IpcCommandRouter::Install()
 
         case datagate::ipc::CommandType::StopEngine:
         {
+            std::cerr << "[router] StopEngine recv id=" << cmd.id << std::endl;
+
             ipc_.ReplyOk(cmd.id, "{}");
 
             ipc_.SendEvent(
@@ -296,6 +345,7 @@ void IpcCommandRouter::Install()
         }
 
         default:
+            std::cerr << "[router] Unknown command id=" << cmd.id << std::endl;
             ipc_.ReplyError(cmd.id, "unknown_command", "Unknown command");
             return;
         }

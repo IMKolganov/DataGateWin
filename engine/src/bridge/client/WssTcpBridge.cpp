@@ -17,11 +17,13 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <sstream>
+#include <thread>
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -42,7 +44,16 @@ struct WssTcpBridge::Impl
     btcp::acceptor acceptor{ioc};
     std::thread worker;
     std::atomic<bool> stopped{false};
+
+    std::atomic<uint64_t> activeSessions{0};
 };
+
+static std::string Tid()
+{
+    std::ostringstream oss;
+    oss << std::this_thread::get_id();
+    return oss.str();
+}
 
 static void EmitLog(const WssTcpBridge::Options& opt, const std::string& s)
 {
@@ -67,6 +78,7 @@ static void LogStep(const WssTcpBridge::Options& opt, const char* step)
     EmitLog(
         opt,
         std::string("[wss-bridge] ") + step +
+        " tid=" + Tid() +
         " host=" + opt.host +
         " port=" + opt.port +
         " path=" + opt.path +
@@ -88,6 +100,7 @@ static void DrainOpenSslErrors(const WssTcpBridge::Options& opt, const char* whe
 
         std::ostringstream oss;
         oss << "[wss-bridge] " << where
+            << " tid=" << Tid()
             << " openssl_error=0x" << std::hex << std::uppercase << e
             << " text=" << buf;
 
@@ -95,7 +108,7 @@ static void DrainOpenSslErrors(const WssTcpBridge::Options& opt, const char* whe
     }
 
     if (!any)
-        EmitLog(opt, std::string("[wss-bridge] ") + where + " openssl_error_queue=<empty>");
+        EmitLog(opt, std::string("[wss-bridge] ") + where + " tid=" + Tid() + " openssl_error_queue=<empty>");
 }
 
 static void LogEc(const WssTcpBridge::Options& opt, const char* where, const boost::system::error_code& ec)
@@ -104,6 +117,7 @@ static void LogEc(const WssTcpBridge::Options& opt, const char* where, const boo
 
     std::ostringstream oss;
     oss << "[wss-bridge] " << where
+        << " tid=" << Tid()
         << " ec=" << ec.value()
         << " category=" << ec.category().name()
         << " message=" << ec.message();
@@ -127,18 +141,19 @@ static void LogTlsInfo(const WssTcpBridge::Options& opt, SSL* ssl, const char* w
 {
     if (!ssl)
     {
-        EmitLog(opt, std::string("[wss-bridge] ") + where + " tls ssl=<null>");
+        EmitLog(opt, std::string("[wss-bridge] ") + where + " tid=" + Tid() + " tls ssl=<null>");
         return;
     }
 
     const char* ver = ::SSL_get_version(ssl);
     const char* cip = ::SSL_get_cipher_name(ssl);
-
     long vr = ::SSL_get_verify_result(ssl);
 
     {
         std::ostringstream oss;
         oss << "[wss-bridge] " << where
+            << " tid=" << Tid()
+            << " ssl=" << (void*)ssl
             << " tls_version=" << (ver ? ver : "<null>")
             << " cipher=" << (cip ? cip : "<null>")
             << " verify_result=" << vr
@@ -150,15 +165,15 @@ static void LogTlsInfo(const WssTcpBridge::Options& opt, SSL* ssl, const char* w
     X509* cert = ::SSL_get_peer_certificate(ssl);
     if (!cert)
     {
-        EmitLog(opt, std::string("[wss-bridge] ") + where + " peer_cert=<null>");
+        EmitLog(opt, std::string("[wss-bridge] ") + where + " tid=" + Tid() + " peer_cert=<null>");
         return;
     }
 
     X509_NAME* subj = ::X509_get_subject_name(cert);
     X509_NAME* iss  = ::X509_get_issuer_name(cert);
 
-    EmitLog(opt, std::string("[wss-bridge] ") + where + " peer_subject=" + X509NameToString(subj));
-    EmitLog(opt, std::string("[wss-bridge] ") + where + " peer_issuer=" + X509NameToString(iss));
+    EmitLog(opt, std::string("[wss-bridge] ") + where + " tid=" + Tid() + " peer_subject=" + X509NameToString(subj));
+    EmitLog(opt, std::string("[wss-bridge] ") + where + " tid=" + Tid() + " peer_issuer=" + X509NameToString(iss));
 
     ::X509_free(cert);
 }
@@ -169,16 +184,23 @@ WssTcpBridge::WssTcpBridge(Options opt)
 {
     impl_->sslCtx.set_default_verify_paths();
     impl_->sslCtx.set_verify_mode(opt_.verifyServerCert ? bssl::verify_peer : bssl::verify_none);
+
+    EmitLog(opt_, std::string("[wss-bridge] ctor tid=") + Tid() +
+                  " verifyServerCert=" + (opt_.verifyServerCert ? "true" : "false"));
 }
 
 WssTcpBridge::~WssTcpBridge()
 {
     Stop();
     delete impl_;
+    impl_ = nullptr;
 }
 
 void WssTcpBridge::Start()
 {
+    EmitLog(opt_, std::string("[wss-bridge] Start ENTER tid=") + Tid() +
+                  " listen=" + opt_.listenIp + ":" + std::to_string(opt_.listenPort));
+
     btcp::endpoint ep(basio::ip::make_address(opt_.listenIp), opt_.listenPort);
 
     impl_->acceptor.open(ep.protocol());
@@ -187,19 +209,42 @@ void WssTcpBridge::Start()
     impl_->acceptor.listen();
 
     DoAccept();
-    impl_->worker = std::thread([this] { impl_->ioc.run(); });
+    impl_->worker = std::thread([this]
+    {
+        EmitLog(opt_, std::string("[wss-bridge] io_context.run BEGIN tid=") + Tid());
+        impl_->ioc.run();
+        EmitLog(opt_, std::string("[wss-bridge] io_context.run END tid=") + Tid());
+    });
+
+    EmitLog(opt_, std::string("[wss-bridge] Start OK tid=") + Tid());
 }
 
 void WssTcpBridge::Stop()
 {
-    impl_->stopped.store(true);
+    if (!impl_) return;
+
+    const bool wasStopped = impl_->stopped.exchange(true);
+    if (wasStopped)
+        return;
+
+    EmitLog(opt_, std::string("[wss-bridge] Stop ENTER tid=") + Tid() +
+                  " activeSessions=" + std::to_string(impl_->activeSessions.load()));
 
     bbeast::error_code ec;
     impl_->acceptor.close(ec);
-    impl_->ioc.stop();
+    if (ec)
+        EmitLog(opt_, std::string("[wss-bridge] acceptor.close error tid=") + Tid() + " msg=" + ec.message());
+
+    // NOTE:
+    // We do NOT call ioc.stop() here to avoid tearing down in-flight synchronous operations
+    // happening in detached client threads that use the same io_context for their streams.
+    // The worker thread will exit when there are no more pending async_accept operations.
 
     if (impl_->worker.joinable())
         impl_->worker.join();
+
+    EmitLog(opt_, std::string("[wss-bridge] Stop OK tid=") + Tid() +
+                  " activeSessions=" + std::to_string(impl_->activeSessions.load()));
 }
 
 void WssTcpBridge::DoAccept()
@@ -224,8 +269,9 @@ void WssTcpBridge::DoAccept()
                 {
                     EmitLog(
                         opt_,
-                        std::string("[wss-bridge] accept error: ") +
-                        ec.message() + " (" + std::to_string(ec.value()) + ")"
+                        std::string("[wss-bridge] accept error tid=") + Tid() +
+                        " msg=" + ec.message() +
+                        " (" + std::to_string(ec.value()) + ")"
                     );
                 }
             }
@@ -243,6 +289,10 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
     );
 
     auto client = *holder;
+    impl_->activeSessions.fetch_add(1);
+
+    EmitLog(opt_, std::string("[wss-bridge] session BEGIN tid=") + Tid() +
+                  " client_ptr=" + (client ? "non-null" : "null"));
 
     try
     {
@@ -263,28 +313,9 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
         bbeast::get_lowest_layer(tlsStream).connect(results);
 
         LogStep(opt_, "tls handshake");
-        try
-        {
-            tlsStream.handshake(bssl::stream_base::client);
-            LogTlsInfo(opt_, tlsStream.native_handle(), "after_tls_handshake");
-            DrainOpenSslErrors(opt_, "after_tls_handshake");
-        }
-        catch (const boost::system::system_error& e)
-        {
-            std::ostringstream oss;
-            oss << "[wss-bridge] tls handshake threw"
-                << " ec=" << e.code().value()
-                << " category=" << e.code().category().name()
-                << " message=" << e.code().message()
-                << " what=" << e.what();
-
-            EmitLog(opt_, oss.str());
-
-            LogTlsInfo(opt_, tlsStream.native_handle(), "tls_handshake_exception_tls_info");
-            DrainOpenSslErrors(opt_, "tls_handshake_exception");
-
-            throw;
-        }
+        tlsStream.handshake(bssl::stream_base::client);
+        LogTlsInfo(opt_, tlsStream.native_handle(), "after_tls_handshake");
+        DrainOpenSslErrors(opt_, "after_tls_handshake");
 
         LogStep(opt_, "create ws stream");
         bws::stream<bbeast::ssl_stream<bbeast::tcp_stream>> ws(std::move(tlsStream));
@@ -300,51 +331,42 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
         ));
 
         LogStep(opt_, "ws handshake");
-        try
-        {
-            bbeast::http::response<bbeast::http::string_body> res;
-            ws.handshake(res, opt_.host, opt_.path);
+        bbeast::http::response<bbeast::http::string_body> res;
+        ws.handshake(res, opt_.host, opt_.path);
 
-            {
-                std::ostringstream oss;
-                oss << "[wss-bridge] ws_handshake_response status=" << res.result_int()
-                    << " reason=" << res.reason();
-                EmitLog(opt_, oss.str());
-            }
-
-            for (auto const& h : res)
-            {
-                std::ostringstream oss;
-                oss << "[wss-bridge] ws_handshake_header " << h.name_string() << ": " << h.value();
-                EmitLog(opt_, oss.str());
-            }
-
-            LogTlsInfo(opt_, ws.next_layer().native_handle(), "after_ws_handshake");
-            DrainOpenSslErrors(opt_, "after_ws_handshake");
-        }
-        catch (const boost::system::system_error& e)
         {
             std::ostringstream oss;
-            oss << "[wss-bridge] ws handshake threw"
-                << " ec=" << e.code().value()
-                << " category=" << e.code().category().name()
-                << " message=" << e.code().message()
-                << " what=" << e.what();
-
+            oss << "[wss-bridge] ws_handshake_response tid=" << Tid()
+                << " status=" << res.result_int()
+                << " reason=" << res.reason();
             EmitLog(opt_, oss.str());
-
-            LogTlsInfo(opt_, ws.next_layer().native_handle(), "ws_handshake_exception_tls_info");
-            DrainOpenSslErrors(opt_, "ws_handshake_exception");
-
-            throw;
         }
 
+        for (auto const& h : res)
+        {
+            std::ostringstream oss;
+            oss << "[wss-bridge] ws_handshake_header tid=" << Tid()
+                << " " << h.name_string() << ": " << h.value();
+            EmitLog(opt_, oss.str());
+        }
+
+        LogTlsInfo(opt_, ws.next_layer().native_handle(), "after_ws_handshake");
+        DrainOpenSslErrors(opt_, "after_ws_handshake");
+
+        // IMPORTANT:
+        // beast websocket stream is not thread-safe.
+        // We must serialize ALL operations on `ws` (read/write/close).
+        std::mutex wsMtx;
+
         std::atomic<bool> done{false};
+        std::atomic<int> doneBy{0}; // 1=tcp->ws, 2=ws->tcp, 3=main/close
 
         std::thread t1([&, client]()
         {
             std::array<uint8_t, 16 * 1024> buf{};
             uint64_t total = 0;
+
+            EmitLog(opt_, std::string("[wss-bridge] tcp->ws thread BEGIN tid=") + Tid());
 
             while (!done.load())
             {
@@ -358,14 +380,18 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 }
                 if (n == 0)
                 {
-                    EmitLog(opt_, "[wss-bridge] tcp->ws client read_some returned 0");
+                    EmitLog(opt_, std::string("[wss-bridge] tcp->ws read_some returned 0 tid=") + Tid());
                     break;
                 }
 
                 total += static_cast<uint64_t>(n);
 
                 boost::system::error_code wec;
-                ws.write(basio::buffer(buf.data(), n), wec);
+                {
+                    std::lock_guard<std::mutex> lock(wsMtx);
+                    ws.write(basio::buffer(buf.data(), n), wec);
+                }
+
                 if (wec)
                 {
                     LogEc(opt_, "tcp->ws ws.write", wec);
@@ -380,7 +406,13 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 }
             }
 
-            EmitLog(opt_, "[wss-bridge] tcp->ws loop exit total_bytes=" + std::to_string(total));
+            EmitLog(opt_, std::string("[wss-bridge] tcp->ws loop exit tid=") + Tid() +
+                          " total_bytes=" + std::to_string(total));
+
+            {
+                int expected = 0;
+                doneBy.compare_exchange_strong(expected, 1);
+            }
             done.store(true);
         });
 
@@ -389,12 +421,17 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
             bbeast::flat_buffer buf;
             uint64_t total = 0;
 
+            EmitLog(opt_, std::string("[wss-bridge] ws->tcp thread BEGIN tid=") + Tid());
+
             while (!done.load())
             {
                 buf.clear();
 
                 boost::system::error_code ec;
-                ws.read(buf, ec);
+                {
+                    std::lock_guard<std::mutex> lock(wsMtx);
+                    ws.read(buf, ec);
+                }
 
                 if (ec)
                 {
@@ -411,7 +448,8 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                         auto r = ws.reason();
 
                         std::ostringstream oss;
-                        oss << "[wss-bridge] ws closed code=" << static_cast<unsigned>(r.code)
+                        oss << "[wss-bridge] ws closed tid=" << Tid()
+                            << " code=" << static_cast<unsigned>(r.code)
                             << " reason=" << r.reason;
 
                         EmitLog(opt_, oss.str());
@@ -431,25 +469,47 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
                 }
             }
 
-            EmitLog(opt_, "[wss-bridge] ws->tcp loop exit total_bytes=" + std::to_string(total));
+            EmitLog(opt_, std::string("[wss-bridge] ws->tcp loop exit tid=") + Tid() +
+                          " total_bytes=" + std::to_string(total));
+
+            {
+                int expected = 0;
+                doneBy.compare_exchange_strong(expected, 2);
+            }
             done.store(true);
         });
 
         t1.join();
         t2.join();
 
-        boost::system::error_code cec;
-        if (ws.is_open())
         {
-            EmitLog(opt_, "[wss-bridge] ws closing...");
-            ws.close(bws::close_code::normal, cec);
-            LogEc(opt_, "ws.close", cec);
+            std::ostringstream oss;
+            EmitLog(opt_, std::string("[wss-bridge] join done tid=") + Tid() +
+                          " doneBy=" + std::to_string(doneBy.load()));
+            EmitLog(opt_, oss.str());
+        }
 
-            if (cec.category() == basio::error::get_ssl_category())
+        // Close websocket gracefully (serialized)
+        boost::system::error_code cec;
+        {
+            std::lock_guard<std::mutex> lock(wsMtx);
+
+            if (ws.is_open())
             {
-                LogTlsInfo(opt_, ws.next_layer().native_handle(), "ws_close_tls_info");
-                DrainOpenSslErrors(opt_, "ws_close_ssl_queue");
+                EmitLog(opt_, std::string("[wss-bridge] ws closing... tid=") + Tid());
+                ws.close(bws::close_code::normal, cec);
             }
+            else
+            {
+                EmitLog(opt_, std::string("[wss-bridge] ws already closed tid=") + Tid());
+            }
+        }
+
+        LogEc(opt_, "ws.close", cec);
+        if (cec.category() == basio::error::get_ssl_category())
+        {
+            LogTlsInfo(opt_, ws.next_layer().native_handle(), "ws_close_tls_info");
+            DrainOpenSslErrors(opt_, "ws_close_ssl_queue");
         }
 
         boost::system::error_code sec;
@@ -461,7 +521,7 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
     catch (const boost::system::system_error& e)
     {
         std::ostringstream oss;
-        oss << "[wss-bridge] error"
+        oss << "[wss-bridge] error tid=" << Tid()
             << " code=" << e.code().value()
             << " category=" << e.code().category().name()
             << " message=" << e.code().message()
@@ -474,6 +534,10 @@ void WssTcpBridge::HandleClient(void* nativeSocket)
     }
     catch (const std::exception& e)
     {
-        EmitLog(opt_, std::string("[wss-bridge] error what=") + e.what());
+        EmitLog(opt_, std::string("[wss-bridge] error tid=") + Tid() + " what=" + e.what());
     }
+
+    impl_->activeSessions.fetch_sub(1);
+    EmitLog(opt_, std::string("[wss-bridge] session END tid=") + Tid() +
+                  " activeSessions=" + std::to_string(impl_->activeSessions.load()));
 }
