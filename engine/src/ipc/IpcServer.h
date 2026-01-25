@@ -1,10 +1,15 @@
-﻿#pragma once
+﻿// IpcServer.h
+#pragma once
 
 #include "IpcProtocol.h"
 
 #include <windows.h>
 #include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -33,7 +38,6 @@ namespace datagate::ipc
 
         bool HasAnyClient() const;
 
-        // last time ANY IPC client actually did something (connect / read / write)
         uint64_t LastClientSeenTickMs() const;
 
     private:
@@ -41,8 +45,11 @@ namespace datagate::ipc
         void EventsAcceptLoop();
 
         void ReadControlLines(HANDLE hPipe);
-        void WriteControlLine(const std::string& line);
         void WriteEventsLine(const std::string& line);
+
+        void StartControlWriter(HANDLE hPipe);
+        void StopControlWriter();
+        void EnqueueControlLine(const std::string& line);
 
         static bool TryParseCommandLine(const std::string& line, Command& cmd);
         static HANDLE CreatePipeServer(const std::string& fullName, DWORD openMode, DWORD pipeMode);
@@ -62,5 +69,12 @@ namespace datagate::ipc
         std::atomic<uint64_t> _lastClientSeenMs{ 0 };
 
         CommandHandler _handler;
+
+        std::atomic<bool> _controlWriterRunning{ false };
+        std::thread _controlWriterThread;
+
+        std::mutex _controlOutMx;
+        std::condition_variable _controlOutCv;
+        std::deque<std::string> _controlOutQueue;
     };
 }

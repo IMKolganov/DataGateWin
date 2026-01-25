@@ -1,4 +1,5 @@
-﻿#include "IpcServer.h"
+﻿// IpcServer.cpp
+#include "IpcServer.h"
 
 #include <chrono>
 #include <cctype>
@@ -25,7 +26,6 @@ namespace datagate::ipc
         CloseHandle(h);
     }
 
-    // Allow everyone (NULL DACL) so UI can connect even if engine runs elevated.
     static SECURITY_ATTRIBUTES MakePipeSecurityAttributes()
     {
         SECURITY_ATTRIBUTES sa{};
@@ -34,7 +34,7 @@ namespace datagate::ipc
 
         auto* sd = (SECURITY_DESCRIPTOR*)LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
         InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
-        SetSecurityDescriptorDacl(sd, TRUE, nullptr, FALSE); // NULL DACL
+        SetSecurityDescriptorDacl(sd, TRUE, nullptr, FALSE);
 
         sa.lpSecurityDescriptor = sd;
         return sa;
@@ -60,8 +60,6 @@ namespace datagate::ipc
         return i;
     }
 
-    // Extract a JSON value starting at index i (object/array/string/number/true/false/null).
-    // Returns true and sets [outStart,outEndExclusive] on success.
     static bool TryExtractJsonValueRange(const std::string& s, size_t i, size_t& outStart, size_t& outEndExclusive)
     {
         i = SkipWs(s, i);
@@ -72,7 +70,6 @@ namespace datagate::ipc
 
         const char c = s[i];
 
-        // Object or array
         if (c == '{' || c == '[')
         {
             const char open = c;
@@ -88,35 +85,15 @@ namespace datagate::ipc
 
                 if (inString)
                 {
-                    if (escaped)
-                    {
-                        escaped = false;
-                        continue;
-                    }
-                    if (ch == '\\')
-                    {
-                        escaped = true;
-                        continue;
-                    }
-                    if (ch == '"')
-                    {
-                        inString = false;
-                        continue;
-                    }
+                    if (escaped) { escaped = false; continue; }
+                    if (ch == '\\') { escaped = true; continue; }
+                    if (ch == '"') { inString = false; continue; }
                     continue;
                 }
 
-                if (ch == '"')
-                {
-                    inString = true;
-                    continue;
-                }
+                if (ch == '"') { inString = true; continue; }
 
-                if (ch == open)
-                {
-                    depth++;
-                    continue;
-                }
+                if (ch == open) { depth++; continue; }
 
                 if (ch == close)
                 {
@@ -129,26 +106,17 @@ namespace datagate::ipc
                 }
             }
 
-            return false; // not closed
+            return false;
         }
 
-        // String
         if (c == '"')
         {
             bool escaped = false;
             for (size_t p = i + 1; p < s.size(); p++)
             {
                 const char ch = s[p];
-                if (escaped)
-                {
-                    escaped = false;
-                    continue;
-                }
-                if (ch == '\\')
-                {
-                    escaped = true;
-                    continue;
-                }
+                if (escaped) { escaped = false; continue; }
+                if (ch == '\\') { escaped = true; continue; }
                 if (ch == '"')
                 {
                     outEndExclusive = p + 1;
@@ -158,25 +126,10 @@ namespace datagate::ipc
             return false;
         }
 
-        // true/false/null
-        if (s.compare(i, 4, "true") == 0)
-        {
-            outEndExclusive = i + 4;
-            return true;
-        }
-        if (s.compare(i, 5, "false") == 0)
-        {
-            outEndExclusive = i + 5;
-            return true;
-        }
-        if (s.compare(i, 4, "null") == 0)
-        {
-            outEndExclusive = i + 4;
-            return true;
-        }
+        if (s.compare(i, 4, "true") == 0)  { outEndExclusive = i + 4; return true; }
+        if (s.compare(i, 5, "false") == 0) { outEndExclusive = i + 5; return true; }
+        if (s.compare(i, 4, "null") == 0)  { outEndExclusive = i + 4; return true; }
 
-        // Number (very permissive)
-        // Read until whitespace, comma, or end or closing brace/bracket.
         size_t p = i;
         while (p < s.size())
         {
@@ -252,6 +205,8 @@ namespace datagate::ipc
 
         std::cerr << "[ipc] Stop()" << std::endl;
 
+        StopControlWriter();
+
         HANDLE hc = _controlClient.exchange(INVALID_HANDLE_VALUE);
         HANDLE he = _eventsClient.exchange(INVALID_HANDLE_VALUE);
 
@@ -269,12 +224,98 @@ namespace datagate::ipc
 
     void IpcServer::ReplyOk(const std::string& id, const std::string& payloadJson)
     {
-        WriteControlLine(MakeOkResponseLine(id, payloadJson));
+        EnqueueControlLine(MakeOkResponseLine(id, payloadJson));
     }
 
     void IpcServer::ReplyError(const std::string& id, const std::string& code, const std::string& message)
     {
-        WriteControlLine(MakeErrorResponseLine(id, code, message));
+        EnqueueControlLine(MakeErrorResponseLine(id, code, message));
+    }
+
+    void IpcServer::StartControlWriter(HANDLE hPipe)
+    {
+        StopControlWriter();
+
+        {
+            std::lock_guard<std::mutex> lk(_controlOutMx);
+            _controlOutQueue.clear();
+        }
+
+        _controlWriterRunning.store(true);
+
+        _controlWriterThread = std::thread([this, hPipe]()
+        {
+            while (_running.load() && _controlWriterRunning.load())
+            {
+                std::string msg;
+
+                {
+                    std::unique_lock<std::mutex> lk(_controlOutMx);
+                    _controlOutCv.wait(lk, [this]()
+                    {
+                        return !_running.load()
+                            || !_controlWriterRunning.load()
+                            || !_controlOutQueue.empty();
+                    });
+
+                    if (!_running.load() || !_controlWriterRunning.load())
+                        break;
+
+                    msg = std::move(_controlOutQueue.front());
+                    _controlOutQueue.pop_front();
+                }
+
+                if (hPipe == INVALID_HANDLE_VALUE)
+                    continue;
+
+                DWORD written = 0;
+                BOOL ok = WriteFile(hPipe, msg.data(), (DWORD)msg.size(), &written, nullptr);
+                if (!ok)
+                {
+                    DWORD err = GetLastError();
+                    if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA)
+                    {
+                        _controlClient.store(INVALID_HANDLE_VALUE);
+                        break;
+                    }
+                }
+
+                _lastClientSeenMs.store(NowMs());
+            }
+        });
+    }
+
+    void IpcServer::StopControlWriter()
+    {
+        if (!_controlWriterRunning.exchange(false))
+            return;
+
+        _controlOutCv.notify_all();
+
+        if (_controlWriterThread.joinable())
+            _controlWriterThread.join();
+
+        {
+            std::lock_guard<std::mutex> lk(_controlOutMx);
+            _controlOutQueue.clear();
+        }
+    }
+
+    void IpcServer::EnqueueControlLine(const std::string& line)
+    {
+        HANDLE h = _controlClient.load();
+        if (h == INVALID_HANDLE_VALUE)
+            return;
+
+        if (!_controlWriterRunning.load())
+            return;
+
+        {
+            std::lock_guard<std::mutex> lk(_controlOutMx);
+            _controlOutQueue.push_back(line + "\n");
+        }
+
+        _controlOutCv.notify_one();
     }
 
     HANDLE IpcServer::CreatePipeServer(const std::string& fullName, DWORD openMode, DWORD pipeMode)
@@ -326,10 +367,13 @@ namespace datagate::ipc
             _controlClient.store(hPipe);
             _lastClientSeenMs.store(NowMs());
 
+            StartControlWriter(hPipe);
+
             ReadControlLines(hPipe);
 
             std::cerr << "[ipc][control] client disconnected" << std::endl;
 
+            StopControlWriter();
             _controlClient.store(INVALID_HANDLE_VALUE);
             SafeClosePipe(hPipe);
         }
@@ -415,7 +459,6 @@ namespace datagate::ipc
                 if (!TryParseCommandLine(line, cmd))
                 {
                     std::cerr << "[ipc][control] parse failed" << std::endl;
-                    // Can't safely reply with cmd.id (unknown), but do not kill the connection.
                     ReplyError("?", "bad_request", "Invalid command");
                     continue;
                 }
@@ -426,26 +469,6 @@ namespace datagate::ipc
                     ReplyError(cmd.id, "no_handler", "No command handler");
             }
         }
-    }
-
-    void IpcServer::WriteControlLine(const std::string& line)
-    {
-        HANDLE h = _controlClient.load();
-        if (h == INVALID_HANDLE_VALUE)
-            return;
-
-        std::string msg = line + "\n";
-        DWORD written = 0;
-
-        if (!WriteFile(h, msg.data(), (DWORD)msg.size(), &written, nullptr))
-        {
-            DWORD err = GetLastError();
-            if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA)
-                _controlClient.store(INVALID_HANDLE_VALUE);
-            return;
-        }
-
-        _lastClientSeenMs.store(NowMs());
     }
 
     void IpcServer::WriteEventsLine(const std::string& line)
@@ -503,7 +526,6 @@ namespace datagate::ipc
 
         cmd.type = CommandTypeFromString(type);
 
-        // Find "payload": <jsonValue>
         auto p = line.find("\"payload\"");
         if (p == std::string::npos) return false;
 

@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// IpcProtocol.h (your updated version with SessionLifecycle)
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -22,13 +23,14 @@ namespace datagate::ipc
         Log,
         Error,
         Connected,
-        Disconnected
+        Disconnected,
+        SessionLifecycle
     };
 
     struct PipeNames
     {
-        std::string controlPipe; // \\.\pipe\...
-        std::string eventsPipe;  // \\.\pipe\...
+        std::string controlPipe;
+        std::string eventsPipe;
     };
 
     inline PipeNames MakePipeNames(const std::string& sessionId)
@@ -43,7 +45,7 @@ namespace datagate::ipc
     {
         std::string id;
         CommandType type = CommandType::Unknown;
-        std::string payloadJson; // raw JSON object/any JSON, e.g. {"ovpnContent":"..."}
+        std::string payloadJson;
     };
 
     inline CommandType CommandTypeFromString(const std::string& s)
@@ -69,12 +71,13 @@ namespace datagate::ipc
 
     inline EventType EventTypeFromString(const std::string& s)
     {
-        if (s == "EngineReady")   return EventType::EngineReady;
-        if (s == "StateChanged")  return EventType::StateChanged;
-        if (s == "Log")           return EventType::Log;
-        if (s == "Error")         return EventType::Error;
-        if (s == "Connected")     return EventType::Connected;
-        if (s == "Disconnected")  return EventType::Disconnected;
+        if (s == "EngineReady")      return EventType::EngineReady;
+        if (s == "StateChanged")     return EventType::StateChanged;
+        if (s == "Log")              return EventType::Log;
+        if (s == "Error")            return EventType::Error;
+        if (s == "Connected")        return EventType::Connected;
+        if (s == "Disconnected")     return EventType::Disconnected;
+        if (s == "SessionLifecycle") return EventType::SessionLifecycle;
         return EventType::Unknown;
     }
 
@@ -82,13 +85,14 @@ namespace datagate::ipc
     {
         switch (t)
         {
-        case EventType::EngineReady:  return "EngineReady";
-        case EventType::StateChanged: return "StateChanged";
-        case EventType::Log:          return "Log";
-        case EventType::Error:        return "Error";
-        case EventType::Connected:    return "Connected";
-        case EventType::Disconnected: return "Disconnected";
-        default:                      return "Unknown";
+        case EventType::EngineReady:      return "EngineReady";
+        case EventType::StateChanged:     return "StateChanged";
+        case EventType::Log:              return "Log";
+        case EventType::Error:            return "Error";
+        case EventType::Connected:        return "Connected";
+        case EventType::Disconnected:     return "Disconnected";
+        case EventType::SessionLifecycle: return "SessionLifecycle";
+        default:                          return "Unknown";
         }
     }
 

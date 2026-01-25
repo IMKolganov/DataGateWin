@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <sstream>
 #include <string>
+#include <thread>
 
 // -------------------- tiny json helpers --------------------
 
@@ -139,6 +140,19 @@ static std::string BuildStatusPayload(const datagate::session::SessionState& st)
     return oss.str();
 }
 
+// -------------------- lifecycle payload --------------------
+
+static std::string BuildLifecyclePayload(const char* phase, const char* reason, bool success)
+{
+    std::ostringstream oss;
+    oss << "{"
+        << "\"phase\":\"" << datagate::ipc::JsonEscape(phase) << "\","
+        << "\"reason\":\"" << datagate::ipc::JsonEscape(reason) << "\","
+        << "\"success\":" << (success ? "true" : "false")
+        << "}";
+    return oss.str();
+}
+
 // -------------------- ctor --------------------
 
 IpcCommandRouter::IpcCommandRouter(datagate::ipc::IpcServer& ipc,
@@ -171,7 +185,7 @@ void IpcCommandRouter::Install()
                 return;
             }
 
-            // Bridge fields (your payload puts them at the root, not under bridge:{})
+            // Bridge fields (payload puts them at the root, not under bridge:{})
             TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
             TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
             TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
@@ -196,15 +210,58 @@ void IpcCommandRouter::Install()
                 return;
             }
 
+            // Kick off async start first, then reply.
+            // This ensures UI gets immediate response but still receives events later.
+            const bool accepted = orchestrator_.StartAsync(std::move(opt));
+            if (!accepted)
+            {
+                ipc_.ReplyError(cmd.id, "start_in_progress", "StartSession rejected (start already in progress)");
+                ipc_.SendEvent(
+                    datagate::ipc::EventType::SessionLifecycle,
+                    BuildLifecyclePayload("start_rejected", "start_in_progress", false)
+                );
+                return;
+            }
+
             ipc_.ReplyOk(cmd.id, "{}");
-            orchestrator_.StartAsync(std::move(opt));
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                BuildLifecyclePayload("starting", "user_request", true)
+            );
+
             return;
         }
 
         case datagate::ipc::CommandType::StopSession:
         {
-            ipc_.ReplyOk(cmd.id, "{}");
-            orchestrator_.StopAsync();
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                BuildLifecyclePayload("stopping", "user_request", true)
+            );
+
+            // IMPORTANT:
+            // Reply must be sent from the same thread/context as the command handler.
+            // Do NOT reply from detached threads unless IpcServer is explicitly designed for it.
+
+            orchestrator_.StopSync();
+
+            const bool stopped = orchestrator_.WaitForIdle(20000);
+            if (!stopped)
+            {
+                ipc_.ReplyError(cmd.id, "stop_timeout", "StopSession timed out (did not reach idle)");
+                ipc_.SendEvent(
+                    datagate::ipc::EventType::SessionLifecycle,
+                    BuildLifecyclePayload("stop_failed", "timeout", false)
+                );
+                return;
+            }
+
+            ipc_.ReplyOk(cmd.id, "{\"state\":\"idle\"}");
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                BuildLifecyclePayload("stopped", "user_request", true)
+            );
+
             return;
         }
 
@@ -217,6 +274,12 @@ void IpcCommandRouter::Install()
         case datagate::ipc::CommandType::StopEngine:
         {
             ipc_.ReplyOk(cmd.id, "{}");
+
+            ipc_.SendEvent(
+                datagate::ipc::EventType::SessionLifecycle,
+                BuildLifecyclePayload("engine_stopping", "stop_engine", true)
+            );
+
             orchestrator_.ShutdownAsync(stopEvent_);
             return;
         }
