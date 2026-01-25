@@ -1,17 +1,10 @@
-﻿// SessionController.h
-#pragma once
+﻿#pragma once
 
 #include "SessionState.h"
-#include "vpn/VpnRunner.h"
-#include "vpn/WintunHolder.h"
 
 #include <cstdint>
 #include <functional>
-#include <memory>
-#include <mutex>
 #include <string>
-
-class WssTcpBridge;
 
 namespace datagate::session
 {
@@ -35,8 +28,6 @@ namespace datagate::session
         std::string ovpnContentUtf8;
         BridgeOptions bridge;
 
-        // If true: always use local WSS->TCP bridge and force OVPN "remote 127.0.0.1 <port>".
-        // Also implies that original remote/proto/remote-random in the provided ovpn content are ignored/removed.
         bool forceWssBridge = true;
     };
 
@@ -73,29 +64,10 @@ namespace datagate::session
         SessionState GetState() const;
 
     private:
-        static std::string PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort);
-        static std::string PrependWindowsDriverWintun(const std::string& ovpn);
-
-        void StopLockedNoCallbacks();
-        void PublishState(const SessionState& snapshot);
-        void PublishError(const std::string& code, const std::string& message, bool fatal);
-
-        static std::string DefaultListenIp(const StartOptions& opt);
-        static uint16_t DefaultListenPort(const StartOptions& opt);
+        void RefreshCallbacksToStore();
 
     private:
-        mutable std::mutex _mtx;
-        SessionState _state{};
-
-        std::unique_ptr<WssTcpBridge> _bridge;
-        datagate::vpn::VpnRunner _vpn;
-
-        StartOptions _lastStart{};
-
-        datagate::wintun::WintunHolder _tun;
-        bool _tunReady = false;
-
-        // Deduplicate DISCONNECTED events (OpenVPN core can emit more than one per attempt)
-        bool _disconnectEmitted = false;
+        class Impl;
+        Impl* _impl;
     };
 }

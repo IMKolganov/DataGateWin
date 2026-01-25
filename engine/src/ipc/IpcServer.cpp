@@ -21,7 +21,9 @@ namespace datagate::ipc
         if (h == INVALID_HANDLE_VALUE)
             return;
 
+        // Cancel pending I/O on this handle
         CancelIoEx(h, nullptr);
+
         DisconnectNamedPipe(h);
         CloseHandle(h);
     }
@@ -146,6 +148,52 @@ namespace datagate::ipc
         return true;
     }
 
+    // Overlapped write with timeout to avoid permanent blocking in WriteFile().
+    // Returns true if written fully, false if failed/timeout.
+    static bool WriteFileWithTimeout(HANDLE hPipe, const void* data, DWORD len, DWORD& outWritten, DWORD timeoutMs)
+    {
+        outWritten = 0;
+
+        OVERLAPPED ov{};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!ov.hEvent)
+            return false;
+
+        BOOL ok = WriteFile(hPipe, data, len, &outWritten, &ov);
+        if (ok)
+        {
+            CloseHandle(ov.hEvent);
+            return true;
+        }
+
+        DWORD err = GetLastError();
+        if (err != ERROR_IO_PENDING)
+        {
+            CloseHandle(ov.hEvent);
+            return false;
+        }
+
+        DWORD waitRc = WaitForSingleObject(ov.hEvent, timeoutMs);
+        if (waitRc != WAIT_OBJECT_0)
+        {
+            // timeout or abandoned -> cancel I/O
+            CancelIoEx(hPipe, &ov);
+            CloseHandle(ov.hEvent);
+            return false;
+        }
+
+        DWORD transferred = 0;
+        if (!GetOverlappedResult(hPipe, &ov, &transferred, FALSE))
+        {
+            CloseHandle(ov.hEvent);
+            return false;
+        }
+
+        outWritten = transferred;
+        CloseHandle(ov.hEvent);
+        return (outWritten == len);
+    }
+
     IpcServer::IpcServer(std::string sessionId)
         : _sessionId(std::move(sessionId)),
           _pipes(MakePipeNames(_sessionId))
@@ -224,12 +272,27 @@ namespace datagate::ipc
 
     void IpcServer::ReplyOk(const std::string& id, const std::string& payloadJson)
     {
-        EnqueueControlLine(MakeOkResponseLine(id, payloadJson));
+        const std::string line = MakeOkResponseLine(id, payloadJson);
+
+        std::cerr
+            << "[ipc][control] enqueue OK id=" << id
+            << " bytes=" << line.size()
+            << std::endl;
+
+        EnqueueControlLine(line);
     }
 
     void IpcServer::ReplyError(const std::string& id, const std::string& code, const std::string& message)
     {
-        EnqueueControlLine(MakeErrorResponseLine(id, code, message));
+        const std::string line = MakeErrorResponseLine(id, code, message);
+
+        std::cerr
+            << "[ipc][control] enqueue ERR id=" << id
+            << " code=" << code
+            << " bytes=" << line.size()
+            << std::endl;
+
+        EnqueueControlLine(line);
     }
 
     void IpcServer::StartControlWriter(HANDLE hPipe)
@@ -245,6 +308,8 @@ namespace datagate::ipc
 
         _controlWriterThread = std::thread([this, hPipe]()
         {
+            std::cerr << "[ipc][control] writer thread started" << std::endl;
+
             while (_running.load() && _controlWriterRunning.load())
             {
                 std::string msg;
@@ -268,20 +333,43 @@ namespace datagate::ipc
                 if (hPipe == INVALID_HANDLE_VALUE)
                     continue;
 
+                std::cerr
+                    << "[ipc][control] write TRY hPipe=" << hPipe
+                    << " bytes=" << msg.size()
+                    << " preview=" << msg.substr(0, 140)
+                    << std::endl;
+
                 DWORD written = 0;
-                BOOL ok = WriteFile(hPipe, msg.data(), (DWORD)msg.size(), &written, nullptr);
+
+                // IMPORTANT: prevent permanent blocking
+                const DWORD writeTimeoutMs = 1500;
+
+                const bool ok = WriteFileWithTimeout(hPipe, msg.data(), (DWORD)msg.size(), written, writeTimeoutMs);
+
                 if (!ok)
                 {
-                    DWORD err = GetLastError();
-                    if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA)
-                    {
-                        _controlClient.store(INVALID_HANDLE_VALUE);
-                        break;
-                    }
+                    const DWORD err = GetLastError();
+
+                    std::cerr
+                        << "[ipc][control] write FAILED/TIMEOUT hPipe=" << hPipe
+                        << " err=" << err
+                        << " bytes=" << msg.size()
+                        << " written=" << written
+                        << std::endl;
+
+                    _controlClient.store(INVALID_HANDLE_VALUE);
+                    break;
                 }
+
+                std::cerr
+                    << "[ipc][control] write OK hPipe=" << hPipe
+                    << " bytes=" << written
+                    << std::endl;
 
                 _lastClientSeenMs.store(NowMs());
             }
+
+            std::cerr << "[ipc][control] writer thread stopped" << std::endl;
         });
     }
 
@@ -305,14 +393,23 @@ namespace datagate::ipc
     {
         HANDLE h = _controlClient.load();
         if (h == INVALID_HANDLE_VALUE)
+        {
+            std::cerr << "[ipc][control] enqueue SKIP (no client)" << std::endl;
             return;
+        }
 
         if (!_controlWriterRunning.load())
+        {
+            std::cerr << "[ipc][control] enqueue SKIP (writer not running)" << std::endl;
             return;
+        }
+
+        std::cerr << "[ipc][control] enqueue to hPipe=" << h << std::endl;
 
         {
             std::lock_guard<std::mutex> lk(_controlOutMx);
             _controlOutQueue.push_back(line + "\n");
+            std::cerr << "[ipc][control] queue size=" << _controlOutQueue.size() << std::endl;
         }
 
         _controlOutCv.notify_one();
@@ -341,9 +438,10 @@ namespace datagate::ipc
     {
         while (_running.load())
         {
+            // Overlapped is critical for write timeouts to work reliably
             HANDLE hPipe = CreatePipeServer(
                 _pipes.controlPipe,
-                PIPE_ACCESS_DUPLEX,
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
             );
 
@@ -363,7 +461,7 @@ namespace datagate::ipc
                 continue;
             }
 
-            std::cerr << "[ipc][control] client connected" << std::endl;
+            std::cerr << "[ipc][control] client connected hPipe=" << hPipe << std::endl;
             _controlClient.store(hPipe);
             _lastClientSeenMs.store(NowMs());
 
@@ -371,7 +469,7 @@ namespace datagate::ipc
 
             ReadControlLines(hPipe);
 
-            std::cerr << "[ipc][control] client disconnected" << std::endl;
+            std::cerr << "[ipc][control] client disconnected hPipe=" << hPipe << std::endl;
 
             StopControlWriter();
             _controlClient.store(INVALID_HANDLE_VALUE);

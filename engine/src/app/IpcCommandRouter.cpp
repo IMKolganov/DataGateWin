@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <iostream>
 
 // -------------------- tiny json helpers --------------------
 
@@ -172,6 +173,7 @@ void IpcCommandRouter::Install()
 {
     ipc_.SetCommandHandler([this](const datagate::ipc::Command& cmd)
     {
+
         switch (cmd.type)
         {
         case datagate::ipc::CommandType::StartSession:
@@ -265,9 +267,18 @@ void IpcCommandRouter::Install()
             return;
         }
 
-        case datagate::ipc::CommandType::GetStatus:
+            case datagate::ipc::CommandType::GetStatus:
         {
-            ipc_.ReplyOk(cmd.id, BuildStatusPayload(session_.GetState()));
+            const auto st = session_.GetState();
+            const std::string payload = BuildStatusPayload(st);
+
+            std::cerr
+                << "[ipc][control] reply GetStatus id=" << cmd.id
+                << " state=" << datagate::session::ToString(st.phase)
+                << " payload=" << payload
+                << std::endl;
+
+            ipc_.ReplyOk(cmd.id, payload);
             return;
         }
 
