@@ -1,6 +1,7 @@
 ﻿#include "BridgeManager.h"
 
 #include "bridge/client/WssTcpBridge.h"
+#include "SessionController.h"
 
 #include <utility>
 
@@ -11,6 +12,8 @@ namespace datagate::session
         std::unique_ptr<WssTcpBridge> bridge;
         std::string listenIp = "127.0.0.1";
         uint16_t listenPort = 18080;
+
+        LogCallback log;
     };
 
     BridgeManager::BridgeManager()
@@ -23,6 +26,17 @@ namespace datagate::session
         Stop();
     }
 
+    void BridgeManager::SetLog(LogCallback cb)
+    {
+        _impl->log = std::move(cb);
+
+        if (_impl->bridge)
+        {
+            // Optional: keep bridge logging consistent if you ever recreate it.
+            // WssTcpBridge does not expose changing Options at runtime.
+        }
+    }
+
     std::string BridgeManager::DefaultListenIp(const StartOptions& opt)
     {
         return opt.bridge.listenIp.empty() ? std::string("127.0.0.1") : opt.bridge.listenIp;
@@ -33,35 +47,47 @@ namespace datagate::session
         return opt.bridge.listenPort == 0 ? static_cast<uint16_t>(18080) : opt.bridge.listenPort;
     }
 
-    bool BridgeManager::Start(const StartOptions& opt, std::string& outError)
+    bool BridgeManager::Activate(const StartOptions& opt, std::string& outError)
     {
         try
         {
-            WssTcpBridge::Options bo;
-            bo.host = opt.bridge.host;
-            bo.port = opt.bridge.port;
-            bo.path = opt.bridge.path;
-            bo.sni = opt.bridge.sni;
-
             _impl->listenIp = DefaultListenIp(opt);
             _impl->listenPort = DefaultListenPort(opt);
 
-            bo.listenIp = _impl->listenIp;
-            bo.listenPort = _impl->listenPort;
+            if (!_impl->bridge)
+            {
+                WssTcpBridge::Options wo;
+                wo.listenIp = _impl->listenIp;
+                wo.listenPort = _impl->listenPort;
+                wo.log = _impl->log;
 
-            bo.verifyServerCert = opt.bridge.verifyServerCert;
-            bo.authorizationHeader = opt.bridge.authorizationHeader;
+                _impl->bridge = std::make_unique<WssTcpBridge>(std::move(wo));
+                _impl->bridge->Start();
+            }
 
-            auto bridge = std::make_unique<WssTcpBridge>(std::move(bo));
-            bridge->Start();
+            WssTcpBridge::Target t;
+            t.host = opt.bridge.host;
+            t.port = opt.bridge.port;
+            t.path = opt.bridge.path;
+            t.sni = opt.bridge.sni;
+            t.verifyServerCert = opt.bridge.verifyServerCert;
+            t.authorizationHeader = opt.bridge.authorizationHeader;
 
-            _impl->bridge = std::move(bridge);
+            _impl->bridge->UpdateTarget(std::move(t));
             return true;
         }
         catch (...)
         {
-            outError = "Failed to start WSS TCP bridge";
+            outError = "Failed to activate WSS TCP bridge";
             return false;
+        }
+    }
+
+    void BridgeManager::Deactivate()
+    {
+        if (_impl->bridge)
+        {
+            try { _impl->bridge->ClearTarget(); } catch (...) {}
         }
     }
 
@@ -76,7 +102,7 @@ namespace datagate::session
 
     bool BridgeManager::IsRunning() const
     {
-        return _impl->bridge != nullptr;
+        return _impl->bridge != nullptr && _impl->bridge->IsStarted();
     }
 
     std::string BridgeManager::ListenIp() const

@@ -5,7 +5,6 @@
 #include "SessionStateStore.h"
 #include "VpnSessionRunner.h"
 #include "WintunAdapterManager.h"
-#include "bridge/client/WssTcpBridge.h"
 
 #include <mutex>
 #include <sstream>
@@ -37,6 +36,10 @@ namespace datagate::session
 
         Impl()
         {
+            bridge.SetLog([this](const std::string& line)
+            {
+                store.PublishLogLine(line);
+            });
             vpn.SetCallbacks(
                 [this](const std::string& line)
                 {
@@ -118,9 +121,9 @@ namespace datagate::session
             vpn.Stop();
             store.PublishLogLine("[session] StopAllNoCallbacks: vpn.Stop() done");
 
-            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Stop()...");
-            bridge.Stop();
-            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Stop() done");
+            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Deactivate()...");
+            bridge.Deactivate();
+            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Deactivate() done");
         }
     };
 
@@ -133,6 +136,7 @@ namespace datagate::session
     SessionController::~SessionController()
     {
         Stop();
+        _impl->bridge.Stop();
         delete _impl;
         _impl = nullptr;
     }
@@ -184,11 +188,11 @@ namespace datagate::session
         // 1) Start local WSS->TCP bridge
         {
             std::string bridgeErr;
-            _impl->store.PublishLogLine("[session] bridge.Start()...");
-            if (!_impl->bridge.Start(opt, bridgeErr))
+            _impl->store.PublishLogLine("[session] bridge.Activate()...");
+            if (!_impl->bridge.Activate(opt, bridgeErr))
             {
                 const std::string code = "bridge_start_failed";
-                const std::string msg = bridgeErr.empty() ? std::string("Failed to start WSS TCP bridge") : bridgeErr;
+                const std::string msg = bridgeErr.empty() ? std::string("Failed to activate WSS TCP bridge") : bridgeErr;
 
                 _impl->store.SetError(code, msg);
                 _impl->store.PublishError(code, msg, true);
@@ -201,7 +205,7 @@ namespace datagate::session
 
             {
                 std::ostringstream oss;
-                oss << "[session] bridge.Start() OK"
+                oss << "[session] bridge.Activate() OK"
                     << " listenIp=" << _impl->bridge.ListenIp()
                     << " listenPort=" << _impl->bridge.ListenPort();
                 _impl->store.PublishLogLine(oss.str());
@@ -340,11 +344,11 @@ namespace datagate::session
             _impl->store.PublishLogLine(oss.str());
         }
 
-        if (_impl->store.GetState().phase != SessionPhase::Stopped)
+        if (_impl->store.GetState().phase != SessionPhase::Idle)
         {
-            _impl->store.SetPhase(SessionPhase::Stopped);
+            _impl->store.SetPhase(SessionPhase::Idle);
             _impl->store.PublishStateSnapshot();
-            _impl->store.PublishLogLine("[session] Stop() phase forced to Stopped");
+            _impl->store.PublishLogLine("[session] Stop() phase forced to Idle");
         }
 
         const auto after = _impl->store.GetState();
