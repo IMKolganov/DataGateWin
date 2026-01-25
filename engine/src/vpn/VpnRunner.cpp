@@ -1,4 +1,5 @@
-﻿#include "VpnRunner.h"
+﻿// src/vpn/VpnRunner.cpp
+#include "VpnRunner.h"
 
 #include "vpn/client/VpnClient.h"
 
@@ -11,53 +12,94 @@ namespace datagate::vpn
         Stop();
     }
 
-    void VpnRunner::ResetClient()
+    void VpnRunner::ResetClientLocked()
     {
         _client.reset();
     }
 
     bool VpnRunner::Start(const std::string& ovpnContentUtf8, std::string& outError)
     {
-        std::lock_guard<std::mutex> lock(_mtx);
+        std::unique_ptr<VpnClient> client = std::make_unique<VpnClient>();
 
-        if (_client)
+        client->OnConnected = [this](const VpnClient::ConnectedInfo& ci)
         {
-            outError = "VPN already started";
-            return false;
-        }
+            std::function<void(const ConnectedInfo&)> cb;
+            {
+                std::lock_guard<std::mutex> lock(_mtx);
+                cb = OnConnected;
+            }
 
-        _client = std::make_unique<VpnClient>();
-
-        _client->OnConnected = [&](const VpnClient::ConnectedInfo& ci)
-        {
-            if (!OnConnected)
+            if (!cb)
                 return;
 
-            ConnectedInfo x;
+            ConnectedInfo x{};
             x.vpnIfIndex = ci.vpnIfIndex;
             x.vpnIpv4 = ci.vpnIpv4;
-            OnConnected(x);
+            cb(x);
         };
 
-        _client->OnDisconnected = [&](const std::string& reason)
+        client->OnDisconnected = [this](const std::string& reason)
         {
-            if (OnDisconnected)
-                OnDisconnected(reason);
+            std::function<void(const std::string&)> cb;
+            {
+                std::lock_guard<std::mutex> lock(_mtx);
+                cb = OnDisconnected;
+            }
+
+            if (cb)
+                cb(reason);
         };
 
-        auto eval = _client->Eval(ovpnContentUtf8);
+        // NEW: forward log lines from core
+        client->OnLog = [this](const std::string& line)
+        {
+            std::function<void(const std::string&)> cb;
+            {
+                std::lock_guard<std::mutex> lock(_mtx);
+                cb = OnLog;
+            }
+            if (cb)
+                cb(line);
+        };
+
+        {
+            std::lock_guard<std::mutex> lock(_mtx);
+            if (_client)
+            {
+                outError = "VPN already started";
+                return false;
+            }
+            _client = std::move(client);
+        }
+
+        VpnClient* c = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(_mtx);
+            c = _client.get();
+        }
+
+        // helpful stage logs
+        if (OnLog)
+            OnLog("[vpn] Eval()...");
+
+        auto eval = c->Eval(ovpnContentUtf8);
         if (eval.error)
         {
             outError = "Eval failed: " + eval.message;
-            ResetClient();
+            std::lock_guard<std::mutex> lock(_mtx);
+            ResetClientLocked();
             return false;
         }
 
-        auto status = _client->Connect();
+        if (OnLog)
+            OnLog("[vpn] Connect()...");
+
+        auto status = c->Connect();
         if (status.error)
         {
             outError = "Connect failed: " + status.message;
-            ResetClient();
+            std::lock_guard<std::mutex> lock(_mtx);
+            ResetClientLocked();
             return false;
         }
 
@@ -76,21 +118,8 @@ namespace datagate::vpn
         if (!local)
             return;
 
-        try
-        {
-            local->Stop();
-        }
-        catch (...)
-        {
-        }
-
-        try
-        {
-            local->WaitDone();
-        }
-        catch (...)
-        {
-        }
+        try { local->Stop(); } catch (...) {}
+        try { local->WaitDone(); } catch (...) {}
     }
 
     bool VpnRunner::IsConnected() const

@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// SessionState.h
+#pragma once
 
 #include <string>
 
@@ -19,7 +20,6 @@ namespace datagate::session
     {
         SessionPhase phase = SessionPhase::Idle;
 
-        // Optional: last error info for UI/logs
         std::string lastErrorCode;
         std::string lastErrorMessage;
 

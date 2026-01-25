@@ -1,284 +1,367 @@
 ﻿#include "SessionController.h"
 
-#include "bridge/client/WssTcpBridge.h"
-#include "vpn/VpnRunner.h"
+#include "BridgeManager.h"
+#include "OvpnConfigProcessor.h"
+#include "SessionStateStore.h"
+#include "VpnSessionRunner.h"
+#include "WintunAdapterManager.h"
 
+#include <mutex>
+#include <sstream>
 #include <utility>
 
 namespace datagate::session
 {
-    static SessionState WithPhase(SessionState st, SessionPhase phase)
+    static const char* GuessStopInitiator(SessionPhase phase)
     {
-        st.phase = phase;
-        return st;
+        // Best-effort guess based on current phase at the moment callback fires.
+        // - If we are in Stopping => most likely user initiated StopSession
+        // - Otherwise => transport/network error or remote close
+        if (phase == SessionPhase::Stopping)
+            return "user_stop";
+
+        return "transport_error";
     }
 
-    std::string SessionController::PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort)
+    class SessionController::Impl
     {
-        std::string patched;
-        patched.reserve(ovpn.size() + 128);
+    public:
+        SessionStateStore store;
+        WintunAdapterManager wintun;
+        BridgeManager bridge;
+        OvpnConfigProcessor ovpn;
+        VpnSessionRunner vpn;
 
-        patched += "remote ";
-        patched += localHost;
-        patched += " ";
-        patched += std::to_string(localPort);
-        patched += "\n";
+        std::mutex cbMtx;
 
-        patched += ovpn;
-        return patched;
-    }
+        Impl()
+        {
+            bridge.SetLog([this](const std::string& line)
+            {
+                store.PublishLogLine(line);
+            });
+            vpn.SetCallbacks(
+                [this](const std::string& line)
+                {
+                    store.PublishLogLine("[ovpn] " + line);
+                },
+                [this](const datagate::vpn::VpnRunner::ConnectedInfo& ci)
+                {
+                    store.ResetDisconnectDedup();
 
-    std::string SessionController::DefaultListenIp(const StartOptions& opt)
-    {
-        return opt.bridge.listenIp.empty() ? std::string("127.0.0.1") : opt.bridge.listenIp;
-    }
+                    store.SetPhase(SessionPhase::Connected);
+                    store.PublishStateSnapshot();
 
-    uint16_t SessionController::DefaultListenPort(const StartOptions& opt)
-    {
-        return opt.bridge.listenPort == 0 ? static_cast<uint16_t>(18080) : opt.bridge.listenPort;
-    }
+                    ConnectedInfo x{};
+                    x.vpnIfIndex = ci.vpnIfIndex;
+                    x.vpnIpv4 = ci.vpnIpv4;
+                    store.PublishConnected(x);
+
+                    std::ostringstream oss;
+                    oss << "[session] connected callback: ifIndex=" << ci.vpnIfIndex
+                        << " ipv4=" << ci.vpnIpv4;
+                    store.PublishLogLine(oss.str());
+                },
+                [this](const std::string& reason)
+                {
+                    const auto before = store.GetState();
+                    const char* initiator = GuessStopInitiator(before.phase);
+
+                    std::ostringstream oss0;
+                    oss0 << "[session] disconnected callback ENTER"
+                         << " initiator=" << initiator
+                         << " prev_phase=" << ToString(before.phase)
+                         << " reason=" << reason;
+                    store.PublishLogLine(oss0.str());
+
+                    const bool shouldEmitDisconnected = store.MarkDisconnectedOnce();
+                    store.PublishLogLine(std::string("[session] disconnected dedup: emit=") + (shouldEmitDisconnected ? "true" : "false"));
+
+                    const bool wasRunning =
+                        before.phase == SessionPhase::Connected ||
+                        before.phase == SessionPhase::Connecting ||
+                        before.phase == SessionPhase::Starting;
+
+                    store.PublishLogLine(std::string("[session] disconnected wasRunning=") + (wasRunning ? "true" : "false"));
+
+                    if (wasRunning)
+                    {
+                        store.SetPhase(SessionPhase::Stopped);
+                        store.PublishStateSnapshot();
+
+                        const auto after = store.GetState();
+                        std::ostringstream oss1;
+                        oss1 << "[session] phase transition on disconnect: "
+                             << ToString(before.phase) << " -> " << ToString(after.phase);
+                        store.PublishLogLine(oss1.str());
+                    }
+
+                    if (shouldEmitDisconnected)
+                    {
+                        store.PublishDisconnected(reason);
+                        store.PublishLogLine("[session] disconnected event published");
+                    }
+                    else
+                    {
+                        store.PublishLogLine("[session] disconnected event suppressed (dedup)");
+                    }
+
+                    store.PublishLogLine("[session] disconnected callback EXIT");
+                });
+        }
+
+        void SyncCallbacksFromController(const SessionController& c)
+        {
+            store.SetCallbacks(c.OnStateChanged, c.OnLog, c.OnError, c.OnConnected, c.OnDisconnected);
+        }
+
+        void StopAllNoCallbacks()
+        {
+            store.PublishLogLine("[session] StopAllNoCallbacks: vpn.Stop()...");
+            vpn.Stop();
+            store.PublishLogLine("[session] StopAllNoCallbacks: vpn.Stop() done");
+
+            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Deactivate()...");
+            bridge.Deactivate();
+            store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Deactivate() done");
+        }
+    };
 
     SessionController::SessionController()
+        : _impl(new Impl())
     {
-        // Wire VPN callbacks once. They read user callbacks atomically (copy under lock), then invoke outside lock.
-        _vpn.OnConnected = [this](const datagate::vpn::VpnRunner::ConnectedInfo& ci)
-        {
-            ConnectedCallback onConnected;
-            StateChangedCallback onStateChanged;
-            SessionState snapshot;
-
-            {
-                std::lock_guard<std::mutex> lock(_mtx);
-
-                if (OnConnected) onConnected = OnConnected;
-                if (OnStateChanged) onStateChanged = OnStateChanged;
-
-                _state.phase = SessionPhase::Connected;
-                snapshot = _state;
-            }
-
-            if (onConnected)
-            {
-                ConnectedInfo x{};
-                x.vpnIfIndex = ci.vpnIfIndex;
-                x.vpnIpv4 = ci.vpnIpv4;
-                onConnected(x);
-            }
-
-            if (onStateChanged)
-                onStateChanged(snapshot);
-        };
-
-        _vpn.OnDisconnected = [this](const std::string& reason)
-        {
-            DisconnectedCallback onDisconnected;
-            StateChangedCallback onStateChanged;
-            SessionState snapshot;
-
-            {
-                std::lock_guard<std::mutex> lock(_mtx);
-
-                if (OnDisconnected) onDisconnected = OnDisconnected;
-                if (OnStateChanged) onStateChanged = OnStateChanged;
-
-                if (_state.phase == SessionPhase::Connected || _state.phase == SessionPhase::Connecting)
-                    _state.phase = SessionPhase::Stopped;
-
-                snapshot = _state;
-            }
-
-            if (onDisconnected)
-                onDisconnected(reason);
-
-            if (onStateChanged)
-                onStateChanged(snapshot);
-        };
+        RefreshCallbacksToStore();
     }
 
     SessionController::~SessionController()
     {
         Stop();
+        _impl->bridge.Stop();
+        delete _impl;
+        _impl = nullptr;
     }
 
-    void SessionController::PublishState(const SessionState& snapshot)
+    void SessionController::RefreshCallbacksToStore()
     {
-        auto cb = OnStateChanged;
-        if (cb) cb(snapshot);
-    }
-
-    void SessionController::PublishError(const std::string& code, const std::string& message, bool fatal)
-    {
-        auto cb = OnError;
-        if (cb) cb(code, message, fatal);
+        _impl->SyncCallbacksFromController(*this);
     }
 
     bool SessionController::Start(const StartOptions& opt, std::string& outError)
     {
-        StateChangedCallback onStateChanged;
-        ErrorCallback onError;
-        LogCallback onLog;
+        RefreshCallbacksToStore();
 
+        _impl->store.PublishLogLine("[session] Start() ENTER");
+
+        if (!_impl->store.TryEnterStarting(outError))
         {
-            std::lock_guard<std::mutex> lock(_mtx);
+            _impl->store.PublishLogLine(std::string("[session] Start() rejected: ") + outError);
+            return false;
+        }
 
-            if (_state.IsRunning())
+        _impl->store.SetLastStartOptions(opt);
+        _impl->store.PublishStateSnapshot();
+
+        // 0) Ensure Wintun adapter exists
+        {
+            std::string tunErr;
+            _impl->store.PublishLogLine("[session] EnsureReady(Wintun)...");
+            if (!_impl->wintun.EnsureReady(tunErr))
             {
-                outError = "Session already running";
+                const std::string code = "tun_init_failed";
+                const std::string msg = "Failed to init Wintun adapter: " + tunErr;
+
+                _impl->store.SetError(code, msg);
+                _impl->store.PublishError(code, msg, true);
+                _impl->store.PublishStateSnapshot();
+
+                outError = msg;
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 return false;
             }
 
-            _lastStart = opt;
-            _state.lastErrorCode.clear();
-            _state.lastErrorMessage.clear();
-            _state.phase = SessionPhase::Starting;
-
-            onStateChanged = OnStateChanged;
-            onError = OnError;
-            onLog = OnLog;
+            if (auto idx = _impl->wintun.GetIfIndex())
+                _impl->store.PublishLogLine("[session] wintun adapter ifIndex=" + std::to_string(*idx));
+            else
+                _impl->store.PublishLogLine("[session] wintun adapter ifIndex=<unknown>");
         }
-
-        if (onStateChanged) onStateChanged(GetState());
 
         // 1) Start local WSS->TCP bridge
-        try
         {
-            WssTcpBridge::Options bo;
-            bo.host = opt.bridge.host;
-            bo.port = opt.bridge.port;
-            bo.path = opt.bridge.path;
-            bo.sni = opt.bridge.sni;
-            bo.listenIp = DefaultListenIp(opt);
-            bo.listenPort = DefaultListenPort(opt);
-            bo.verifyServerCert = opt.bridge.verifyServerCert;
-            bo.authorizationHeader = opt.bridge.authorizationHeader;
-
-            auto bridge = std::make_unique<WssTcpBridge>(std::move(bo));
-            bridge->Start();
-
+            std::string bridgeErr;
+            _impl->store.PublishLogLine("[session] bridge.Activate()...");
+            if (!_impl->bridge.Activate(opt, bridgeErr))
             {
-                std::lock_guard<std::mutex> lock(_mtx);
-                _bridge = std::move(bridge);
-                _state.phase = SessionPhase::Connecting;
+                const std::string code = "bridge_start_failed";
+                const std::string msg = bridgeErr.empty() ? std::string("Failed to activate WSS TCP bridge") : bridgeErr;
+
+                _impl->store.SetError(code, msg);
+                _impl->store.PublishError(code, msg, true);
+                _impl->store.PublishStateSnapshot();
+
+                outError = msg;
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
+                return false;
             }
 
-            if (onStateChanged) onStateChanged(GetState());
-        }
-        catch (...)
-        {
-            const std::string code = "bridge_start_failed";
-            const std::string msg = "Failed to start WSS TCP bridge";
-
             {
-                std::lock_guard<std::mutex> lock(_mtx);
-                _state.lastErrorCode = code;
-                _state.lastErrorMessage = msg;
-                _state.phase = SessionPhase::Error;
+                std::ostringstream oss;
+                oss << "[session] bridge.Activate() OK"
+                    << " listenIp=" << _impl->bridge.ListenIp()
+                    << " listenPort=" << _impl->bridge.ListenPort();
+                _impl->store.PublishLogLine(oss.str());
             }
 
-            if (onError) onError(code, msg, true);
-            if (onStateChanged) onStateChanged(GetState());
-
-            outError = msg;
-            return false;
+            _impl->store.SetPhase(SessionPhase::Connecting);
+            _impl->store.PublishStateSnapshot();
         }
 
-        // 2) Patch OVPN to point to local bridge
-        const auto ovpnPatched = PatchOvpnRemoteToLocal(
-            opt.ovpnContentUtf8,
-            DefaultListenIp(opt),
-            DefaultListenPort(opt)
-        );
+        // 2) Patch OVPN to point to local bridge, validate, add windows-driver
+        const std::string localIp = _impl->bridge.ListenIp();
+        const uint16_t localPort = _impl->bridge.ListenPort();
 
-        // Optional debug signal (no secrets printed)
-        if (onLog)
         {
-            const bool hasCert = ovpnPatched.find("<cert>") != std::string::npos;
-            const bool hasKey  = ovpnPatched.find("<key>")  != std::string::npos;
-            const bool hasCa   = ovpnPatched.find("<ca>")   != std::string::npos;
+            std::ostringstream oss;
+            oss << "[session] ovpn.BuildForLocalBridge() local=" << localIp << ":" << localPort;
+            _impl->store.PublishLogLine(oss.str());
+        }
 
-            onLog(std::string("[session] ovpn bytes=") + std::to_string(ovpnPatched.size())
-                + " has<ca>=" + (hasCa ? "1" : "0")
-                + " has<cert>=" + (hasCert ? "1" : "0")
-                + " has<key>=" + (hasKey ? "1" : "0"));
+        auto built = _impl->ovpn.BuildForLocalBridge(opt.ovpnContentUtf8, localIp, localPort);
+
+        {
+            std::string ovpnErr;
+            _impl->store.PublishLogLine("[session] ovpn.ValidateSingleRemote()...");
+            if (!_impl->ovpn.ValidateSingleRemote(built.config, ovpnErr))
+            {
+                const std::string code = "ovpn_invalid_remote";
+                const std::string msg = ovpnErr.empty() ? std::string("Invalid remote lines in OVPN config") : ovpnErr;
+
+                _impl->store.PublishError(code, msg, true);
+                outError = msg;
+
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
+                Stop();
+                return false;
+            }
+            _impl->store.PublishLogLine("[session] ovpn.ValidateSingleRemote() OK");
+        }
+
+        // 2.2) Log diagnostics (same info as before)
+        {
+            const auto& d = built.diag;
+
+            _impl->store.PublishLogLine(
+                std::string("[session] ovpn bytes=") + std::to_string(d.bytes) +
+                " has<ca>=" + (d.hasCa ? "1" : "0") +
+                " has<cert>=" + (d.hasCert ? "1" : "0") +
+                " has<key>=" + (d.hasKey ? "1" : "0"));
+
+            _impl->store.PublishLogLine(
+                std::string("[session] has <ca>=") + (d.hasCa ? "1" : "0") +
+                " <cert>=" + (d.hasCert ? "1" : "0") +
+                " <key>=" + (d.hasKey ? "1" : "0") +
+                " tls-crypt=" + (d.hasTlsCrypt ? "1" : "0"));
+
+            _impl->store.PublishLogLine("[session] ovpn preview (first lines) begin");
+            _impl->store.PublishLogLine(d.previewFirstLines);
+            _impl->store.PublishLogLine("[session] ovpn preview (first lines) end");
+
+            if (!d.windowsDriverLines.empty())
+            {
+                _impl->store.PublishLogLine("[session] ovpn windows-driver lines:");
+                _impl->store.PublishLogLine(d.windowsDriverLines);
+            }
+            else
+            {
+                _impl->store.PublishLogLine("[session] ovpn windows-driver lines: <none>");
+            }
+
+            if (!d.devLines.empty())
+            {
+                _impl->store.PublishLogLine("[session] ovpn dev/dev-type lines:");
+                _impl->store.PublishLogLine(d.devLines);
+            }
         }
 
         // 3) Start VPN
-        std::string vpnErr;
-
-        auto has = [&](const char* x){ return ovpnPatched.find(x) != std::string::npos; };
-
-        if (OnLog)
         {
-            OnLog(std::string("[session] has <ca>=") + (has("<ca>") ? "1":"0") +
-                  " <cert>=" + (has("<cert>") ? "1":"0") +
-                  " <key>=" + (has("<key>") ? "1":"0") +
-                  " tls-crypt=" + (has("<tls-crypt>") ? "1":"0"));
-        }
-        if (!_vpn.Start(ovpnPatched, vpnErr))
-        {
-            const std::string code = "vpn_start_failed";
-            const std::string msg = vpnErr.empty() ? std::string("VPN start failed") : vpnErr;
-
+            std::string vpnErr;
+            _impl->store.PublishLogLine("[session] vpn.Start()...");
+            if (!_impl->vpn.Start(built.config, vpnErr))
             {
-                std::lock_guard<std::mutex> lock(_mtx);
-                _state.lastErrorCode = code;
-                _state.lastErrorMessage = msg;
-                _state.phase = SessionPhase::Error;
+                const std::string code = "vpn_start_failed";
+                const std::string msg = vpnErr.empty() ? std::string("VPN start failed") : vpnErr;
+
+                _impl->store.SetError(code, msg);
+                _impl->store.PublishError(code, msg, true);
+
+                _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
+                Stop();
+
+                outError = msg;
+                return false;
             }
 
-            if (onError) onError(code, msg, true);
-
-            // Stop bridge safely (no callbacks under lock)
-            Stop();
-
-            outError = msg;
-            return false;
+            _impl->store.PublishLogLine("[session] vpn.Start() OK");
         }
 
+        _impl->store.PublishLogLine("[session] Start() EXIT ok=true");
         return true;
-    }
-
-    void SessionController::StopLockedNoCallbacks()
-    {
-        // Caller holds _mtx
-        try { _vpn.Stop(); } catch (...) { }
-
-        if (_bridge)
-        {
-            try { _bridge->Stop(); } catch (...) { }
-            _bridge.reset();
-        }
     }
 
     void SessionController::Stop()
     {
-        StateChangedCallback onStateChanged;
+        RefreshCallbacksToStore();
 
+        const auto before = _impl->store.GetState();
         {
-            std::lock_guard<std::mutex> lock(_mtx);
-
-            if (!_state.IsRunning() && _state.phase != SessionPhase::Error)
-                return;
-
-            _state.phase = SessionPhase::Stopping;
-            onStateChanged = OnStateChanged;
+            std::ostringstream oss;
+            oss << "[session] Stop() ENTER"
+                << " phase=" << ToString(before.phase);
+            _impl->store.PublishLogLine(oss.str());
         }
 
-        if (onStateChanged) onStateChanged(GetState());
-
+        const bool canStop = before.IsRunning() || before.phase == SessionPhase::Error;
+        if (!canStop)
         {
-            std::lock_guard<std::mutex> lock(_mtx);
-            StopLockedNoCallbacks();
-            _state.phase = SessionPhase::Stopped;
-            onStateChanged = OnStateChanged;
+            _impl->store.PublishLogLine("[session] Stop() ignored: not running");
+            return;
         }
 
-        if (onStateChanged) onStateChanged(GetState());
+        if (before.phase != SessionPhase::Stopping)
+        {
+            _impl->store.SetPhase(SessionPhase::Stopping);
+            _impl->store.PublishStateSnapshot();
+            _impl->store.PublishLogLine("[session] Stop() phase set to Stopping");
+        }
+
+        _impl->StopAllNoCallbacks();
+
+        const auto mid = _impl->store.GetState();
+        {
+            std::ostringstream oss;
+            oss << "[session] Stop() after StopAllNoCallbacks"
+                << " phase=" << ToString(mid.phase);
+            _impl->store.PublishLogLine(oss.str());
+        }
+
+        if (_impl->store.GetState().phase != SessionPhase::Idle)
+        {
+            _impl->store.SetPhase(SessionPhase::Idle);
+            _impl->store.PublishStateSnapshot();
+            _impl->store.PublishLogLine("[session] Stop() phase forced to Idle");
+        }
+
+        const auto after = _impl->store.GetState();
+        {
+            std::ostringstream oss;
+            oss << "[session] Stop() EXIT"
+                << " phase=" << ToString(after.phase);
+            _impl->store.PublishLogLine(oss.str());
+        }
     }
 
     SessionState SessionController::GetState() const
     {
-        std::lock_guard<std::mutex> lock(_mtx);
-        return _state;
+        return _impl->store.GetState();
     }
 }

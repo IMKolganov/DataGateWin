@@ -1,15 +1,10 @@
 ﻿#pragma once
 
 #include "SessionState.h"
-#include "vpn/VpnRunner.h"
 
 #include <cstdint>
 #include <functional>
-#include <memory>
-#include <mutex>
 #include <string>
-
-class WssTcpBridge;
 
 namespace datagate::session
 {
@@ -19,9 +14,12 @@ namespace datagate::session
         std::string port;
         std::string path;
         std::string sni;
+
         std::string listenIp;
         uint16_t listenPort = 0;
+
         bool verifyServerCert = false;
+
         std::string authorizationHeader;
     };
 
@@ -29,6 +27,8 @@ namespace datagate::session
     {
         std::string ovpnContentUtf8;
         BridgeOptions bridge;
+
+        bool forceWssBridge = true;
     };
 
     struct ConnectedInfo
@@ -64,22 +64,10 @@ namespace datagate::session
         SessionState GetState() const;
 
     private:
-        static std::string PatchOvpnRemoteToLocal(const std::string& ovpn, const std::string& localHost, uint16_t localPort);
-
-        void StopLockedNoCallbacks();
-        void PublishState(const SessionState& snapshot);
-        void PublishError(const std::string& code, const std::string& message, bool fatal);
-
-        static std::string DefaultListenIp(const StartOptions& opt);
-        static uint16_t DefaultListenPort(const StartOptions& opt);
+        void RefreshCallbacksToStore();
 
     private:
-        mutable std::mutex _mtx;
-        SessionState _state{};
-
-        std::unique_ptr<WssTcpBridge> _bridge;
-        datagate::vpn::VpnRunner _vpn;
-
-        StartOptions _lastStart{};
+        class Impl;
+        Impl* _impl;
     };
 }

@@ -1,10 +1,15 @@
-﻿#pragma once
+﻿// IpcServer.h
+#pragma once
 
 #include "IpcProtocol.h"
 
 #include <windows.h>
 #include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -32,6 +37,7 @@ namespace datagate::ipc
         void ReplyError(const std::string& id, const std::string& code, const std::string& message);
 
         bool HasAnyClient() const;
+
         uint64_t LastClientSeenTickMs() const;
 
     private:
@@ -39,26 +45,36 @@ namespace datagate::ipc
         void EventsAcceptLoop();
 
         void ReadControlLines(HANDLE hPipe);
-        void WriteControlLine(const std::string& line);
         void WriteEventsLine(const std::string& line);
 
-        static bool TryParseCommandLine(const std::string& line, Command& cmd);
+        void StartControlWriter(HANDLE hPipe);
+        void StopControlWriter();
+        void EnqueueControlLine(const std::string& line);
 
+        static bool TryParseCommandLine(const std::string& line, Command& cmd);
         static HANDLE CreatePipeServer(const std::string& fullName, DWORD openMode, DWORD pipeMode);
-        std::atomic<uint64_t> _lastClientSeenMs{0};
 
     private:
         std::string _sessionId;
         PipeNames _pipes;
 
-        std::atomic<bool> _running{false};
+        std::atomic<bool> _running{ false };
 
         std::thread _controlThread;
         std::thread _eventsThread;
 
-        std::atomic<HANDLE> _controlClient{INVALID_HANDLE_VALUE};
-        std::atomic<HANDLE> _eventsClient{INVALID_HANDLE_VALUE};
+        std::atomic<HANDLE> _controlClient{ INVALID_HANDLE_VALUE };
+        std::atomic<HANDLE> _eventsClient{ INVALID_HANDLE_VALUE };
+
+        std::atomic<uint64_t> _lastClientSeenMs{ 0 };
 
         CommandHandler _handler;
+
+        std::atomic<bool> _controlWriterRunning{ false };
+        std::thread _controlWriterThread;
+
+        std::mutex _controlOutMx;
+        std::condition_variable _controlOutCv;
+        std::deque<std::string> _controlOutQueue;
     };
 }

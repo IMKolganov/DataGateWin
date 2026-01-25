@@ -1,14 +1,61 @@
-﻿#include "VpnClient.h"
+﻿// src/vpn/client/VpnClient.cpp
+#include "VpnClient.h"
 
 // IMPORTANT: the only translation unit that includes OpenVPN Client API header.
 #include <client/ovpncli.hpp>
 
+#include <atomic>
+#include <condition_variable>
 #include <cctype>
 #include <exception>
+#include <mutex>
+#include <sstream>
+#include <string>
 #include <utility>
 
 namespace datagate::vpn
 {
+    static bool HasWindowsDriverWintun(const std::string& ovpn)
+    {
+        std::istringstream iss(ovpn);
+        std::string line;
+
+        while (std::getline(iss, line))
+        {
+            auto i = line.find_first_not_of(" \t\r\n");
+            if (i == std::string::npos)
+                continue;
+
+            const char c = line[i];
+            if (c == '#' || c == ';')
+                continue;
+
+            // Match: windows-driver <value>
+            static constexpr const char* kKey = "windows-driver";
+            static constexpr size_t kKeyLen = 14;
+
+            if (line.size() < i + kKeyLen)
+                continue;
+
+            if (line.compare(i, kKeyLen, kKey) != 0)
+                continue;
+
+            auto j = line.find_first_not_of(" \t", i + kKeyLen);
+            if (j == std::string::npos)
+                return false;
+
+            auto k = line.find_first_of(" \t\r\n", j);
+            std::string val = (k == std::string::npos) ? line.substr(j) : line.substr(j, k - j);
+
+            for (auto& ch : val)
+                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+
+            return val == "wintun";
+        }
+
+        return false;
+    }
+
     class VpnClient::Impl : public openvpn::ClientAPI::OpenVPNClient
     {
     public:
@@ -64,18 +111,10 @@ namespace datagate::vpn
 
         void log(const openvpn::ClientAPI::LogInfo& logInfo) override
         {
-            if (_owner.OnLog)
-            {
-                _owner.OnLog(logInfo.text);
+            if (!_owner.OnLog)
+                return;
 
-                const auto& t = logInfo.text;
-                if (t.find("wintun") != std::string::npos || t.find("Wintun") != std::string::npos)
-                    _owner.OnLog("Driver hint: wintun (from core log)");
-                else if (t.find("tap") != std::string::npos || t.find("TAP") != std::string::npos)
-                    _owner.OnLog("Driver hint: tap (from core log)");
-                else if (t.find("dco") != std::string::npos || t.find("DCO") != std::string::npos)
-                    _owner.OnLog("Driver hint: dco (from core log)");
-            }
+            _owner.OnLog(logInfo.text);
         }
 
         void external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest&) override {}
@@ -86,13 +125,18 @@ namespace datagate::vpn
             openvpn::ClientAPI::Config cfg;
             cfg.content = ovpnContent;
 
+            // IMPORTANT: cfg.wintun must be set BEFORE eval_config(),
+            // because eval_config() copies config into state->clientconf.
+            cfg.wintun = HasWindowsDriverWintun(cfg.content);
+
             const auto ev = openvpn::ClientAPI::OpenVPNClient::eval_config(cfg);
+
             if (_owner.OnLog)
             {
-                if (!ev.windowsDriver.empty())
-                    _owner.OnLog("OpenVPN selected Windows driver: " + ev.windowsDriver);
-                else
-                    _owner.OnLog("OpenVPN selected Windows driver: <none>");
+                _owner.OnLog(std::string("[vpn][eval] cfg.wintun=") + (cfg.wintun ? "1" : "0"));
+                _owner.OnLog(std::string("[vpn][eval] error=") + (ev.error ? "1" : "0") + " msg=" + ev.message);
+                _owner.OnLog(std::string("[vpn][eval] windowsDriver=") + (ev.windowsDriver.empty() ? "<empty>" : ev.windowsDriver));
+                _owner.OnLog(std::string("[vpn][eval] profileName=") + ev.profileName + " friendlyName=" + ev.friendlyName);
             }
 
             VpnClient::EvalResult r;
@@ -189,9 +233,6 @@ namespace datagate::vpn
 
         std::string _lastEventName{};
         std::string _lastEventInfo{};
-
-        openvpn::ClientAPI::Config _cfg{};
-        bool _hasCfg = false;
     };
 
     VpnClient::VpnClient()
