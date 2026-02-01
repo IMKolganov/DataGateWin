@@ -65,6 +65,8 @@ add_executable(engine
         src/session/WintunAdapterManager.h
         src/session/VpnSessionRunner.cpp
         src/session/VpnSessionRunner.h
+        src/session/OvpnTextUtils.cpp
+        src/session/OvpnTextUtils.h
 )
 
 target_compile_definitions(engine PRIVATE

@@ -18,6 +18,10 @@ namespace datagate::session
         std::string listenIp;
         uint16_t listenPort = 0;
 
+        std::string remoteHost;
+        uint16_t remotePort = 0;
+        std::string remoteProto; // "udp"
+
         bool verifyServerCert = false;
 
         std::string authorizationHeader;

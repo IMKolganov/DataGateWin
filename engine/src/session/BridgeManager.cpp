@@ -1,9 +1,12 @@
 ﻿#include "BridgeManager.h"
 
-#include "bridge/client/WssTcpBridge.h"
 #include "SessionController.h"
+#include "bridge/client/WssTcpBridge.h"
 
+#include <memory>
+#include <string>
 #include <utility>
+#include "OvpnTextUtils.h"
 
 namespace datagate::session
 {
@@ -12,7 +15,7 @@ namespace datagate::session
         std::unique_ptr<WssTcpBridge> bridge;
         std::string listenIp = "127.0.0.1";
         uint16_t listenPort = 18080;
-
+        WssTcpBridge::Mode mode = WssTcpBridge::Mode::Tcp;
         LogCallback log;
     };
 
@@ -29,12 +32,6 @@ namespace datagate::session
     void BridgeManager::SetLog(LogCallback cb)
     {
         _impl->log = std::move(cb);
-
-        if (_impl->bridge)
-        {
-            // Optional: keep bridge logging consistent if you ever recreate it.
-            // WssTcpBridge does not expose changing Options at runtime.
-        }
     }
 
     std::string BridgeManager::DefaultListenIp(const StartOptions& opt)
@@ -54,15 +51,34 @@ namespace datagate::session
             _impl->listenIp = DefaultListenIp(opt);
             _impl->listenPort = DefaultListenPort(opt);
 
-            if (!_impl->bridge)
+            const auto proto = ovpn::TryGetProtoFromOvpn(opt.ovpnContentUtf8);
+            const bool useUdp = (proto == "udp");
+            const auto desiredMode = useUdp ? WssTcpBridge::Mode::Udp : WssTcpBridge::Mode::Tcp;
+
+            const bool needRecreate =
+                !_impl->bridge ||
+                _impl->mode != desiredMode ||
+                _impl->listenIp != DefaultListenIp(opt) ||
+                _impl->listenPort != DefaultListenPort(opt);
+
+            if (needRecreate)
             {
+                if (_impl->bridge)
+                {
+                    try { _impl->bridge->Stop(); } catch (...) {}
+                    _impl->bridge.reset();
+                }
+
                 WssTcpBridge::Options wo;
                 wo.listenIp = _impl->listenIp;
                 wo.listenPort = _impl->listenPort;
+                wo.mode = desiredMode;
                 wo.log = _impl->log;
 
                 _impl->bridge = std::make_unique<WssTcpBridge>(std::move(wo));
                 _impl->bridge->Start();
+
+                _impl->mode = desiredMode;
             }
 
             WssTcpBridge::Target t;
@@ -73,12 +89,21 @@ namespace datagate::session
             t.verifyServerCert = opt.bridge.verifyServerCert;
             t.authorizationHeader = opt.bridge.authorizationHeader;
 
+            if (useUdp)
+            {
+                t.path = ovpn::AppendQueryParam(std::move(t.path), "mode", "udp");
+
+                t.remoteProto = opt.bridge.remoteProto.empty() ? "udp" : opt.bridge.remoteProto;
+                t.remoteHost  = opt.bridge.remoteHost;
+                t.remotePort  = opt.bridge.remotePort;
+            }
+
             _impl->bridge->UpdateTarget(std::move(t));
             return true;
         }
         catch (...)
         {
-            outError = "Failed to activate WSS TCP bridge";
+            outError = "Failed to activate WSS bridge";
             return false;
         }
     }
