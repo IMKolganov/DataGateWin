@@ -1,7 +1,7 @@
 ﻿#include "BridgeManager.h"
 
 #include "SessionController.h"
-#include "bridge/client/WssTcpBridge.h"
+#include "bridge/client/WssLocalBridge.h"
 
 #include <memory>
 #include <string>
@@ -12,10 +12,10 @@ namespace datagate::session
 {
     struct BridgeManager::Impl
     {
-        std::unique_ptr<WssTcpBridge> bridge;
+        std::unique_ptr<WssLocalBridge> bridge;
         std::string listenIp = "127.0.0.1";
         uint16_t listenPort = 18080;
-        WssTcpBridge::Mode mode = WssTcpBridge::Mode::Tcp;
+        WssLocalBridge::Mode mode = WssLocalBridge::Mode::Tcp;
         LogCallback log;
     };
 
@@ -53,7 +53,7 @@ namespace datagate::session
 
             const auto proto = ovpn::TryGetProtoFromOvpn(opt.ovpnContentUtf8);
             const bool useUdp = (proto == "udp");
-            const auto desiredMode = useUdp ? WssTcpBridge::Mode::Udp : WssTcpBridge::Mode::Tcp;
+            const auto desiredMode = useUdp ? WssLocalBridge::Mode::Udp : WssLocalBridge::Mode::Tcp;
 
             const bool needRecreate =
                 !_impl->bridge ||
@@ -69,19 +69,19 @@ namespace datagate::session
                     _impl->bridge.reset();
                 }
 
-                WssTcpBridge::Options wo;
+                WssLocalBridge::Options wo;
                 wo.listenIp = _impl->listenIp;
                 wo.listenPort = _impl->listenPort;
                 wo.mode = desiredMode;
                 wo.log = _impl->log;
 
-                _impl->bridge = std::make_unique<WssTcpBridge>(std::move(wo));
+                _impl->bridge = std::make_unique<WssLocalBridge>(std::move(wo));
                 _impl->bridge->Start();
 
                 _impl->mode = desiredMode;
             }
 
-            WssTcpBridge::Target t;
+            WssLocalBridge::Target t;
             t.host = opt.bridge.host;
             t.port = opt.bridge.port;
             t.path = opt.bridge.path;
