@@ -1,0 +1,219 @@
+﻿============================================================
+UI ↔ ENGINE ARCHITECTURE (IPC, LIFECYCLE, STATES)
+Project: DataGate
+============================================================
+
+Legend:
+- UI       : WPF application
+- Engine   : Native C++ process
+- Control  : IPC request/response channel (commands)
+- Events   : IPC event stream (state/logs)
+- Snapshot : GetStatus response (source of truth)
+
+------------------------------------------------------------
+CORE PRINCIPLES
+------------------------------------------------------------
+
+1. Engine is the single source of truth for connection state.
+2. UI never assumes state — it always requests GetStatus.
+3. All commands are idempotent.
+4. UI and Engine can start/stop independently.
+5. Events are incremental; GetStatus restores full state.
+6. VPN session may live without UI.
+
+------------------------------------------------------------
+ENGINE STATES
+------------------------------------------------------------
+
+Stopped        - process not running
+Idle           - running, no active VPN session
+Connecting     - establishing tunnel
+Connected      - VPN active
+Disconnecting  - shutting down tunnel
+Error          - failure state (recoverable or fatal)
+
+------------------------------------------------------------
+IPC COMMANDS (CONTROL CHANNEL)
+------------------------------------------------------------
+
+GetStatus
+StartSession(profileId, options)
+StopSession()
+Shutdown (optional)
+Ping (optional)
+
+------------------------------------------------------------
+IPC EVENTS (EVENTS CHANNEL)
+------------------------------------------------------------
+
+EngineReady
+StateChanged(state)
+Log(message)
+Error(code, message)
+Stats(optional)
+
+------------------------------------------------------------
+SCENARIO 1
+UI starts, Engine NOT running
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| Attach(Control)           |   (no process)
+|------------------------X  |
+| Attach(Events)            |
+|------------------------X  |
+|                           |
+| Start Engine process -------------------->
+|                           |
+|                           | init IPC
+|                           | state = Idle
+|                           |
+| Attach(Control) -------------------------> accept
+| Attach(Events) --------------------------> accept
+| <---------------------------------------- EngineReady
+| GetStatus -------------------------------->
+| <---------------------------------------- { state: Idle }
+| UI shows "Disconnected"
+
+------------------------------------------------------------
+SCENARIO 2
+UI starts, Engine already running
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| Attach(Control) ---------> accept
+| Attach(Events) ----------> accept
+| GetStatus --------------->
+| <------------------------ { state: Idle / Connected }
+| UI renders snapshot
+| <------------------------ StateChanged(...)
+
+------------------------------------------------------------
+SCENARIO 3
+User clicks CONNECT, Engine NOT running
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| Click Connect              |
+| Start Engine process -------------------->
+|                           |
+| Attach(Control) ---------> accept
+| Attach(Events) ----------> accept
+| GetStatus --------------->
+| <------------------------ { state: Idle }
+| StartSession(profile) --->
+| <------------------------ OK
+| <------------------------ StateChanged(Connecting)
+| <------------------------ StateChanged(Connected) OR Error
+| UI updates continuously
+
+------------------------------------------------------------
+SCENARIO 4
+User clicks CONNECT, Engine Idle
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| Click Connect              |
+| StartSession(profile) --->
+| <------------------------ OK
+| <------------------------ StateChanged(Connecting)
+| <------------------------ StateChanged(Connected) OR Error
+
+------------------------------------------------------------
+SCENARIO 5
+User clicks CONNECT while already Connected
+------------------------------------------------------------
+
+Option A (UI checks first):
+UI -> GetStatus -> Connected -> do nothing
+
+Option B (simpler, preferred):
+UI -> StartSession
+Engine -> OK (already connected)
+
+------------------------------------------------------------
+SCENARIO 6
+User clicks DISCONNECT, session active
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| Click Disconnect           |
+| StopSession() ----------->
+| <------------------------ OK
+| <------------------------ StateChanged(Disconnecting)
+| <------------------------ StateChanged(Idle)
+
+------------------------------------------------------------
+SCENARIO 7
+User clicks DISCONNECT, already Idle
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| StopSession() ----------->
+| <------------------------ OK (already idle)
+
+------------------------------------------------------------
+SCENARIO 8
+UI closes, Engine continues running
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| UI exits                  |
+| pipes closed ------------X
+|                           | VPN remains active
+|                           |
+| (later UI restarts)       |
+| Attach(Control) ---------> accept
+| Attach(Events) ----------> accept
+| GetStatus --------------->
+| <------------------------ { state: Connected }
+| UI shows Connected
+
+------------------------------------------------------------
+SCENARIO 9
+Engine crashes while UI running
+------------------------------------------------------------
+
+UI                         Engine
+|                           |
+| normal operation           |
+| <------------------------ StateChanged(Connected)
+|                           |
+|        (Engine crash)     X
+| Control pipe closed ------X
+| Events pipe closed -------X
+|                           |
+| UI shows "Engine lost"
+|                           |
+| (optional auto-restart)   |
+| Start Engine process -------------------->
+| Attach(Control) ---------> accept
+| Attach(Events) ----------> accept
+| GetStatus --------------->
+| <------------------------ { state: Idle or Connected }
+
+------------------------------------------------------------
+UI BUTTON LOGIC (SUMMARY)
+------------------------------------------------------------
+
+CONNECT:
+- Ensure engine running
+- Attach IPC
+- GetStatus
+- If Idle/Error -> StartSession
+- If Connecting/Connected -> no-op
+
+DISCONNECT:
+- If attached -> StopSession (idempotent)
+- If not attached -> no-op / show engine not running
+
+------------------------------------------------------------
+END OF DOCUMENT
+------------------------------------------------------------

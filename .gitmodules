@@ -1,0 +1,9 @@
+[submodule "openvpn3"]
+	path = openvpn3
+	url = https://github.com/OpenVPN/openvpn3.git
+[submodule "DataGateWin.UI"]
+	path = DataGateWin.UI
+	url = https://github.com/IMKolganov/DataGateWin.UI
+[submodule "DataGateWin.Installer"]
+	path = DataGateWin.Installer
+	url = https://github.com/IMKolganov/DataGateWin.Installer
