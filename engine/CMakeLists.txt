@@ -32,8 +32,8 @@ add_executable(engine
         src/vpn/client/VpnClient.cpp
         src/vpn/client/VpnClient.h
 
-        src/bridge/client/WssTcpBridge.cpp
-        src/bridge/client/WssTcpBridge.h
+        src/bridge/client/WssLocalBridge.cpp
+        src/bridge/client/WssLocalBridge.h
 
         src/util/OvpnTransform.cpp
         src/util/OvpnTransform.h
@@ -65,6 +65,16 @@ add_executable(engine
         src/session/WintunAdapterManager.h
         src/session/VpnSessionRunner.cpp
         src/session/VpnSessionRunner.h
+        src/session/OvpnTextUtils.cpp
+        src/session/OvpnTextUtils.h
+        src/bridge/client/WssBridgeCommon.cpp
+        src/bridge/client/WssBridgeCommon.h
+        src/bridge/client/TcpWssBridge.cpp
+        src/bridge/client/TcpWssBridge.h
+        src/bridge/client/UdpWssBridge.cpp
+        src/bridge/client/UdpWssBridge.h
+        src/bridge/client/WssBridgeOptionsView.cpp
+        src/bridge/client/WssBridgeOptionsView.h
 )
 
 target_compile_definitions(engine PRIVATE

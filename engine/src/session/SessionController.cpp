@@ -1,4 +1,5 @@
-﻿#include "SessionController.h"
+﻿// SessionController.cpp (only minimal text changes, full file returned as requested)
+#include "SessionController.h"
 
 #include "BridgeManager.h"
 #include "OvpnConfigProcessor.h"
@@ -185,14 +186,14 @@ namespace datagate::session
                 _impl->store.PublishLogLine("[session] wintun adapter ifIndex=<unknown>");
         }
 
-        // 1) Start local WSS->TCP bridge
+        // 1) Start local WSS->(TCP/UDP) bridge
         {
             std::string bridgeErr;
             _impl->store.PublishLogLine("[session] bridge.Activate()...");
             if (!_impl->bridge.Activate(opt, bridgeErr))
             {
                 const std::string code = "bridge_start_failed";
-                const std::string msg = bridgeErr.empty() ? std::string("Failed to activate WSS TCP bridge") : bridgeErr;
+                const std::string msg = bridgeErr.empty() ? std::string("Failed to activate WSS bridge") : bridgeErr;
 
                 _impl->store.SetError(code, msg);
                 _impl->store.PublishError(code, msg, true);
