@@ -123,7 +123,7 @@ namespace datagate::session
             store.PublishLogLine("[session] StopAllNoCallbacks: vpn.Stop() done");
 
             store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Deactivate()...");
-            bridge.Deactivate();
+            bridge.Stop();
             store.PublishLogLine("[session] StopAllNoCallbacks: bridge.Deactivate() done");
         }
     };

@@ -3,13 +3,9 @@
 #include "WssBridgeCommon.h"
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <mutex>
 #include <optional>
-#include <thread>
-#include <vector>
 
 #include "WssBridgeOptionsView.h"
 
@@ -32,7 +28,6 @@ public:
 
 private:
     void DoAccept();
-    void HandleClient(btcp::socket socket);
 
 private:
     WssTcpBridgeOptionsView opt_;
