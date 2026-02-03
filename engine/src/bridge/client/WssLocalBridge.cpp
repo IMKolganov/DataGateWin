@@ -132,6 +132,8 @@ void WssLocalBridge::Start()
 
     impl_->stopped.store(false);
 
+    impl_->ioc.restart();
+
     EmitLogMasked(opt_.log, GetGlobalLogMask(), opt_.logMask, LogMask::Info,
         std::string("[wss-bridge] Start ENTER tid=") + Tid() +
         " listen=" + opt_.listenIp + ":" + std::to_string(opt_.listenPort) +

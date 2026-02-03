@@ -17,7 +17,7 @@ add_executable(engine
         main.cpp
         AppMain.cpp
         AppMain.h
-        engine.rc
+        $<$<PLATFORM_ID:Windows>:engine.rc>
 
         src/ipc/IpcProtocol.h
         src/ipc/IpcServer.cpp
