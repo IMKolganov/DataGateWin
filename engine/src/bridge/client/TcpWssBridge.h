@@ -3,9 +3,7 @@
 #include "WssBridgeCommon.h"
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -27,11 +25,15 @@ public:
         std::optional<BridgeTargetView>& target,
         std::atomic<uint64_t>& activeSessions);
 
+    ~TcpWssBridge();
+
     void Start();
     void Stop();
 
 private:
-    void DoAccept();
+    void RunAcceptLoop();
+    void DoAcceptOnce();
+
     void HandleClient(btcp::socket socket);
 
 private:
@@ -46,4 +48,12 @@ private:
     std::atomic<uint64_t>& activeSessions_;
 
     btcp::acceptor acceptor_;
+
+    std::atomic<bool> stopRequested_{false};
+
+    std::thread sessionThread_;
+    std::atomic<bool> sessionThreadStarted_{false};
+
+    std::mutex clientsMtx_;
+    std::vector<std::thread> clientThreads_;
 };

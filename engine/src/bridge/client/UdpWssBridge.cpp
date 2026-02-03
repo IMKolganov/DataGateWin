@@ -4,6 +4,8 @@
 #include <array>
 #include <chrono>
 #include <deque>
+
+#include "WssBridgeOptionsView.h"
 #include "WssBridgeOptionsView.h"
 
 struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
@@ -467,6 +469,11 @@ UdpWssBridge::UdpWssBridge(
 {
 }
 
+UdpWssBridge::~UdpWssBridge()
+{
+    Stop();
+}
+
 void UdpWssBridge::Start()
 {
     boost::system::error_code ec;
@@ -487,7 +494,7 @@ void UdpWssBridge::Start()
     if (ec) return;
 
     udpBound_.store(true);
-    StartUdpSessionDetached();
+    StartUdpSessionThread();
 }
 
 void UdpWssBridge::Stop()
@@ -498,11 +505,18 @@ void UdpWssBridge::Stop()
         udpSock_.close(ec);
         LogEc(opt_.log, globalMask_, opt_.logMask, "udp.close", ec);
     }
+
+    if (sessionThread_.joinable())
+        sessionThread_.join();
 }
 
-void UdpWssBridge::StartUdpSessionDetached()
+void UdpWssBridge::StartUdpSessionThread()
 {
-    std::thread([this]()
+    bool expected = false;
+    if (!sessionThreadStarted_.compare_exchange_strong(expected, true))
+        return;
+
+    sessionThread_ = std::thread([this]()
     {
         activeSessions_.fetch_add(1);
         EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
@@ -532,13 +546,11 @@ void UdpWssBridge::StartUdpSessionDetached()
             {
                 fixed = *t;
 
-                // For UDP mode we only need WSS target (host/port/path) to connect.
                 const bool hasWssTarget = !fixed.host.empty() && !fixed.port.empty();
                 if (hasWssTarget)
                 {
                     if (fixed.remoteProto.empty())
                         fixed.remoteProto = "udp";
-
                     break;
                 }
             }
@@ -617,5 +629,5 @@ void UdpWssBridge::StartUdpSessionDetached()
         EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
             std::string("[wss-bridge] udp session END tid=") + Tid() +
             " activeSessions=" + std::to_string(activeSessions_.load()));
-    }).detach();
+    });
 }

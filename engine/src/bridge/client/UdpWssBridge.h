@@ -3,9 +3,11 @@
 #include "WssBridgeCommon.h"
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <thread>
+
 #include "WssBridgeOptionsView.h"
 
 struct WssTcpBridgeOptionsView;
@@ -22,11 +24,13 @@ public:
         std::optional<BridgeTargetView>& target,
         std::atomic<uint64_t>& activeSessions);
 
+    ~UdpWssBridge();
+
     void Start();
     void Stop();
 
 private:
-    void StartUdpSessionDetached();
+    void StartUdpSessionThread();
 
 private:
     WssTcpBridgeOptionsView opt_;
@@ -44,4 +48,7 @@ private:
 
     std::mutex udpPeerMtx_;
     std::optional<budp::endpoint> udpLastPeer_;
+
+    std::thread sessionThread_;
+    std::atomic<bool> sessionThreadStarted_{false};
 };

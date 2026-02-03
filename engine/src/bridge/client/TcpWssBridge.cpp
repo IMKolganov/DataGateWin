@@ -1,5 +1,17 @@
 ﻿#include "TcpWssBridge.h"
 
+#include <array>
+#include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
 TcpWssBridge::TcpWssBridge(
     WssTcpBridgeOptionsView opt,
     uint32_t globalMask,
@@ -19,7 +31,54 @@ TcpWssBridge::TcpWssBridge(
 {
 }
 
+TcpWssBridge::~TcpWssBridge()
+{
+    Stop();
+}
+
 void TcpWssBridge::Start()
+{
+    bool expected = false;
+    if (!sessionThreadStarted_.compare_exchange_strong(expected, true))
+        return;
+
+    stopRequested_.store(false);
+
+    sessionThread_ = std::thread([this]()
+    {
+        RunAcceptLoop();
+    });
+}
+
+void TcpWssBridge::Stop()
+{
+    stopRequested_.store(true);
+
+    boost::system::error_code ec;
+    if (acceptor_.is_open())
+    {
+        acceptor_.cancel(ec);
+        LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.cancel", ec);
+
+        acceptor_.close(ec);
+        LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.close", ec);
+    }
+
+    if (sessionThread_.joinable())
+        sessionThread_.join();
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMtx_);
+        for (auto& t : clientThreads_)
+        {
+            if (t.joinable())
+                t.join();
+        }
+        clientThreads_.clear();
+    }
+}
+
+void TcpWssBridge::RunAcceptLoop()
 {
     boost::system::error_code ec;
 
@@ -42,42 +101,36 @@ void TcpWssBridge::Start()
     LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.listen", ec);
     if (ec) return;
 
-    DoAccept();
+    DoAcceptOnce();
+
+    while (!stopRequested_.load() && !stopped_.load())
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
-void TcpWssBridge::Stop()
-{
-    boost::system::error_code ec;
-    if (acceptor_.is_open())
-    {
-        acceptor_.cancel(ec);
-        LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.cancel", ec);
-
-        acceptor_.close(ec);
-        LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.close", ec);
-    }
-}
-
-void TcpWssBridge::DoAccept()
+void TcpWssBridge::DoAcceptOnce()
 {
     acceptor_.async_accept(
         [this](bbeast::error_code ec, btcp::socket socket)
         {
-            if (!ec && !stopped_.load())
+            if (stopRequested_.load() || stopped_.load())
+                return;
+
+            if (!ec)
             {
-                std::thread([this, s = std::move(socket)]() mutable
+                std::lock_guard<std::mutex> lock(clientsMtx_);
+                clientThreads_.emplace_back([this, s = std::move(socket)]() mutable
                 {
                     HandleClient(std::move(s));
-                }).detach();
+                });
             }
             else
             {
-                if (ec && !stopped_.load())
+                if (!stopRequested_.load() && !stopped_.load())
                     LogEc(opt_.log, globalMask_, opt_.logMask, "accept", ec);
             }
 
-            if (!stopped_.load())
-                DoAccept();
+            if (!stopRequested_.load() && !stopped_.load())
+                DoAcceptOnce();
         }
     );
 }
@@ -209,12 +262,12 @@ void TcpWssBridge::HandleClient(btcp::socket socket)
 
             std::vector<uint8_t> msg;
 
-            while (!done.load() && !stopped_.load())
+            while (!done.load() && !stopped_.load() && !stopRequested_.load())
             {
                 msg.clear();
                 if (!out.Pop(msg))
                 {
-                    if (done.load() || stopped_.load())
+                    if (done.load() || stopped_.load() || stopRequested_.load())
                         break;
                     continue;
                 }
@@ -248,7 +301,7 @@ void TcpWssBridge::HandleClient(btcp::socket socket)
             EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
                 std::string("[wss-bridge] tcp->ws thread BEGIN tid=") + Tid());
 
-            while (!done.load() && !stopped_.load())
+            while (!done.load() && !stopped_.load() && !stopRequested_.load())
             {
                 boost::system::error_code ec;
                 size_t n = client->read_some(basio::buffer(buf), ec);
@@ -284,7 +337,7 @@ void TcpWssBridge::HandleClient(btcp::socket socket)
             EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
                 std::string("[wss-bridge] ws->tcp thread BEGIN tid=") + Tid());
 
-            while (!done.load() && !stopped_.load())
+            while (!done.load() && !stopped_.load() && !stopRequested_.load())
             {
                 buf.clear();
 
