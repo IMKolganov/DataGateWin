@@ -40,3 +40,10 @@
 
 # My files for test connect
 ovpnfiles
+
+# Local dotnet publish folders (Wine / packaging — may contain secrets next to exe)
+publish-win*/
+
+# .NET build artifacts (never commit)
+**/bin/
+**/obj/
