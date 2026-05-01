@@ -30,6 +30,7 @@ namespace datagate::session
     struct StartOptions
     {
         std::string ovpnContentUtf8;
+        std::string guiVersion;
         BridgeOptions bridge;
 
         bool forceWssBridge = true;

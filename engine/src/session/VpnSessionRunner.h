@@ -16,7 +16,7 @@ namespace datagate::session
 
         void SetCallbacks(LogFn onLog, ConnectedFn onConnected, DisconnectedFn onDisconnected);
 
-        bool Start(const std::string& config, std::string& outError);
+        bool Start(const std::string& config, const std::string& guiVersion, std::string& outError);
         void Stop();
 
     private:

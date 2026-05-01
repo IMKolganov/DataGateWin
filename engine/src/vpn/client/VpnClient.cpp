@@ -120,10 +120,11 @@ namespace datagate::vpn
         void external_pki_cert_request(openvpn::ClientAPI::ExternalPKICertRequest&) override {}
         void external_pki_sign_request(openvpn::ClientAPI::ExternalPKISignRequest&) override {}
 
-        VpnClient::EvalResult Eval(const std::string& ovpnContent)
+        VpnClient::EvalResult Eval(const std::string& ovpnContent, const std::string& guiVersion)
         {
             openvpn::ClientAPI::Config cfg;
             cfg.content = ovpnContent;
+            cfg.guiVersion = guiVersion;
 
             // IMPORTANT: cfg.wintun must be set BEFORE eval_config(),
             // because eval_config() copies config into state->clientconf.
@@ -242,9 +243,9 @@ namespace datagate::vpn
 
     VpnClient::~VpnClient() = default;
 
-    VpnClient::EvalResult VpnClient::Eval(const std::string& ovpnContent)
+    VpnClient::EvalResult VpnClient::Eval(const std::string& ovpnContent, const std::string& guiVersion)
     {
-        return _impl->Eval(ovpnContent);
+        return _impl->Eval(ovpnContent, guiVersion);
     }
 
     VpnClient::StatusResult VpnClient::Connect()

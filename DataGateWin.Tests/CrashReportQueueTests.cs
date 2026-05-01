@@ -42,4 +42,64 @@ public sealed class CrashReportQueueTests
             }
         }
     }
+
+    [Fact]
+    public void ReadPending_SkipsCorruptedQueueFiles()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "datagate_crash_corrupt_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var goodPath = Path.Combine(dir, "good.queued.json");
+            File.WriteAllText(
+                goodPath,
+                """{"Filename":"win_crash.txt","Payload":"ok"}""");
+
+            var badPath = Path.Combine(dir, "bad.queued.json");
+            File.WriteAllText(badPath, "{ not json");
+
+            var q = new CrashReportQueue(dir);
+            var pending = q.ReadPending();
+
+            Assert.Single(pending);
+            Assert.Equal("win_crash.txt", pending[0].CrashFilename);
+            Assert.Equal("ok", pending[0].Payload);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void TryRemove_MissingFile_ReturnsFalse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "datagate_crash_remove_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+
+        try
+        {
+            var q = new CrashReportQueue(dir);
+            Assert.False(q.TryRemove(Path.Combine(dir, "nope.queued.json")));
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+            catch
+            {
+            }
+        }
+    }
 }
