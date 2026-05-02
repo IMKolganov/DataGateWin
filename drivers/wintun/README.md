@@ -7,6 +7,8 @@ This is a layer 3 TUN driver for Windows 7, 8, 8.1, and 10. Originally created f
 
 Wintun is deployed as a platform-specific `wintun.dll` file. Install the `wintun.dll` file side-by-side with your application. Download the dll from [wintun.net](https://www.wintun.net/), alongside the header file for your application described below.
 
+This repository vendors **`wintun.dll` (amd64)** in this folder for shipping next to `engine.exe` (same directory as the DataGate engine process). It is taken from the official **wintun-0.14.1** zip (`bin/amd64/wintun.dll`). Re-download from wintun.net if you need to refresh the binary.
+
 ## Usage
 
 Include the [`wintun.h` file](https://git.zx2c4.com/wintun/tree/api/wintun.h) in your project simply by copying it there and dynamically load the `wintun.dll` using [`LoadLibraryEx()`](https://docs.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexa) and [`GetProcAddress()`](https://docs.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getprocaddress) to resolve each function, using the typedefs provided in the header file. The [`InitializeWintun` function in the example.c code](https://git.zx2c4.com/wintun/tree/example/example.c) provides this in a function that you can simply copy and paste.

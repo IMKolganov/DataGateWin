@@ -1,4 +1,4 @@
-﻿// SessionController.cpp (only minimal text changes, full file returned as requested)
+// SessionController.cpp (only minimal text changes, full file returned as requested)
 #include "SessionController.h"
 
 #include "BridgeManager.h"
@@ -287,7 +287,12 @@ namespace datagate::session
         {
             std::string vpnErr;
             _impl->store.PublishLogLine("[session] vpn.Start()...");
-            if (!_impl->vpn.Start(built.config, vpnErr))
+            
+            std::string guiVer = opt.guiVersion;
+            if (guiVer.empty())
+                guiVer = "3.12_datagate_windows_1.0.6";
+
+            if (!_impl->vpn.Start(built.config, guiVer, vpnErr))
             {
                 const std::string code = "vpn_start_failed";
                 const std::string msg = vpnErr.empty() ? std::string("VPN start failed") : vpnErr;
