@@ -12,9 +12,9 @@ namespace datagate::session
         _vpn.OnDisconnected = std::move(onDisconnected);
     }
 
-    bool VpnSessionRunner::Start(const std::string& config, std::string& outError)
+    bool VpnSessionRunner::Start(const std::string& config, const std::string& guiVersion, std::string& outError)
     {
-        return _vpn.Start(config, outError);
+        return _vpn.Start(config, guiVersion, outError);
     }
 
     void VpnSessionRunner::Stop()

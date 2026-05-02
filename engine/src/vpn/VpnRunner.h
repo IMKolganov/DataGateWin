@@ -22,7 +22,7 @@ namespace datagate::vpn
         VpnRunner();
         ~VpnRunner();
 
-        bool Start(const std::string& ovpnContentUtf8, std::string& outError);
+        bool Start(const std::string& ovpnContentUtf8, const std::string& guiVersion, std::string& outError);
         void Stop();
 
         bool IsConnected() const;

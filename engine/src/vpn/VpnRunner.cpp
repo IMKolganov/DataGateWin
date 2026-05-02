@@ -17,7 +17,7 @@ namespace datagate::vpn
         _client.reset();
     }
 
-    bool VpnRunner::Start(const std::string& ovpnContentUtf8, std::string& outError)
+    bool VpnRunner::Start(const std::string& ovpnContentUtf8, const std::string& guiVersion, std::string& outError)
     {
         std::unique_ptr<VpnClient> client = std::make_unique<VpnClient>();
 
@@ -82,7 +82,7 @@ namespace datagate::vpn
         if (OnLog)
             OnLog("[vpn] Eval()...");
 
-        auto eval = c->Eval(ovpnContentUtf8);
+        auto eval = c->Eval(ovpnContentUtf8, guiVersion);
         if (eval.error)
         {
             outError = "Eval failed: " + eval.message;
