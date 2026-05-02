@@ -1,4 +1,4 @@
-﻿// SessionController.cpp (only minimal text changes, full file returned as requested)
+// SessionController.cpp (only minimal text changes, full file returned as requested)
 #include "SessionController.h"
 
 #include "BridgeManager.h"
@@ -290,7 +290,7 @@ namespace datagate::session
             
             std::string guiVer = opt.guiVersion;
             if (guiVer.empty())
-                guiVer = "3.12_datagate_windows_1.0.5";
+                guiVer = "3.12_datagate_windows_1.0.6";
 
             if (!_impl->vpn.Start(built.config, guiVer, vpnErr))
             {
