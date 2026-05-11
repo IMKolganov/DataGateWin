@@ -1,8 +1,10 @@
 ﻿#include "BridgeManager.h"
 
 #include "SessionController.h"
+#include "app/CrashReporter.h"
 #include "bridge/client/WssLocalBridge.h"
 
+#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -65,7 +67,7 @@ namespace datagate::session
             {
                 if (_impl->bridge)
                 {
-                    try { _impl->bridge->Stop(); } catch (...) {}
+                    try { _impl->bridge->Stop(); } catch (const std::exception& ex) { CrashReporter::ReportNonFatal("BridgeManager.ActivateStop", ex.what()); } catch (...) { CrashReporter::ReportNonFatal("BridgeManager.ActivateStop", "Unknown exception"); }
                     _impl->bridge.reset();
                 }
 
@@ -101,8 +103,15 @@ namespace datagate::session
             _impl->bridge->UpdateTarget(std::move(t));
             return true;
         }
+        catch (const std::exception& ex)
+        {
+            CrashReporter::ReportNonFatal("BridgeManager.Activate", ex.what());
+            outError = "Failed to activate WSS bridge";
+            return false;
+        }
         catch (...)
         {
+            CrashReporter::ReportNonFatal("BridgeManager.Activate", "Unknown exception");
             outError = "Failed to activate WSS bridge";
             return false;
         }
@@ -112,7 +121,7 @@ namespace datagate::session
     {
         if (_impl->bridge)
         {
-            try { _impl->bridge->ClearTarget(); } catch (...) {}
+            try { _impl->bridge->ClearTarget(); } catch (const std::exception& ex) { CrashReporter::ReportNonFatal("BridgeManager.Deactivate", ex.what()); } catch (...) { CrashReporter::ReportNonFatal("BridgeManager.Deactivate", "Unknown exception"); }
         }
     }
 
@@ -120,7 +129,7 @@ namespace datagate::session
     {
         if (_impl->bridge)
         {
-            try { _impl->bridge->Stop(); } catch (...) {}
+            try { _impl->bridge->Stop(); } catch (const std::exception& ex) { CrashReporter::ReportNonFatal("BridgeManager.Stop", ex.what()); } catch (...) { CrashReporter::ReportNonFatal("BridgeManager.Stop", "Unknown exception"); }
             _impl->bridge.reset();
         }
     }

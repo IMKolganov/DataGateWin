@@ -1,5 +1,8 @@
 ﻿#include "WssLocalBridge.h"
 
+#include "app/CrashReporter.h"
+
+#include <exception>
 #include <memory>
 
 static std::atomic<uint32_t> g_globalLogMask{ ToU32(LogMask::Default) };
@@ -153,6 +156,7 @@ void WssLocalBridge::Start()
         }
         catch (const std::exception& e)
         {
+            CrashReporter::ReportNonFatal("WssLocalBridge.ioc.run", e.what());
             EmitLogMasked(opt_.log, GetGlobalLogMask(), opt_.logMask, LogMask::Error,
                 std::string("[wss-bridge] ioc.run exception tid=") + Tid() + " what=" + e.what());
             DrainOpenSslErrors(opt_.log, GetGlobalLogMask(), opt_.logMask, "ioc.run exception");

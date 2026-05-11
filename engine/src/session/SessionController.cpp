@@ -1,6 +1,7 @@
 // SessionController.cpp (only minimal text changes, full file returned as requested)
 #include "SessionController.h"
 
+#include "app/CrashReporter.h"
 #include "BridgeManager.h"
 #include "OvpnConfigProcessor.h"
 #include "SessionStateStore.h"
@@ -13,6 +14,11 @@
 
 namespace datagate::session
 {
+    static void ReportSessionStartFailure(const std::string& code, const std::string& message)
+    {
+        CrashReporter::ReportNonFatal("SessionController.Start." + code, message);
+    }
+
     static const char* GuessStopInitiator(SessionPhase phase)
     {
         // Best-effort guess based on current phase at the moment callback fires.
@@ -176,6 +182,7 @@ namespace datagate::session
                 _impl->store.PublishStateSnapshot();
 
                 outError = msg;
+                ReportSessionStartFailure(code, msg);
                 _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 return false;
             }
@@ -200,6 +207,7 @@ namespace datagate::session
                 _impl->store.PublishStateSnapshot();
 
                 outError = msg;
+                ReportSessionStartFailure(code, msg);
                 _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 return false;
             }
@@ -239,6 +247,7 @@ namespace datagate::session
                 _impl->store.PublishError(code, msg, true);
                 outError = msg;
 
+                ReportSessionStartFailure(code, msg);
                 _impl->store.PublishLogLine(std::string("[session] Start() FAIL: ") + msg);
                 Stop();
                 return false;
@@ -304,6 +313,7 @@ namespace datagate::session
                 Stop();
 
                 outError = msg;
+                ReportSessionStartFailure(code, msg);
                 return false;
             }
 

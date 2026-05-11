@@ -19,11 +19,11 @@ public sealed class CrashReportQueue
     public string QueueDirectory => _directory;
 
     /// <summary>Persist a payload for retry. Thread-safe.</summary>
-    public void Enqueue(string crashFilename, string payloadUtf8)
+    public void Enqueue(string crashFilename, string payloadUtf8, string? processName = null)
     {
         var id = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
         var path = Path.Combine(_directory, $"{id}.queued.json");
-        var dto = new QueuedDto(crashFilename, payloadUtf8);
+        var dto = new QueuedDto(crashFilename, payloadUtf8, processName);
         var json = JsonSerializer.Serialize(dto);
         File.WriteAllText(path, json);
     }
@@ -43,7 +43,7 @@ public sealed class CrashReportQueue
                 if (dto?.Filename is null || dto.Payload is null)
                     continue;
 
-                list.Add(new QueuedCrashReport(Path.GetFileName(path)!, path, dto.Filename, dto.Payload));
+                list.Add(new QueuedCrashReport(Path.GetFileName(path)!, path, dto.Filename, dto.Payload, dto.ProcessName));
             }
             catch
             {
@@ -76,17 +76,24 @@ public sealed class CrashReportQueue
     {
         public string Filename { get; set; } = "";
         public string Payload { get; set; } = "";
+        public string? ProcessName { get; set; }
 
         public QueuedDto()
         {
         }
 
-        public QueuedDto(string filename, string payload)
+        public QueuedDto(string filename, string payload, string? processName)
         {
             Filename = filename;
             Payload = payload;
+            ProcessName = processName;
         }
     }
 }
 
-public sealed record QueuedCrashReport(string QueueFileName, string AbsolutePath, string CrashFilename, string Payload);
+public sealed record QueuedCrashReport(
+    string QueueFileName,
+    string AbsolutePath,
+    string CrashFilename,
+    string Payload,
+    string? ProcessName);

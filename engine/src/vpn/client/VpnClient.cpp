@@ -1,6 +1,8 @@
 ﻿// src/vpn/client/VpnClient.cpp
 #include "VpnClient.h"
 
+#include "app/CrashReporter.h"
+
 // IMPORTANT: the only translation unit that includes OpenVPN Client API header.
 #include <client/ovpncli.hpp>
 
@@ -86,8 +88,13 @@ namespace datagate::vpn
                     ci.vpnIpv4 = info.vpnIp4;
                     ci.rawInfo = info.serverHost + ":" + info.serverPort + " proto=" + info.serverProto;
                 }
+                catch (const std::exception& ex)
+                {
+                    CrashReporter::ReportNonFatal("VpnClient.connection_info", ex.what());
+                }
                 catch (...)
                 {
+                    CrashReporter::ReportNonFatal("VpnClient.connection_info", "Unknown exception");
                 }
 
                 if (_owner.OnConnected)
@@ -166,11 +173,13 @@ namespace datagate::vpn
             }
             catch (const std::exception& ex)
             {
+                CrashReporter::ReportNonFatal("VpnClient.connect", ex.what());
                 r.error = true;
                 r.message = std::string("connect() threw: ") + ex.what();
             }
             catch (...)
             {
+                CrashReporter::ReportNonFatal("VpnClient.connect", "Unknown exception");
                 r.error = true;
                 r.message = "connect() threw: unknown exception";
             }
@@ -186,8 +195,13 @@ namespace datagate::vpn
             {
                 openvpn::ClientAPI::OpenVPNClient::stop();
             }
+            catch (const std::exception& ex)
+            {
+                CrashReporter::ReportNonFatal("VpnClient.stop", ex.what());
+            }
             catch (...)
             {
+                CrashReporter::ReportNonFatal("VpnClient.stop", "Unknown exception");
             }
         }
 
