@@ -15,6 +15,7 @@ public sealed class CrashReporterStaticState
 public sealed class CrashReporterDeliveryTests
 {
     const string EngineProcessName = "com.imkolganov.datagate.win.engine";
+    const string InstallerProcessName = "com.imkolganov.datagate.win.installer";
 
     [Fact]
     public async Task ReportNonFatal_PostsThrownExceptionToConfiguredServer()
@@ -52,6 +53,44 @@ public sealed class CrashReporterDeliveryTests
             Assert.Contains("kind=nonfatal", request.Body, StringComparison.Ordinal);
             Assert.Contains("tag=NonFatalProbe", request.Body, StringComparison.Ordinal);
             Assert.Contains("nonfatal probe exception", request.Body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            CrashReporter.ResetForTests();
+            DeleteDirectoryBestEffort(queueDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReportNonFatalAsync_PostsInstallerExceptionWithInstallerProcessHeader()
+    {
+        var queueDir = CreateTempQueueDirectory();
+        await using var server = new LoopbackCrashServer();
+
+        try
+        {
+            CrashReporter.UseQueueForTests(new CrashReportQueue(queueDir));
+            CrashReporter.Configure(new CrashReportingConfiguration
+            {
+                Enabled = true,
+                BaseUrl = server.BaseUrl,
+                ProcessName = InstallerProcessName,
+            });
+
+            await CrashReporter.ReportNonFatalAsync(
+                new InvalidOperationException("installer probe exception"),
+                "Installer.Probe",
+                CancellationToken.None);
+
+            var request = await server.WaitForRequestAsync();
+
+            Assert.Equal("POST", request.Method);
+            Assert.Equal("/api/v1/windows/crash-ingest", request.Path);
+            Assert.Equal(InstallerProcessName, request.Headers["X-Crash-Process"]);
+            Assert.StartsWith("win_crash_", request.Headers["X-Crash-Filename"], StringComparison.Ordinal);
+            Assert.Contains("kind=nonfatal", request.Body, StringComparison.Ordinal);
+            Assert.Contains("tag=Installer.Probe", request.Body, StringComparison.Ordinal);
+            Assert.Contains("installer probe exception", request.Body, StringComparison.Ordinal);
         }
         finally
         {

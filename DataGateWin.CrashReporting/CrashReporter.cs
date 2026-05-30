@@ -125,6 +125,18 @@ public static class CrashReporter
         ScheduleReport(exception, CrashReportKind.NonFatal, GetThreadLabel(), tag);
     }
 
+    /// <summary>Manual non-fatal report that can be awaited before shutting down the process.</summary>
+    public static Task ReportNonFatalAsync(
+        Exception exception,
+        string? tag = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return IsEnabled()
+            ? ReportCoreAsync(exception, CrashReportKind.NonFatal, GetThreadLabel(), tag, cancellationToken)
+            : Task.CompletedTask;
+    }
+
     /// <summary>Flush persisted queue; safe to call from startup on a background thread.</summary>
     public static Task FlushPendingAsync(CancellationToken cancellationToken = default)
         => Task.Run(() => FlushPendingCoreAsync(cancellationToken), cancellationToken);
