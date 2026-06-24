@@ -1,9 +1,11 @@
 ﻿#include "UdpWssBridge.h"
 #include "TcpWssBridge.h"
+#include "app/CrashReporter.h"
 
 #include <array>
 #include <chrono>
 #include <deque>
+#include <exception>
 
 #include "WssBridgeOptionsView.h"
 #include "WssBridgeOptionsView.h"
@@ -256,8 +258,15 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
                             EmitLogMasked(sp->opt.log, sp->globalMask, sp->opt.logMask, LogMask::Debug,
                                 std::string("[wss-bridge] ws->udp text msg tid=") + Tid() + " text=" + s);
                         }
+                        catch (const std::exception& ex)
+                        {
+                            CrashReporter::ReportNonFatal("UdpWssBridge.copy_text", ex.what());
+                            EmitLogMasked(sp->opt.log, sp->globalMask, sp->opt.logMask, LogMask::Debug,
+                                std::string("[wss-bridge] ws->udp text msg tid=") + Tid() + " text=<failed_to_copy>");
+                        }
                         catch (...)
                         {
+                            CrashReporter::ReportNonFatal("UdpWssBridge.copy_text", "Unknown exception");
                             EmitLogMasked(sp->opt.log, sp->globalMask, sp->opt.logMask, LogMask::Debug,
                                 std::string("[wss-bridge] ws->udp text msg tid=") + Tid() + " text=<failed_to_copy>");
                         }
@@ -607,6 +616,7 @@ void UdpWssBridge::StartUdpSessionThread()
         }
         catch (const boost::system::system_error& e)
         {
+            CrashReporter::ReportNonFatal("UdpWssBridge.system_error", e.what());
             std::ostringstream oss;
             oss << "[wss-bridge] udp error tid=" << Tid()
                 << " code=" << e.code().value()
@@ -621,6 +631,7 @@ void UdpWssBridge::StartUdpSessionThread()
         }
         catch (const std::exception& e)
         {
+            CrashReporter::ReportNonFatal("UdpWssBridge.exception", e.what());
             EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error,
                 std::string("[wss-bridge] udp error tid=") + Tid() + " what=" + e.what());
         }

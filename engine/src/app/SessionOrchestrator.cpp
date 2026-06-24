@@ -1,11 +1,13 @@
 ﻿#include "SessionOrchestrator.h"
 
+#include "src/app/CrashReporter.h"
 #include "src/ipc/IpcProtocol.h"
 #include "src/session/SessionState.h"
 
 #include <windows.h>
 
 #include <chrono>
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -65,8 +67,14 @@ static bool TryParseRestartDelayMs(const std::string& line, int& outDelayMs)
         outDelayMs = std::stoi(line.substr(p, e - p));
         return outDelayMs >= 0;
     }
+    catch (const std::exception& ex)
+    {
+        CrashReporter::ReportNonFatal("SessionOrchestrator.ParseRestartDelay", ex.what());
+        return false;
+    }
     catch (...)
     {
+        CrashReporter::ReportNonFatal("SessionOrchestrator.ParseRestartDelay", "Unknown exception");
         return false;
     }
 }
