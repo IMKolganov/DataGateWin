@@ -55,6 +55,10 @@ add_executable(engine
         src/app/IpcCommandRouter.h
         src/app/EngineLifetime.cpp
         src/app/EngineLifetime.h
+        src/app/DnsStartupRecovery.cpp
+        src/app/DnsStartupRecovery.h
+        src/app/EngineShutdownHandler.cpp
+        src/app/EngineShutdownHandler.h
         src/session/SessionStateStore.cpp
         src/session/SessionStateStore.h
         src/session/OvpnConfigProcessor.cpp
@@ -141,6 +145,7 @@ endif()
 
 target_compile_definitions(ovpn3-core PUBLIC
         _WIN32_WINNT=0x0A00
+        OPENVPN_VERSION=\"3.12_datagate_windows_1.0.7\"
         USE_ASIO
         USE_OPENSSL
         HAVE_LZ4

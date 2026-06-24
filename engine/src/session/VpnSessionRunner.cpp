@@ -1,5 +1,9 @@
 ﻿#include "VpnSessionRunner.h"
 
+#include "app/CrashReporter.h"
+
+#include <exception>
+
 namespace datagate::session
 {
     void VpnSessionRunner::SetCallbacks(
@@ -19,6 +23,6 @@ namespace datagate::session
 
     void VpnSessionRunner::Stop()
     {
-        try { _vpn.Stop(); } catch (...) {}
+        try { _vpn.Stop(); } catch (const std::exception& ex) { CrashReporter::ReportNonFatal("VpnSessionRunner.stop", ex.what()); } catch (...) { CrashReporter::ReportNonFatal("VpnSessionRunner.stop", "Unknown exception"); }
     }
 }

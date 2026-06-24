@@ -12,7 +12,7 @@ public static class CrashReporter
 {
     public const string DefaultProcessName = "com.imkolganov.datagate.win";
 
-    static readonly CrashReportQueue Queue = new();
+    static CrashReportQueue Queue = new();
     static readonly HttpClient Http = CreateHttpClient();
     static readonly object Gate = new();
 
@@ -63,6 +63,26 @@ public static class CrashReporter
             return Config;
     }
 
+    internal static void UseQueueForTests(CrashReportQueue queue)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+        lock (Gate)
+        {
+            Queue = queue;
+            SuppressNextAppDomainFatal = false;
+        }
+    }
+
+    internal static void ResetForTests()
+    {
+        lock (Gate)
+        {
+            Config = new CrashReportingConfiguration();
+            Queue = new CrashReportQueue();
+            SuppressNextAppDomainFatal = false;
+        }
+    }
+
     /// <summary>Register <see cref="AppDomain.UnhandledException"/> and <see cref="TaskScheduler.UnobservedTaskException"/>.</summary>
     public static void InstallDomainHandlers()
     {
@@ -90,6 +110,9 @@ public static class CrashReporter
 
         SuppressNextAppDomainFatal = true;
         ScheduleReport(exception, CrashReportKind.Fatal, "UI Thread", tag: null);
+        _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(
+            _ => SuppressNextAppDomainFatal = false,
+            TaskScheduler.Default);
     }
 
     /// <summary>Manual non-fatal report (same endpoint, kind=nonfatal).</summary>
@@ -100,6 +123,18 @@ public static class CrashReporter
             return;
 
         ScheduleReport(exception, CrashReportKind.NonFatal, GetThreadLabel(), tag);
+    }
+
+    /// <summary>Manual non-fatal report that can be awaited before shutting down the process.</summary>
+    public static Task ReportNonFatalAsync(
+        Exception exception,
+        string? tag = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return IsEnabled()
+            ? ReportCoreAsync(exception, CrashReportKind.NonFatal, GetThreadLabel(), tag, cancellationToken)
+            : Task.CompletedTask;
     }
 
     /// <summary>Flush persisted queue; safe to call from startup on a background thread.</summary>
@@ -127,7 +162,8 @@ public static class CrashReporter
                     cfg,
                     item.CrashFilename,
                     item.Payload,
-                    cancellationToken)
+                    cancellationToken,
+                    item.ProcessName)
                 .ConfigureAwait(false);
 
             if (ok)
@@ -177,6 +213,14 @@ public static class CrashReporter
 
     static void ScheduleReport(Exception ex, CrashReportKind kind, string threadLabel, string? tag)
     {
+        if (kind == CrashReportKind.Fatal)
+        {
+            if (TryQueueReport(ex, kind, threadLabel, tag))
+                _ = FlushPendingAsync(CancellationToken.None);
+
+            return;
+        }
+
         _ = Task.Run(async () =>
         {
             try
@@ -194,6 +238,36 @@ public static class CrashReporter
         });
     }
 
+    static bool TryQueueReport(Exception ex, CrashReportKind kind, string threadLabel, string? tag)
+    {
+        try
+        {
+            var cfg = GetConfiguration();
+            if (!cfg.Enabled)
+                return false;
+
+            var filename = BuildCrashFilenameUtc();
+            var payload = BuildPayload(ex, kind, threadLabel, tag, cfg);
+            var processName = ResolveProcessName(cfg);
+            Queue.Enqueue(filename, payload, processName);
+
+            LogStructured(
+                "crash_queued",
+                ("kind", kind == CrashReportKind.Fatal ? "fatal" : "nonfatal"),
+                ("filename", filename));
+
+            return true;
+        }
+        catch (Exception inner)
+        {
+            LogStructured(
+                "crash_report_failed",
+                ("stage", "TryQueueReport"),
+                ("error_type", inner.GetType().FullName ?? inner.GetType().Name));
+            return false;
+        }
+    }
+
     static async Task ReportCoreAsync(Exception ex, CrashReportKind kind, string threadLabel, string? tag, CancellationToken ct)
     {
         var cfg = GetConfiguration();
@@ -202,10 +276,11 @@ public static class CrashReporter
 
         var filename = BuildCrashFilenameUtc();
         var payload = BuildPayload(ex, kind, threadLabel, tag, cfg);
+        var processName = ResolveProcessName(cfg);
 
         if (string.IsNullOrWhiteSpace(cfg.BaseUrl))
         {
-            Queue.Enqueue(filename, payload);
+            Queue.Enqueue(filename, payload, processName);
             LogStructured(
                 "crash_send_skipped",
                 ("reason", "base_url_missing"),
@@ -216,16 +291,20 @@ public static class CrashReporter
 
         var sent = await TrySendAsync(cfg, filename, payload, ct).ConfigureAwait(false);
         if (!sent)
-            Queue.Enqueue(filename, payload);
+            Queue.Enqueue(filename, payload, processName);
     }
 
     static async Task<bool> TrySendAsync(
         CrashReportingConfiguration cfg,
         string filename,
         string payload,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? processNameOverride = null)
     {
         var baseUrl = cfg.BaseUrl!.Trim();
+        var processName = string.IsNullOrWhiteSpace(processNameOverride)
+            ? ResolveProcessName(cfg)
+            : processNameOverride.Trim();
         var sw = Stopwatch.StartNew();
         try
         {
@@ -233,7 +312,7 @@ public static class CrashReporter
                     Http,
                     baseUrl,
                     filename,
-                    string.IsNullOrWhiteSpace(cfg.ProcessName) ? DefaultProcessName : cfg.ProcessName.Trim(),
+                    processName,
                     cfg.CrashToken,
                     payload,
                     cancellationToken)
@@ -281,7 +360,7 @@ public static class CrashReporter
         CrashReportingConfiguration cfg)
     {
         var utc = DateTime.UtcNow;
-        var process = string.IsNullOrWhiteSpace(cfg.ProcessName) ? DefaultProcessName : cfg.ProcessName.Trim();
+        var process = ResolveProcessName(cfg);
 
         var meta = new Dictionary<string, string>
         {
@@ -321,6 +400,9 @@ public static class CrashReporter
 
         return $"ManagedThread-{Thread.CurrentThread.ManagedThreadId}";
     }
+
+    static string ResolveProcessName(CrashReportingConfiguration cfg)
+        => string.IsNullOrWhiteSpace(cfg.ProcessName) ? DefaultProcessName : cfg.ProcessName.Trim();
 
     static void LogStructured(string eventName, params (string Key, string Value)[] pairs)
     {

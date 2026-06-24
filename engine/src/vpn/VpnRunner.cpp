@@ -1,7 +1,10 @@
 ﻿// src/vpn/VpnRunner.cpp
 #include "VpnRunner.h"
 
+#include "app/CrashReporter.h"
 #include "vpn/client/VpnClient.h"
+
+#include <exception>
 
 namespace datagate::vpn
 {
@@ -118,8 +121,8 @@ namespace datagate::vpn
         if (!local)
             return;
 
-        try { local->Stop(); } catch (...) {}
-        try { local->WaitDone(); } catch (...) {}
+        try { local->Stop(); } catch (const std::exception& ex) { CrashReporter::ReportNonFatal("VpnRunner.stop", ex.what()); } catch (...) { CrashReporter::ReportNonFatal("VpnRunner.stop", "Unknown exception"); }
+        try { local->WaitDone(); } catch (const std::exception& ex) { CrashReporter::ReportNonFatal("VpnRunner.wait_done", ex.what()); } catch (...) { CrashReporter::ReportNonFatal("VpnRunner.wait_done", "Unknown exception"); }
     }
 
     bool VpnRunner::IsConnected() const
