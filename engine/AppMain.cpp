@@ -3,7 +3,9 @@
 
 #include "src/app/ArgParser.h"
 #include "src/app/CrashReporter.h"
+#include "src/app/DnsStartupRecovery.h"
 #include "src/app/EngineLifetime.h"
+#include "src/app/EngineShutdownHandler.h"
 #include "src/app/IpcCommandRouter.h"
 #include "src/app/IdleShutdownPolicy.h"
 #include "src/app/SessionOrchestrator.h"
@@ -21,6 +23,12 @@ int AppMain::Run(int argc, char** argv)
 {
     CrashReporter::Install();
 
+    if (ArgParser::HasFlag(argc, argv, "--recover-dns"))
+    {
+        datagate::dns::RecoverStaleWindowsDnsState();
+        return 0;
+    }
+
     const std::string sessionId = ArgParser::GetValue(argc, argv, "--session-id");
     if (sessionId.empty())
         return 2;
@@ -36,11 +44,15 @@ int AppMain::Run(int argc, char** argv)
         return 0;
     }
 
+    datagate::dns::RecoverStaleWindowsDnsState();
+
     datagate::ipc::IpcServer ipc(sessionId);
     datagate::session::SessionController session;
 
     SessionOrchestrator orchestrator(session, ipc);
     orchestrator.WireCallbacks();
+
+    datagate::app::InstallEngineShutdownHandler(orchestrator, lifetime);
 
     IpcCommandRouter router(ipc, session, orchestrator, lifetime.StopEvent());
     router.Install();
@@ -79,6 +91,8 @@ int AppMain::Run(int argc, char** argv)
 
     orchestrator.StopSync();
     ipc.Stop();
+
+    datagate::app::UninstallEngineShutdownHandler();
 
     return 0;
 }

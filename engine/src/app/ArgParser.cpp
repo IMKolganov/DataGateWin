@@ -11,3 +11,13 @@ std::string ArgParser::GetValue(int argc, char** argv, const char* key)
     }
     return {};
 }
+
+bool ArgParser::HasFlag(int argc, char** argv, const char* flag)
+{
+    for (int i = 1; i < argc; i++)
+    {
+        if (std::string(argv[i]) == flag)
+            return true;
+    }
+    return false;
+}

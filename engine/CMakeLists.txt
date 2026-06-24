@@ -55,6 +55,10 @@ add_executable(engine
         src/app/IpcCommandRouter.h
         src/app/EngineLifetime.cpp
         src/app/EngineLifetime.h
+        src/app/DnsStartupRecovery.cpp
+        src/app/DnsStartupRecovery.h
+        src/app/EngineShutdownHandler.cpp
+        src/app/EngineShutdownHandler.h
         src/session/SessionStateStore.cpp
         src/session/SessionStateStore.h
         src/session/OvpnConfigProcessor.cpp

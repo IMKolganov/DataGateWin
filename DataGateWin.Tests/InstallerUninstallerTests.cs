@@ -51,6 +51,7 @@ public sealed class InstallerUninstallerTests
             [
                 "try_get_install_location",
                 "stop_processes",
+                "recover_dns",
                 "delete_shortcuts",
                 "remove_registry",
                 "delete_install_directory"
@@ -131,6 +132,11 @@ public sealed class InstallerUninstallerTests
             Calls.Add("stop_processes");
             StopQuiet = quiet;
             return Task.CompletedTask;
+        }
+
+        public void RecoverStaleDnsSettings(Action<string> log)
+        {
+            Calls.Add("recover_dns");
         }
 
         public void DeleteShortcuts()
