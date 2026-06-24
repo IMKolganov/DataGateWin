@@ -1,27 +1,105 @@
 #include "DnsStartupRecovery.h"
 
-#include <openvpn/tun/win/nrpt.hpp>
-#include <openvpn/win/cmd.hpp>
+#include <windows.h>
 
-#include <exception>
 #include <iostream>
-#include <sstream>
+#include <string>
+#include <vector>
 
 namespace datagate::dns
 {
     namespace
     {
+        constexpr const wchar_t* kNrptRulePrefix = L"OpenVPNDNSRouting";
+
+        const wchar_t* const kNrptSubkeys[] = {
+            L"SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient\\DnsPolicyConfig",
+            L"SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig",
+        };
+
+        bool StartsWithPrefix(const std::wstring& name)
+        {
+            return name.rfind(kNrptRulePrefix, 0) == 0;
+        }
+
+        int DeleteMatchingSubkeys(HKEY root, const wchar_t* subkeyPath)
+        {
+            int removed = 0;
+
+            HKEY nrptKey = nullptr;
+            if (RegOpenKeyExW(root, subkeyPath, 0, KEY_READ | KEY_WRITE, &nrptKey) != ERROR_SUCCESS)
+                return 0;
+
+            std::vector<std::wstring> toDelete;
+            for (DWORD index = 0;; ++index)
+            {
+                wchar_t name[256]{};
+                DWORD nameLen = static_cast<DWORD>(std::size(name));
+                const LONG rc = RegEnumKeyExW(
+                    nrptKey, index, name, &nameLen, nullptr, nullptr, nullptr, nullptr);
+                if (rc == ERROR_NO_MORE_ITEMS)
+                    break;
+                if (rc != ERROR_SUCCESS)
+                    continue;
+
+                if (StartsWithPrefix(name))
+                    toDelete.emplace_back(name);
+            }
+
+            for (const auto& ruleName : toDelete)
+            {
+                if (RegDeleteTreeW(nrptKey, ruleName.c_str()) == ERROR_SUCCESS)
+                    ++removed;
+            }
+
+            RegCloseKey(nrptKey);
+            return removed;
+        }
+
         void RemoveStaleNrptRules()
         {
-            openvpn::TunWin::NRPT::delete_rules(0);
-            std::cerr << "[engine][dns] startup: removed stale NRPT rules" << std::endl;
+            int removed = 0;
+            for (const auto* subkey : kNrptSubkeys)
+                removed += DeleteMatchingSubkeys(HKEY_LOCAL_MACHINE, subkey);
+
+            std::cerr << "[engine][dns] startup: removed " << removed << " stale NRPT rule(s)" << std::endl;
         }
 
         void FlushDnsCache()
         {
-            openvpn::WinCmd flush("ipconfig /flushdns");
-            std::ostringstream os;
-            flush.execute(os);
+            wchar_t systemDir[MAX_PATH]{};
+            if (!GetSystemDirectoryW(systemDir, MAX_PATH))
+                throw std::runtime_error("GetSystemDirectoryW failed");
+
+            std::wstring cmd = std::wstring(systemDir) + L"\\ipconfig.exe /flushdns";
+
+            STARTUPINFOW si{};
+            si.cb = sizeof(si);
+            PROCESS_INFORMATION pi{};
+
+            // CreateProcess needs mutable buffer.
+            std::vector<wchar_t> cmdLine(cmd.begin(), cmd.end());
+            cmdLine.push_back(L'\0');
+
+            if (!CreateProcessW(
+                    nullptr,
+                    cmdLine.data(),
+                    nullptr,
+                    nullptr,
+                    FALSE,
+                    CREATE_NO_WINDOW,
+                    nullptr,
+                    nullptr,
+                    &si,
+                    &pi))
+            {
+                throw std::runtime_error("CreateProcessW(ipconfig /flushdns) failed");
+            }
+
+            WaitForSingleObject(pi.hProcess, 15000);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+
             std::cerr << "[engine][dns] startup: flushed DNS cache" << std::endl;
         }
     }
