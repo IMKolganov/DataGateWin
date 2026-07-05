@@ -64,6 +64,12 @@ public sealed class InstallerInfrastructureTests
     }
 
     [Fact]
+    public void Legacy_shortcut_names_include_openvpn_era_label()
+    {
+        Assert.Contains("DataGate OpenVPN 3.lnk", InstallerConstants.LegacyShortcutNames);
+    }
+
+    [Fact]
     public void Downloader_CreateGitHubHttpClient_AddsUserAgent()
     {
         using var http = InstallerDownloader.CreateGitHubHttpClient();
