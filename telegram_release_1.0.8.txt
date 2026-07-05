@@ -1,0 +1,24 @@
+🔄 DataGate for Windows — version 1.0.8
+
+A new DataGate Windows client release is available.
+
+What's new:
+• Free/Default tier onboarding: subscribe to the required Telegram channel or link your account with a bot link code
+• Warning when a torrent client is running while VPN is active
+• Updated API contracts (DataGateMonitor.SharedModels 1.0.40)
+
+Download:
+https://github.com/IMKolganov/DataGateWin/releases/tag/1.0.8
+
+Installer:
+https://github.com/IMKolganov/DataGateWin/releases/download/1.0.8/DataGateWin.Installer.exe
+
+Update: run the installer as administrator, or extract the ZIP over your current folder.
+
+—
+
+If something does not work after updating, message me: @KolganovIvan
+
+---
+
+Or simply launch your existing app — it should offer to update to 1.0.8.
