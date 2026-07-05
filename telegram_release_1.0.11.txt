@@ -1,0 +1,24 @@
+🔄 DataGate for Windows — version 1.0.11
+
+A patch release polishing Access and Connect after the 1.0.10 VPN fix.
+
+What's fixed:
+• Access tab shows WSS servers only — hides xray/non-WSS rows not used on Windows
+• Plan name from v3 API when quota assignment is missing
+• Connect no longer loops reconnect when no eligible WSS servers exist
+
+Download:
+https://github.com/IMKolganov/DataGateWin/releases/tag/1.0.11
+
+Installer:
+https://github.com/IMKolganov/DataGateWin/releases/download/1.0.11/DataGateWin.Installer.exe
+
+Update: run the installer as administrator, or extract the ZIP over your current folder.
+
+—
+
+If something does not work after updating, message me: @KolganovIvan
+
+---
+
+Or launch your existing app — it should offer to update to 1.0.11.
