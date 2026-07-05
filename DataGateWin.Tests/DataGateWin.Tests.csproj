@@ -24,4 +24,8 @@
     <ProjectReference Include="..\DataGateWin.UI\DataGateWin.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="TestData\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
