@@ -299,7 +299,7 @@ namespace datagate::session
             
             std::string guiVer = opt.guiVersion;
             if (guiVer.empty())
-                guiVer = "3.12_datagate_windows_1.0.11";
+                guiVer = "3.12_datagate_windows_1.0.12";
 
             if (!_impl->vpn.Start(built.config, guiVer, vpnErr))
             {
