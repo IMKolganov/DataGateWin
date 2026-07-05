@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text;
-using DataGateMonitor.SharedModels.DataGateMonitor.Auth.Requests;
 using DataGateMonitor.SharedModels.DataGateMonitor.Auth.Responses;
 using DataGateWin.Services.Auth;
 using Newtonsoft.Json;
@@ -49,7 +48,7 @@ public sealed class FreeTierAccessApiClientTests
     }
 
     [Fact]
-    public async Task RequestAccountLinkCodeAsync_PostsTelegramIdAndParsesCode()
+    public async Task RequestAccountLinkCodeAsync_PostsEmptyBodyAndParsesCode()
     {
         var response = new ApiResponse<RequestTelegramAccountLinkCodeResponse>
         {
@@ -72,17 +71,12 @@ public sealed class FreeTierAccessApiClientTests
         };
 
         var sut = new FreeTierAccessApiClient(http);
-        var request = new RequestTelegramAccountLinkCodeRequest
-        {
-            TelegramId = 123456789
-        };
-
-        var result = await sut.RequestAccountLinkCodeAsync(request, CancellationToken.None);
+        var result = await sut.RequestAccountLinkCodeAsync(CancellationToken.None);
         var body = await handler.LastRequest!.Content!.ReadAsStringAsync();
 
         Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
         Assert.Equal("https://api.example.com/api/auth/telegram/request-account-link-code", handler.LastRequest.RequestUri!.ToString());
-        Assert.Contains("\"TelegramId\":123456789", body, StringComparison.Ordinal);
+        Assert.Equal("{}", body);
         Assert.Equal("ABCD2345", result.Data!.Code);
         Assert.Equal(900, result.Data.ExpiresInSeconds);
     }
