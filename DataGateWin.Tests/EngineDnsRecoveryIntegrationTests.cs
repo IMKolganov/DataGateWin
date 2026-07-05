@@ -30,7 +30,7 @@ public sealed class EngineDnsRecoveryIntegrationTests
         Assert.Equal(0, process.ExitCode);
 
         var stderr = process.StandardError.ReadToEnd();
-        Assert.Contains("removed stale NRPT rules", stderr, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stale NRPT rule", stderr, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("flushed DNS cache", stderr, StringComparison.OrdinalIgnoreCase);
     }
 

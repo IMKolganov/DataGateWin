@@ -4,7 +4,7 @@ using DataGateMonitor.SharedModels.DataGateMonitor.Auth.Requests;
 using DataGateMonitor.SharedModels.DataGateMonitor.Auth.Responses;
 using DataGateWin.Services.Auth;
 using Newtonsoft.Json;
-using OpenVPNGateMonitor.SharedModels.Responses;
+using DataGateMonitor.SharedModels.Responses;
 using Xunit;
 
 namespace DataGateWin.Tests;
