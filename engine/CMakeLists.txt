@@ -145,7 +145,7 @@ endif()
 
 target_compile_definitions(ovpn3-core PUBLIC
         _WIN32_WINNT=0x0A00
-        OPENVPN_VERSION=\"3.12_datagate_windows_1.0.8\"
+        OPENVPN_VERSION=\"3.12_datagate_windows_1.0.9\"
         USE_ASIO
         USE_OPENSSL
         HAVE_LZ4

@@ -187,7 +187,7 @@ public sealed class InstallerInfrastructureTests
                 """
                 {
                   "assets": [
-                    { "name": "DataGateWin.v1.0.8.zip", "browser_download_url": "https://example.invalid/DataGateWin.v1.0.8.zip" }
+                    { "name": "DataGateWin.v1.0.9.zip", "browser_download_url": "https://example.invalid/DataGateWin.v1.0.9.zip" }
                   ]
                 }
                 """);
@@ -200,7 +200,7 @@ public sealed class InstallerInfrastructureTests
             ".zip",
             CancellationToken.None);
 
-        Assert.Equal("https://example.invalid/DataGateWin.v1.0.8.zip", url);
+        Assert.Equal("https://example.invalid/DataGateWin.v1.0.9.zip", url);
     }
 
     [Fact]

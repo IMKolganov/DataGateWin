@@ -1,0 +1,24 @@
+🔄 DataGate for Windows — version 1.0.9
+
+A patch release fixing auto-update and in-app update installation.
+
+What's fixed:
+• Auto-update now runs on login and after onboarding — 1.0.8 could miss the update prompt
+• Installer no longer crashes after "close running processes?" during update
+• Improved update/install reliability (threading and process cleanup)
+
+Download:
+https://github.com/IMKolganov/DataGateWin/releases/tag/1.0.9
+
+Installer:
+https://github.com/IMKolganov/DataGateWin/releases/download/1.0.9/DataGateWin.Installer.exe
+
+Update: run the installer as administrator, or extract the ZIP over your current folder.
+
+—
+
+If something does not work after updating, message me: @KolganovIvan
+
+---
+
+Or launch your existing app — it should offer to update to 1.0.9.
