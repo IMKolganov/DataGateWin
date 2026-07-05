@@ -156,8 +156,8 @@ public sealed class InstallerOperationsTests
             """
             {
               "assets": [
-                { "name": "DataGateWin.v1.0.7.txt", "browser_download_url": "https://example.invalid/readme.txt" },
-                { "name": "DataGateWin.v1.0.7.zip", "browser_download_url": "https://example.invalid/DataGateWin.v1.0.7.zip" }
+                { "name": "DataGateWin.v1.0.8.txt", "browser_download_url": "https://example.invalid/readme.txt" },
+                { "name": "DataGateWin.v1.0.8.zip", "browser_download_url": "https://example.invalid/DataGateWin.v1.0.8.zip" }
               ]
             }
             """);
@@ -167,13 +167,13 @@ public sealed class InstallerOperationsTests
             "DataGateWin.v",
             ".zip");
 
-        Assert.Equal("https://example.invalid/DataGateWin.v1.0.7.zip", url);
+        Assert.Equal("https://example.invalid/DataGateWin.v1.0.8.zip", url);
     }
 
     [Fact]
     public void SelectZipDownloadUrl_ThrowsWhenAssetsAreMissing()
     {
-        using var doc = JsonDocument.Parse("""{ "tag_name": "v1.0.7" }""");
+        using var doc = JsonDocument.Parse("""{ "tag_name": "v1.0.8" }""");
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
             InstallerReleaseAssetResolver.SelectZipDownloadUrl(
