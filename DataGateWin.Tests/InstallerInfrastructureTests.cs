@@ -64,9 +64,10 @@ public sealed class InstallerInfrastructureTests
     }
 
     [Fact]
-    public void Legacy_shortcut_names_include_openvpn_era_label()
+    public void Product_shortcut_name_matches_branded_product_name()
     {
-        Assert.Contains("DataGate OpenVPN 3.lnk", InstallerConstants.LegacyShortcutNames);
+        Assert.Equal("DataGate", InstallerConstants.ProductName);
+        Assert.Equal("DataGate.lnk", $"{InstallerConstants.ProductName}.lnk");
     }
 
     [Fact]

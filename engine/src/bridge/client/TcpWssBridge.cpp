@@ -334,30 +334,31 @@ TcpWssBridge::TcpWssBridge(
 {
 }
 
-void TcpWssBridge::Start()
+bool TcpWssBridge::Start()
 {
     boost::system::error_code ec;
 
     btcp::endpoint ep(basio::ip::make_address(opt_.listenIp, ec), opt_.listenPort);
     LogEc(opt_.log, globalMask_, opt_.logMask, "tcp.make_address", ec);
-    if (ec) return;
+    if (ec) return false;
 
     acceptor_.open(ep.protocol(), ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.open", ec);
-    if (ec) return;
+    if (ec) return false;
 
     acceptor_.set_option(basio::socket_base::reuse_address(true), ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.reuse_address", ec);
 
     acceptor_.bind(ep, ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.bind", ec);
-    if (ec) return;
+    if (ec) return false;
 
     acceptor_.listen(basio::socket_base::max_listen_connections, ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "acceptor.listen", ec);
-    if (ec) return;
+    if (ec) return false;
 
     DoAccept();
+    return true;
 }
 
 void TcpWssBridge::Stop()

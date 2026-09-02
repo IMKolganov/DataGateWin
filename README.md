@@ -20,7 +20,7 @@
 - **UI (WPF)** handles Connect/Disconnect, status, settings, and logs; starts the Engine and attaches via IPC.
 - **Engine (native)** is the single source of truth for VPN state: tunnel (Wintun), routes, DNS, OpenVPN3 core.
 
-Details: [Architecture (UI ↔ Engine IPC)](ARCHITECTURE.md).
+Details: [Architecture (UI ↔ Engine IPC)](ARCHITECTURE.md). DNS incident history and Android connect inventory: [docs/DNS_AND_CONNECT_HISTORY.md](docs/DNS_AND_CONNECT_HISTORY.md).
 
 ## Features
 
@@ -37,6 +37,16 @@ Details: [Architecture (UI ↔ Engine IPC)](ARCHITECTURE.md).
 - **Visual Studio 2022** (or compatible) with C++ and .NET workloads
 - **CMake** (for OpenVPN3 / native build)
 - **Wintun** driver (see `drivers/wintun`)
+
+## DNS recovery (if internet breaks after a VPN crash)
+
+OpenVPN on Windows can leave NRPT DNS rules behind if the engine is killed or the PC reboots while connected. DataGate cleans this on engine start and uninstall. If DNS is still broken:
+
+```bat
+engine\engine.exe --recover-dns
+```
+
+Run as Administrator from the install or portable folder. See [docs/DNS_AND_CONNECT_HISTORY.md](docs/DNS_AND_CONNECT_HISTORY.md).
 
 ## Setup
 
@@ -61,6 +71,7 @@ Build the solution (e.g. in Visual Studio) or use the project’s build scripts.
 |------|-------------|
 | **DataGateWin.UI/** | WPF application (UI, IPC client). |
 | **engine/** | Native Engine process (OpenVPN3, WSS bridge, Wintun). |
+| **docs/** | Architecture notes (e.g. DNS incident history). |
 | **openvpn3/** | OpenVPN3 core (submodule or vendored). |
 | **drivers/** | Wintun and related drivers. |
 | **DataGateWin.Installer/** | WPF installer (download release ZIP, install, shortcuts). |
