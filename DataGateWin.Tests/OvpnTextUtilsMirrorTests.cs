@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using Xunit;
 
 namespace DataGateWin.Tests;
@@ -104,6 +105,38 @@ public sealed class OvpnTextUtilsMirrorTests
     }
 
     [Fact]
+    public void ForceRemoteToLocalBridge_ForcesMatchingProto_Udp()
+    {
+        const string ovpn = """
+            remote vpn.example.com 1194 tcp
+            proto tcp
+            """;
+        var result = ForceRemoteToLocalBridgeMirror.Apply(ovpn, "127.0.0.1", 18080, useUdp: true);
+        Assert.Contains("remote 127.0.0.1 18080", result);
+        Assert.Contains("proto udp", result);
+        Assert.DoesNotContain("proto tcp", result);
+        Assert.DoesNotContain("vpn.example.com", result);
+    }
+
+    [Fact]
+    public void ForceRemoteToLocalBridge_ForcesMatchingProto_Tcp()
+    {
+        const string ovpn = "remote vpn.example.com 1194 udp\n";
+        var result = ForceRemoteToLocalBridgeMirror.Apply(ovpn, "127.0.0.1", 18081, useUdp: false);
+        Assert.Contains("remote 127.0.0.1 18081", result);
+        Assert.Contains("proto tcp-client", result);
+    }
+
+    [Fact]
+    public void ForceRemoteToLocalBridge_InsertsProtoWhenMissing()
+    {
+        const string ovpn = "remote vpn.example.com\nca ca.crt\n";
+        var result = ForceRemoteToLocalBridgeMirror.Apply(ovpn, "127.0.0.1", 18080, useUdp: true);
+        Assert.Contains("proto udp", result);
+        Assert.Contains("remote 127.0.0.1 18080", result);
+    }
+
+    [Fact]
     public void TryGetDnsServers_ParsesAndSkipsComments()
     {
         const string ovpn = """
@@ -112,6 +145,52 @@ public sealed class OvpnTextUtilsMirrorTests
             dhcp-option dns 1.1.1.1
             """;
         Assert.Equal(["10.8.0.1", "1.1.1.1"], OvpnTextUtilsMirror.TryGetDnsServers(ovpn));
+    }
+}
+
+internal static class ForceRemoteToLocalBridgeMirror
+{
+    public static string Apply(string ovpn, string localHost, int localPort, bool useUdp)
+    {
+        var protoLine = useUdp ? "proto udp" : "proto tcp-client";
+        var body = new StringBuilder();
+        var remoteWritten = false;
+        var protoWritten = false;
+
+        using var reader = new StringReader(ovpn.Replace("\r\n", "\n"));
+        string? line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            var trimmedStart = line.TrimStart();
+            if (trimmedStart.StartsWith("remote ", StringComparison.OrdinalIgnoreCase)
+                || trimmedStart.Equals("remote", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!remoteWritten)
+                {
+                    body.Append("remote ").Append(localHost).Append(' ').Append(localPort).Append('\n');
+                    remoteWritten = true;
+                }
+                continue;
+            }
+
+            if (trimmedStart.StartsWith("proto ", StringComparison.OrdinalIgnoreCase)
+                || trimmedStart.Equals("proto", StringComparison.OrdinalIgnoreCase))
+            {
+                body.Append(protoLine).Append('\n');
+                protoWritten = true;
+                continue;
+            }
+
+            body.Append(line).Append('\n');
+        }
+
+        var patched = new StringBuilder();
+        if (!remoteWritten)
+            patched.Append("remote ").Append(localHost).Append(' ').Append(localPort).Append('\n');
+        if (!protoWritten)
+            patched.Append(protoLine).Append('\n');
+        patched.Append(body);
+        return patched.ToString();
     }
 }
 

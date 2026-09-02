@@ -29,16 +29,18 @@ namespace datagate::session
     std::string OvpnConfigProcessor::PatchOvpnRemoteToLocal(
         const std::string& ovpn,
         const std::string& localHost,
-        uint16_t localPort)
+        uint16_t localPort,
+        bool useUdp)
     {
-        std::string patched;
-        patched.reserve(ovpn.size() + 128);
+        // Match Android forceRemoteToLocalBridge: single local remote + forced proto
+        // so OpenVPN transport always matches the local WSS bridge mode.
+        const std::string protoLine = useUdp ? "proto udp" : "proto tcp-client";
 
-        patched += "remote ";
-        patched += localHost;
-        patched += " ";
-        patched += std::to_string(localPort);
-        patched += "\n";
+        std::string body;
+        body.reserve(ovpn.size() + 64);
+
+        bool remoteWritten = false;
+        bool protoWritten = false;
 
         size_t start = 0;
         while (start < ovpn.size())
@@ -51,15 +53,49 @@ namespace datagate::session
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
 
-            if (!StartsWithTokenTrimLeft(line, "remote"))
+            if (StartsWithTokenTrimLeft(line, "remote"))
             {
-                patched += line;
-                patched += "\n";
+                if (!remoteWritten)
+                {
+                    body += "remote ";
+                    body += localHost;
+                    body += " ";
+                    body += std::to_string(localPort);
+                    body += "\n";
+                    remoteWritten = true;
+                }
+            }
+            else if (StartsWithTokenTrimLeft(line, "proto"))
+            {
+                body += protoLine;
+                body += "\n";
+                protoWritten = true;
+            }
+            else
+            {
+                body += line;
+                body += "\n";
             }
 
             start = (end < ovpn.size()) ? (end + 1) : end;
         }
 
+        std::string patched;
+        patched.reserve(body.size() + 64);
+        if (!remoteWritten)
+        {
+            patched += "remote ";
+            patched += localHost;
+            patched += " ";
+            patched += std::to_string(localPort);
+            patched += "\n";
+        }
+        if (!protoWritten)
+        {
+            patched += protoLine;
+            patched += "\n";
+        }
+        patched += body;
         return patched;
     }
 
@@ -154,10 +190,11 @@ namespace datagate::session
     OvpnBuildResult OvpnConfigProcessor::BuildForLocalBridge(
         const std::string& ovpnContentUtf8,
         const std::string& localHost,
-        uint16_t localPort)
+        uint16_t localPort,
+        bool useUdp)
     {
         OvpnBuildResult r{};
-        r.config = PatchOvpnRemoteToLocal(ovpnContentUtf8, localHost, localPort);
+        r.config = PatchOvpnRemoteToLocal(ovpnContentUtf8, localHost, localPort, useUdp);
         r.config = PrependWindowsDriverWintun(r.config);
         r.diag = BuildDiagnostics(r.config);
         return r;
