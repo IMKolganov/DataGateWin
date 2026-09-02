@@ -2,6 +2,7 @@
 
 #include "src/ipc/IpcProtocol.h"
 #include "src/session/SessionState.h"
+#include "src/session/EnginePortDefaults.h"
 
 #include <cctype>
 #include <cstdint>
@@ -204,10 +205,10 @@ void IpcCommandRouter::Install()
             TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
             TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
 
-            if (opt.bridge.listenIp.empty())
-                opt.bridge.listenIp = "127.0.0.1";
+            // Force loopback regardless of IPC payload (defense in depth vs permissive pipe ACL).
+            opt.bridge.listenIp = "127.0.0.1";
             if (opt.bridge.listenPort == 0)
-                opt.bridge.listenPort = 18080;
+                opt.bridge.listenPort = datagate::session::kLocalBridgeDefaultListenPort;
 
             if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty())
             {

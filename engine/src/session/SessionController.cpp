@@ -4,6 +4,7 @@
 #include "app/CrashReporter.h"
 #include "BridgeManager.h"
 #include "OvpnConfigProcessor.h"
+#include "OvpnTextUtils.h"
 #include "SessionStateStore.h"
 #include "VpnSessionRunner.h"
 #include "WintunAdapterManager.h"
@@ -234,7 +235,8 @@ namespace datagate::session
             _impl->store.PublishLogLine(oss.str());
         }
 
-        auto built = _impl->ovpn.BuildForLocalBridge(opt.ovpnContentUtf8, localIp, localPort);
+        const bool useUdp = ovpn::IsUdpProto(ovpn::ResolveTransportProto(opt.ovpnContentUtf8));
+        auto built = _impl->ovpn.BuildForLocalBridge(opt.ovpnContentUtf8, localIp, localPort, useUdp);
 
         {
             std::string ovpnErr;
@@ -299,7 +301,7 @@ namespace datagate::session
             
             std::string guiVer = opt.guiVersion;
             if (guiVer.empty())
-                guiVer = "3.12_datagate_windows_1.0.12";
+                guiVer = "3.11.7_datagate_windows_1.0.13";
 
             if (!_impl->vpn.Start(built.config, guiVer, vpnErr))
             {

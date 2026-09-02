@@ -26,7 +26,8 @@ public:
 
     ~UdpWssBridge();
 
-    void Start();
+    // Returns true if UDP bind succeeded.
+    bool Start();
     void Stop();
 
 private:
@@ -51,4 +52,5 @@ private:
 
     std::thread sessionThread_;
     std::atomic<bool> sessionThreadStarted_{false};
+    std::atomic<uint64_t> recvEpoch_{0};
 };

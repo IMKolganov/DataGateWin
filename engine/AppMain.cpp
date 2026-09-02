@@ -25,8 +25,12 @@ int AppMain::Run(int argc, char** argv)
 
     if (ArgParser::HasFlag(argc, argv, "--recover-dns"))
     {
-        datagate::dns::RecoverStaleWindowsDnsState();
-        return 0;
+        const auto result = datagate::dns::RecoverStaleWindowsDnsState(/*refuseIfVpnLikelyActive=*/true);
+        if (result.skippedBecauseSessionActive)
+            return 3;
+        if (result.accessDenied)
+            return 5;
+        return result.ok ? 0 : 1;
     }
 
     const std::string sessionId = ArgParser::GetValue(argc, argv, "--session-id");
@@ -44,7 +48,7 @@ int AppMain::Run(int argc, char** argv)
         return 0;
     }
 
-    datagate::dns::RecoverStaleWindowsDnsState();
+    datagate::dns::RecoverStaleWindowsDnsState(/*refuseIfVpnLikelyActive=*/false);
 
     datagate::ipc::IpcServer ipc(sessionId);
     datagate::session::SessionController session;

@@ -33,7 +33,8 @@ namespace datagate::session
         OvpnBuildResult BuildForLocalBridge(
             const std::string& ovpnContentUtf8,
             const std::string& localHost,
-            uint16_t localPort);
+            uint16_t localPort,
+            bool useUdp);
 
         // Validates that patched config contains exactly 1 "remote" line.
         bool ValidateSingleRemote(const std::string& ovpn, std::string& outError);
@@ -44,7 +45,8 @@ namespace datagate::session
         static std::string PatchOvpnRemoteToLocal(
             const std::string& ovpn,
             const std::string& localHost,
-            uint16_t localPort);
+            uint16_t localPort,
+            bool useUdp);
 
         static std::string PrependWindowsDriverWintun(const std::string& ovpn);
 

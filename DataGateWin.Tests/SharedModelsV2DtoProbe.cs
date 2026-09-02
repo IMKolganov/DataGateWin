@@ -9,7 +9,11 @@ public sealed class SharedModelsV2DtoProbe
     public void VpnServerV2Dto_has_fields_used_by_windows_client()
     {
         var props = typeof(VpnServerV2Dto).GetProperties().Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in new[] { "Id", "ServerName", "IsOnline", "IsEnableWss", "ApiUrl", "IsAccessibleForUserQuotaPlan" })
+        foreach (var name in new[]
+                 {
+                     "Id", "ServerName", "ServerType", "IsOnline", "IsEnableWss", "ApiUrl",
+                     "IsAccessibleForUserQuotaPlan"
+                 })
             Assert.Contains(name, props);
     }
 

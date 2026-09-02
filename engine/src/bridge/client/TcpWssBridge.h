@@ -23,7 +23,8 @@ public:
         std::optional<BridgeTargetView>& target,
         std::atomic<uint64_t>& activeSessions);
 
-    void Start();
+    // Returns true if bind+listen succeeded.
+    bool Start();
     void Stop();
 
 private:
