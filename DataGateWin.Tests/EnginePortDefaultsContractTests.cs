@@ -10,7 +10,7 @@ public sealed class EnginePortDefaultsContractTests
     {
         Assert.Equal(1194, EnginePortDefaults.OpenVpnDefaultRemotePort);
         Assert.Equal(18080, EnginePortDefaults.LocalBridgeDefaultListenPort);
-        Assert.Equal(16, EnginePortDefaults.LocalBridgeListenPortAttempts);
+        Assert.Equal(64, EnginePortDefaults.LocalBridgeListenPortAttempts);
 
         Assert.Equal(
             EnginePortDefaults.OpenVpnDefaultRemotePort,

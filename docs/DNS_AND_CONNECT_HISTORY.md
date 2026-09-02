@@ -82,7 +82,13 @@ Order of operations for stale-state cleanup:
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | OpenVPN default remote port | **1194** | Spec default when `remote host` omits a port — not our listen port |
-| Local WSS bridge | **18080** (+ up to 15 fallbacks) | Loopback UI↔engine OpenVPN bridge; if busy, engine tries the next ports |
+| Local WSS bridge | **18080** (+ up to 63 shuffled fallbacks) | Loopback UI↔engine OpenVPN bridge; if busy, engine tries a shuffled pool |
 
 See `engine/src/session/EnginePortDefaults.h` and `DataGateWin.UI/Services/Ipc/EnginePortDefaults.cs`.
+
+### `--recover-dns` safety
+
+- **Refuse while VPN/engine looks active** (engine mutex held, or live `OpenVPNDNSRouting-{pid}` owner process) — exit code `3`.
+- **ACCESS_DENIED** on HKLM without Administrator — exit code `5` (Debug UI is `asInvoker`; Release requires elevation).
+- Call sites: engine process start (always; session not up yet), `engine.exe --recover-dns`, installer uninstall, UI after killing stale engine / on exit.
 

@@ -52,4 +52,5 @@ private:
 
     std::thread sessionThread_;
     std::atomic<bool> sessionThreadStarted_{false};
+    std::atomic<uint64_t> recvEpoch_{0};
 };

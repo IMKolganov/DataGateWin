@@ -6,6 +6,7 @@
 #include <chrono>
 #include <deque>
 #include <exception>
+#include <future>
 
 #include "WssBridgeOptionsView.h"
 #include "WssBridgeOptionsView.h"
@@ -22,6 +23,8 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
     std::atomic<bool>& stopped;
     std::mutex& udpPeerMtx;
     std::optional<budp::endpoint>& udpLastPeer;
+    std::atomic<uint64_t>& recvEpoch;
+    uint64_t myEpoch{0};
 
     std::shared_ptr<WsConnection> conn;
     bws::stream<bbeast::ssl_stream<bbeast::tcp_stream>>* ws{nullptr};
@@ -68,7 +71,8 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
         budp::socket& us,
         std::atomic<bool>& stoppedFlag,
         std::mutex& peerMtx,
-        std::optional<budp::endpoint>& lastPeer)
+        std::optional<budp::endpoint>& lastPeer,
+        std::atomic<uint64_t>& epoch)
         : opt(std::move(o)),
           globalMask(gmask),
           target(std::move(t)),
@@ -77,9 +81,16 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
           stopped(stoppedFlag),
           udpPeerMtx(peerMtx),
           udpLastPeer(lastPeer),
+          recvEpoch(epoch),
+          myEpoch(epoch.load()),
           strand(basio::make_strand(io)),
           statsTimer(io)
     {
+    }
+
+    bool EpochAlive() const
+    {
+        return myEpoch == recvEpoch.load();
     }
 
     void Start()
@@ -135,6 +146,10 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
     {
         if (done.exchange(true))
             return;
+
+        // Invalidate this session's UDP receive handlers before cancel so a
+        // reconnect cannot end up with two concurrent async_receive_from ops.
+        recvEpoch.fetch_add(1);
 
         boost::system::error_code cancelEc;
         udpSock.cancel(cancelEc);
@@ -347,7 +362,7 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
 
     void DoUdpReceive()
     {
-        if (done.load() || stopped.load())
+        if (done.load() || stopped.load() || !EpochAlive())
             return;
 
         udpSock.async_receive_from(
@@ -357,6 +372,9 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
                 strand,
                 [sp = shared_from_this()](boost::system::error_code ec, std::size_t n)
                 {
+                    if (!sp->EpochAlive() || sp->done.load() || sp->stopped.load())
+                        return;
+
                     if (ec)
                     {
                         if (ec != basio::error::operation_aborted)
@@ -364,9 +382,6 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
                         sp->Stop();
                         return;
                     }
-
-                    if (sp->done.load() || sp->stopped.load())
-                        return;
 
                     if (n == 0)
                     {
@@ -622,7 +637,8 @@ void UdpWssBridge::StartUdpSessionThread()
                     udpSock_,
                     stopped_,
                     udpPeerMtx_,
-                    udpLastPeer_);
+                    udpLastPeer_,
+                    recvEpoch_);
 
                 session->Start();
 
@@ -647,8 +663,13 @@ void UdpWssBridge::StartUdpSessionThread()
 
                 session->Stop();
 
-                // Let cancelled UDP receive handlers finish before starting another session.
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                // Drain cancelled receive completions on the io_context before the next session.
+                {
+                    std::promise<void> drained;
+                    auto fut = drained.get_future();
+                    basio::post(ioc_, [&drained]() { drained.set_value(); });
+                    fut.wait_for(std::chrono::milliseconds(500));
+                }
 
                 EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
                     std::string("[wss-bridge] udp session cycle done tid=") + Tid());

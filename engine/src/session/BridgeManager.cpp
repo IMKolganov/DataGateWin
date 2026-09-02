@@ -7,8 +7,11 @@
 
 #include <exception>
 #include <memory>
+#include <random>
+#include <algorithm>
 #include <string>
 #include <utility>
+#include <vector>
 #include "OvpnTextUtils.h"
 
 namespace datagate::session
@@ -78,14 +81,27 @@ namespace datagate::session
                 bool bound = false;
                 uint16_t boundPort = preferredPort;
 
-                for (uint16_t attempt = 0; attempt < kLocalBridgeListenPortAttempts; ++attempt)
+                // Prefer the UI/engine default, then a shuffled window so concurrent
+                // instances do not all stampede preferred+1, preferred+2, ...
+                std::vector<uint16_t> candidates;
+                candidates.reserve(kLocalBridgeListenPortAttempts);
+                candidates.push_back(preferredPort);
+                for (uint16_t i = 1; i < kLocalBridgeListenPortAttempts; ++i)
                 {
-                    const uint32_t candidate = static_cast<uint32_t>(preferredPort) + attempt;
+                    const uint32_t candidate = static_cast<uint32_t>(preferredPort) + i;
                     if (candidate > 65535)
                         break;
+                    candidates.push_back(static_cast<uint16_t>(candidate));
+                }
 
-                    const auto port = static_cast<uint16_t>(candidate);
+                if (candidates.size() > 1)
+                {
+                    std::mt19937 rng{std::random_device{}()};
+                    std::shuffle(candidates.begin() + 1, candidates.end(), rng);
+                }
 
+                for (const auto port : candidates)
+                {
                     WssLocalBridge::Options wo;
                     wo.listenIp = _impl->listenIp;
                     wo.listenPort = port;

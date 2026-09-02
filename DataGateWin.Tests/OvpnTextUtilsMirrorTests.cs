@@ -200,7 +200,7 @@ public sealed class LocalBridgeListenPortTests
     public void PreferredListenPort_ContractMatchesUiAndEngine()
     {
         Assert.Equal(18080, EnginePortDefaultsContract.LocalBridgeDefaultListenPort);
-        Assert.Equal(16, EnginePortDefaultsContract.LocalBridgeListenPortAttempts);
+        Assert.Equal(64, EnginePortDefaultsContract.LocalBridgeListenPortAttempts);
         Assert.Equal(1194, EnginePortDefaultsContract.OpenVpnDefaultRemotePort);
     }
 
@@ -265,7 +265,7 @@ internal static class EnginePortDefaultsContract
 {
     public const int OpenVpnDefaultRemotePort = 1194;
     public const int LocalBridgeDefaultListenPort = 18080;
-    public const int LocalBridgeListenPortAttempts = 16;
+    public const int LocalBridgeListenPortAttempts = 64;
 }
 
 internal static class LocalBridgePortProbe

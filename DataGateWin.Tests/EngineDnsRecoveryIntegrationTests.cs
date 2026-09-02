@@ -7,14 +7,11 @@ namespace DataGateWin.Tests;
 public sealed class EngineDnsRecoveryIntegrationTests
 {
     [Fact]
-    public void EngineRecoverDnsFlag_ExitsZeroWhenBinaryIsPresent()
+    public void EngineRecoverDnsFlag_CompletesWithDocumentedExitCodeWhenBinaryIsPresent()
     {
         var enginePath = TryResolveEngineExePath();
         if (enginePath == null)
-        {
-            // Native engine is optional in CI/dev environments without a C++ build.
             return;
-        }
 
         using var process = Process.Start(new ProcessStartInfo
         {
@@ -28,12 +25,26 @@ public sealed class EngineDnsRecoveryIntegrationTests
 
         Assert.NotNull(process);
         Assert.True(process!.WaitForExit(20000), "engine --recover-dns timed out");
-        Assert.Equal(0, process.ExitCode);
 
         var stderr = process.StandardError.ReadToEnd();
-        Assert.Contains("stale NRPT rule", stderr, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("SearchList", stderr, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("flushed DNS cache", stderr, StringComparison.OrdinalIgnoreCase);
+
+        // 0 = cleaned, 3 = refused (session active), 5 = ACCESS_DENIED without admin.
+        Assert.Contains(process.ExitCode, (int[])[0, 3, 5]);
+
+        if (process.ExitCode == 0)
+        {
+            Assert.Contains("stale NRPT rule", stderr, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("SearchList", stderr, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("flushed DNS cache", stderr, StringComparison.OrdinalIgnoreCase);
+        }
+        else if (process.ExitCode == 5)
+        {
+            Assert.Contains("ACCESS_DENIED", stderr, StringComparison.OrdinalIgnoreCase);
+        }
+        else if (process.ExitCode == 3)
+        {
+            Assert.Contains("SKIPPED", stderr, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
@@ -62,7 +73,6 @@ public sealed class EngineDnsRecoveryIntegrationTests
         }
         catch (UnauthorizedAccessException)
         {
-            // Plant requires admin; skip in non-elevated CI.
             return;
         }
 
@@ -78,6 +88,11 @@ public sealed class EngineDnsRecoveryIntegrationTests
 
         Assert.NotNull(process);
         Assert.True(process!.WaitForExit(20000), "engine --recover-dns timed out");
+
+        // Pid 0 is never "alive", so refuse-if-active should not block; admin may still be required.
+        if (process.ExitCode == 5)
+            return;
+
         Assert.Equal(0, process.ExitCode);
 
         using var verifyBase = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
