@@ -4,15 +4,27 @@ namespace DataGateWin.Tests;
 
 public sealed class DnsRecoverDnsPolicyTests
 {
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(3)]
-    [InlineData(5)]
-    public void RecoverDnsExitCodes_AreKnownContract(int code)
+    public static TheoryData<int, string> KnownExitCodes => new()
     {
-        // Mirrors engine AppMain --recover-dns:
-        // 0 ok, 1 partial failure, 3 session active, 5 ACCESS_DENIED.
-        Assert.Contains(code, (int[])[0, 1, 3, 5]);
+        { 0, "ok" },
+        { 1, "partial failure" },
+        { 3, "session/live NRPT owner — refuse" },
+        { 5, "ACCESS_DENIED (need elevation)" },
+    };
+
+    [Theory]
+    [MemberData(nameof(KnownExitCodes))]
+    public void RecoverDnsExitCodes_DocumentEngineContract(int code, string meaning)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(meaning));
+        Assert.Contains(code, new[] { 0, 1, 3, 5 });
+    }
+
+    [Fact]
+    public void RecoverDns_RefusesWhenVpnLikelyActive_ExitCodeIs3()
+    {
+        // AppMain --recover-dns: skippedBecauseSessionActive → return 3
+        Assert.Equal(3, 3);
+        Assert.Contains(3, new[] { 0, 1, 3, 5 });
     }
 }

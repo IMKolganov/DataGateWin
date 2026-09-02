@@ -9,7 +9,6 @@
 #include <future>
 
 #include "WssBridgeOptionsView.h"
-#include "WssBridgeOptionsView.h"
 
 struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
 {

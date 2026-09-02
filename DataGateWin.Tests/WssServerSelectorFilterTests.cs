@@ -1,4 +1,5 @@
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServers.Dto;
+using DataGateMonitor.SharedModels.Enums;
 using DataGateWin.Services.VpnServers;
 using Xunit;
 
@@ -7,34 +8,52 @@ namespace DataGateWin.Tests;
 public sealed class WssServerSelectorFilterTests
 {
     [Fact]
-    public void FilterWssEnabled_keeps_wss_rows_only()
+    public void FilterWssEnabled_keeps_openvpn_wss_only()
     {
-        var responsesType = typeof(VpnServerWithStatusV2Dto).GetProperty("VpnServerResponses")!.PropertyType;
-        var rowType = typeof(VpnServerWithStatusV2Dto);
-        var serverType = typeof(VpnServerV2Dto);
+        var openVpnWss = MakeRow(1, "Helsinki", VpnServerType.OpenVpn, wss: true);
+        var xray = MakeRow(2, "Norway xray", VpnServerType.Xray, wss: false);
+        var xrayWithWssFlag = MakeRow(3, "Xray spoof WSS", VpnServerType.Xray, wss: true);
+        var openVpnNoWss = MakeRow(4, "Cyprus", VpnServerType.OpenVpn, wss: false);
 
-        var responses = Activator.CreateInstance(responsesType)!;
-        var server = Activator.CreateInstance(serverType)!;
-        serverType.GetProperty("Id")!.SetValue(server, 1);
-        serverType.GetProperty("ServerName")!.SetValue(server, "Helsinki");
-        serverType.GetProperty("IsEnableWss")!.SetValue(server, true);
-        responsesType.GetProperty("VpnServer")!.SetValue(responses, server);
-
-        var wssRow = Activator.CreateInstance(rowType)!;
-        rowType.GetProperty("VpnServerResponses")!.SetValue(wssRow, responses);
-
-        var xrayServer = Activator.CreateInstance(serverType)!;
-        serverType.GetProperty("Id")!.SetValue(xrayServer, 2);
-        serverType.GetProperty("ServerName")!.SetValue(xrayServer, "Norway xray");
-        serverType.GetProperty("IsEnableWss")!.SetValue(xrayServer, false);
-        var xrayResponses = Activator.CreateInstance(responsesType)!;
-        responsesType.GetProperty("VpnServer")!.SetValue(xrayResponses, xrayServer);
-        var xrayRow = Activator.CreateInstance(rowType)!;
-        rowType.GetProperty("VpnServerResponses")!.SetValue(xrayRow, xrayResponses);
-
-        var filtered = WssServerSelector.FilterWssEnabled(new[] { (VpnServerWithStatusV2Dto)wssRow, (VpnServerWithStatusV2Dto)xrayRow });
+        var filtered = WssServerSelector.FilterWssEnabled(
+            [openVpnWss, xray, xrayWithWssFlag, openVpnNoWss]);
 
         Assert.Single(filtered);
         Assert.Equal(1, filtered[0].VpnServerResponses!.VpnServer.Id);
+        Assert.Equal(VpnServerType.OpenVpn, filtered[0].VpnServerResponses!.VpnServer.ServerType);
+    }
+
+    [Fact]
+    public void IsWindowsSupported_rejects_xray()
+    {
+        var xray = MakeServer(VpnServerType.Xray, wss: true);
+        var openVpn = MakeServer(VpnServerType.OpenVpn, wss: true);
+        Assert.False(WssServerSelector.IsWindowsSupported(xray));
+        Assert.True(WssServerSelector.IsWindowsSupported(openVpn));
+    }
+
+    private static VpnServerWithStatusV2Dto MakeRow(
+        int id,
+        string name,
+        VpnServerType type,
+        bool wss)
+    {
+        var responsesType = typeof(VpnServerWithStatusV2Dto).GetProperty("VpnServerResponses")!.PropertyType;
+        var responses = Activator.CreateInstance(responsesType)!;
+        var server = MakeServer(type, wss);
+        typeof(VpnServerV2Dto).GetProperty("Id")!.SetValue(server, id);
+        typeof(VpnServerV2Dto).GetProperty("ServerName")!.SetValue(server, name);
+        responsesType.GetProperty("VpnServer")!.SetValue(responses, server);
+        var row = Activator.CreateInstance(typeof(VpnServerWithStatusV2Dto))!;
+        typeof(VpnServerWithStatusV2Dto).GetProperty("VpnServerResponses")!.SetValue(row, responses);
+        return (VpnServerWithStatusV2Dto)row;
+    }
+
+    private static VpnServerV2Dto MakeServer(VpnServerType type, bool wss)
+    {
+        var server = Activator.CreateInstance(typeof(VpnServerV2Dto))!;
+        typeof(VpnServerV2Dto).GetProperty("ServerType")!.SetValue(server, type);
+        typeof(VpnServerV2Dto).GetProperty("IsEnableWss")!.SetValue(server, wss);
+        return (VpnServerV2Dto)server;
     }
 }

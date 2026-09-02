@@ -69,12 +69,56 @@ namespace datagate::dns
 
         bool EngineSessionMutexHeld()
         {
-            // UI uses session-id "dev"; refuse recover-dns while that engine is alive.
+            // Prefer exact mutex for the UI default session-id, then any
+            // Global\datagate.engine.<id>.mutex via known control-pipe presence.
             HANDLE h = OpenMutexA(SYNCHRONIZE, FALSE, "Global\\datagate.engine.dev.mutex");
-            if (!h)
+            if (h)
+            {
+                CloseHandle(h);
+                return true;
+            }
+
+            // Enumerate named pipes: datagate.engine.<sessionId>.control means an engine is up.
+            WIN32_FIND_DATAW fd{};
+            HANDLE find = FindFirstFileW(L"\\\\.\\pipe\\*", &fd);
+            if (find == INVALID_HANDLE_VALUE)
                 return false;
-            CloseHandle(h);
-            return true;
+
+            bool held = false;
+            do
+            {
+                const std::wstring name = fd.cFileName;
+                constexpr wchar_t kPrefix[] = L"datagate.engine.";
+                constexpr wchar_t kSuffix[] = L".control";
+                if (name.size() > (std::size(kPrefix) - 1) + (std::size(kSuffix) - 1)
+                    && name.compare(0, std::size(kPrefix) - 1, kPrefix) == 0
+                    && name.compare(name.size() - (std::size(kSuffix) - 1), std::size(kSuffix) - 1, kSuffix) == 0)
+                {
+                    // Confirm matching session mutex when possible.
+                    const auto mid = name.substr(
+                        std::size(kPrefix) - 1,
+                        name.size() - (std::size(kPrefix) - 1) - (std::size(kSuffix) - 1));
+                    std::string mutexName = "Global\\datagate.engine.";
+                    for (wchar_t ch : mid)
+                        mutexName.push_back(static_cast<char>(ch <= 0x7f ? ch : '?'));
+                    mutexName += ".mutex";
+
+                    HANDLE mh = OpenMutexA(SYNCHRONIZE, FALSE, mutexName.c_str());
+                    if (mh)
+                    {
+                        CloseHandle(mh);
+                        held = true;
+                        break;
+                    }
+
+                    // Pipe without mutex is still a strong signal the engine process is alive.
+                    held = true;
+                    break;
+                }
+            } while (FindNextFileW(find, &fd));
+
+            FindClose(find);
+            return held;
         }
 
         bool HasLiveOpenVpnNrptOwner(bool& accessDenied)
@@ -232,13 +276,30 @@ namespace datagate::dns
             }
 
             const std::wstring restore = hasOriginal ? original : std::wstring{};
-            RegSetValueExW(
+            const LONG setRc = RegSetValueExW(
                 key,
                 L"SearchList",
                 0,
                 REG_SZ,
                 reinterpret_cast<const BYTE*>(restore.c_str()),
                 static_cast<DWORD>((restore.size() + 1) * sizeof(wchar_t)));
+
+            if (setRc == ERROR_ACCESS_DENIED)
+            {
+                accessDenied = true;
+                RegCloseKey(key);
+                return false;
+            }
+
+            if (setRc != ERROR_SUCCESS)
+            {
+                // Do not delete Original/Initial backups when SearchList write failed —
+                // otherwise openvpn3 cannot restore on a later successful run.
+                std::cerr << "[engine][dns] startup: RegSetValueExW(SearchList) failed err="
+                          << setRc << std::endl;
+                RegCloseKey(key);
+                return false;
+            }
 
             RegDeleteValueW(key, L"InitialSearchList");
             RegDeleteValueW(key, L"OriginalSearchList");
