@@ -26,7 +26,8 @@ public:
 
     ~UdpWssBridge();
 
-    void Start();
+    // Returns true if UDP bind succeeded.
+    bool Start();
     void Stop();
 
 private:

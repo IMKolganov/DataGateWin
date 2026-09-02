@@ -136,6 +136,9 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
         if (done.exchange(true))
             return;
 
+        boost::system::error_code cancelEc;
+        udpSock.cancel(cancelEc);
+
         basio::dispatch(strand, [sp = shared_from_this()]()
         {
             boost::system::error_code ec;
@@ -150,6 +153,11 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
             sp->wsOutBytes = 0;
             sp->wsWriteInProgress = false;
         });
+    }
+
+    bool IsDone() const
+    {
+        return done.load();
     }
 
     void EnqueueWsBinary(std::vector<uint8_t>&& msg)
@@ -351,10 +359,14 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
                 {
                     if (ec)
                     {
-                        LogEc(sp->opt.log, sp->globalMask, sp->opt.logMask, "udp async_receive_from", ec);
+                        if (ec != basio::error::operation_aborted)
+                            LogEc(sp->opt.log, sp->globalMask, sp->opt.logMask, "udp async_receive_from", ec);
                         sp->Stop();
                         return;
                     }
+
+                    if (sp->done.load() || sp->stopped.load())
+                        return;
 
                     if (n == 0)
                     {
@@ -483,27 +495,28 @@ UdpWssBridge::~UdpWssBridge()
     Stop();
 }
 
-void UdpWssBridge::Start()
+bool UdpWssBridge::Start()
 {
     boost::system::error_code ec;
 
     budp::endpoint ep(basio::ip::make_address(opt_.listenIp, ec), opt_.listenPort);
     LogEc(opt_.log, globalMask_, opt_.logMask, "udp.make_address", ec);
-    if (ec) return;
+    if (ec) return false;
 
     udpSock_.open(ep.protocol(), ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "udp.open", ec);
-    if (ec) return;
+    if (ec) return false;
 
     udpSock_.set_option(basio::socket_base::reuse_address(true), ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "udp.reuse_address", ec);
 
     udpSock_.bind(ep, ec);
     LogEc(opt_.log, globalMask_, opt_.logMask, "udp.bind", ec);
-    if (ec) return;
+    if (ec) return false;
 
     udpBound_.store(true);
     StartUdpSessionThread();
+    return true;
 }
 
 void UdpWssBridge::Stop()
@@ -531,109 +544,141 @@ void UdpWssBridge::StartUdpSessionThread()
         EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
             std::string("[wss-bridge] udp session BEGIN tid=") + Tid());
 
-        BridgeTargetView fixed{};
-        const uint64_t startMs = NowMs();
-        const uint64_t timeoutMs = 5000;
-
-        for (;;)
+        auto targetKey = [](const BridgeTargetView& t)
         {
-            if (stopped_.load())
-            {
-                EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
-                    std::string("[wss-bridge] udp session stopped before target ready tid=") + Tid());
-                activeSessions_.fetch_sub(1);
-                return;
-            }
+            return t.host + "|" + t.port + "|" + t.path + "|" + t.sni + "|" +
+                   t.remoteHost + "|" + std::to_string(t.remotePort) + "|" + t.remoteProto + "|" +
+                   t.authorizationHeader + "|" + (t.verifyServerCert ? "1" : "0");
+        };
 
-            std::optional<BridgeTargetView> t;
-            {
-                std::lock_guard<std::mutex> lock(targetMtx_);
-                t = target_;
-            }
+        while (!stopped_.load())
+        {
+            BridgeTargetView fixed{};
+            std::string fixedKey;
+            const uint64_t waitStartMs = NowMs();
+            const uint64_t waitTimeoutMs = 5000;
+            bool loggedWaitTimeout = false;
 
-            if (t.has_value())
+            for (;;)
             {
-                fixed = *t;
-
-                const bool hasWssTarget = !fixed.host.empty() && !fixed.port.empty();
-                if (hasWssTarget)
-                {
-                    if (fixed.remoteProto.empty())
-                        fixed.remoteProto = "udp";
+                if (stopped_.load())
                     break;
+
+                std::optional<BridgeTargetView> t;
+                {
+                    std::lock_guard<std::mutex> lock(targetMtx_);
+                    t = target_;
                 }
+
+                if (t.has_value())
+                {
+                    fixed = *t;
+                    const bool hasWssTarget = !fixed.host.empty() && !fixed.port.empty();
+                    if (hasWssTarget)
+                    {
+                        if (fixed.remoteProto.empty())
+                            fixed.remoteProto = "udp";
+                        fixedKey = targetKey(fixed);
+                        break;
+                    }
+                }
+
+                if (!loggedWaitTimeout && NowMs() - waitStartMs > waitTimeoutMs)
+                {
+                    loggedWaitTimeout = true;
+                    EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error,
+                        std::string("[wss-bridge] udp target not ready (host/port missing) tid=") + Tid());
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
 
-            if (NowMs() - startMs > timeoutMs)
-            {
-                EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error,
-                    std::string("[wss-bridge] udp target not ready (host/port missing) tid=") + Tid());
+            if (stopped_.load())
+                break;
 
-                activeSessions_.fetch_sub(1);
-                return;
+            try
+            {
+                {
+                    std::ostringstream oss;
+                    oss << "[wss-bridge] udp target"
+                        << " tid=" << Tid()
+                        << " host=" << fixed.host
+                        << " port=" << fixed.port
+                        << " path=" << fixed.path
+                        << " sni=" << EffectiveSni(fixed)
+                        << " verifyServerCert=" << (fixed.verifyServerCert ? "true" : "false")
+                        << " remoteHost=" << (fixed.remoteHost.empty() ? "<empty>" : fixed.remoteHost)
+                        << " remotePort=" << fixed.remotePort
+                        << " remoteProto=" << fixed.remoteProto;
+
+                    EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info, oss.str());
+                }
+
+                auto session = std::make_shared<UdpWsSession>(
+                    opt_,
+                    globalMask_,
+                    fixed,
+                    ioc_,
+                    udpSock_,
+                    stopped_,
+                    udpPeerMtx_,
+                    udpLastPeer_);
+
+                session->Start();
+
+                while (!stopped_.load() && !session->IsDone())
+                {
+                    std::optional<BridgeTargetView> current;
+                    {
+                        std::lock_guard<std::mutex> lock(targetMtx_);
+                        current = target_;
+                    }
+
+                    if (!current.has_value() || targetKey(*current) != fixedKey)
+                    {
+                        EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
+                            std::string("[wss-bridge] udp target changed, reconnecting tid=") + Tid());
+                        session->Stop();
+                        break;
+                    }
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+
+                session->Stop();
+
+                // Let cancelled UDP receive handlers finish before starting another session.
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+                EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
+                    std::string("[wss-bridge] udp session cycle done tid=") + Tid());
             }
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-
-        try
-        {
+            catch (const boost::system::system_error& e)
             {
+                CrashReporter::ReportNonFatal("UdpWssBridge.system_error", e.what());
                 std::ostringstream oss;
-                oss << "[wss-bridge] udp target"
-                    << " tid=" << Tid()
-                    << " host=" << fixed.host
-                    << " port=" << fixed.port
-                    << " path=" << fixed.path
-                    << " sni=" << EffectiveSni(fixed)
-                    << " verifyServerCert=" << (fixed.verifyServerCert ? "true" : "false")
-                    << " remoteHost=" << (fixed.remoteHost.empty() ? "<empty>" : fixed.remoteHost)
-                    << " remotePort=" << fixed.remotePort
-                    << " remoteProto=" << fixed.remoteProto;
+                oss << "[wss-bridge] udp error tid=" << Tid()
+                    << " code=" << e.code().value()
+                    << " category=" << e.code().category().name()
+                    << " message=" << e.code().message()
+                    << " what=" << e.what();
 
-                EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info, oss.str());
+                EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error, oss.str());
+
+                if (e.code().category() == basio::error::get_ssl_category())
+                    DrainOpenSslErrors(opt_.log, globalMask_, opt_.logMask, "udp catch_system_error_ssl_queue");
+            }
+            catch (const std::exception& e)
+            {
+                CrashReporter::ReportNonFatal("UdpWssBridge.exception", e.what());
+                EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error,
+                    std::string("[wss-bridge] udp error tid=") + Tid() + " what=" + e.what());
             }
 
-            auto session = std::make_shared<UdpWsSession>(
-                opt_,
-                globalMask_,
-                fixed,
-                ioc_,
-                udpSock_,
-                stopped_,
-                udpPeerMtx_,
-                udpLastPeer_);
+            if (stopped_.load())
+                break;
 
-            session->Start();
-
-            while (!stopped_.load())
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-            session->Stop();
-
-            EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Info,
-                std::string("[wss-bridge] udp session done tid=") + Tid());
-        }
-        catch (const boost::system::system_error& e)
-        {
-            CrashReporter::ReportNonFatal("UdpWssBridge.system_error", e.what());
-            std::ostringstream oss;
-            oss << "[wss-bridge] udp error tid=" << Tid()
-                << " code=" << e.code().value()
-                << " category=" << e.code().category().name()
-                << " message=" << e.code().message()
-                << " what=" << e.what();
-
-            EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error, oss.str());
-
-            if (e.code().category() == basio::error::get_ssl_category())
-                DrainOpenSslErrors(opt_.log, globalMask_, opt_.logMask, "udp catch_system_error_ssl_queue");
-        }
-        catch (const std::exception& e)
-        {
-            CrashReporter::ReportNonFatal("UdpWssBridge.exception", e.what());
-            EmitLogMasked(opt_.log, globalMask_, opt_.logMask, LogMask::Error,
-                std::string("[wss-bridge] udp error tid=") + Tid() + " what=" + e.what());
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
 
         activeSessions_.fetch_sub(1);

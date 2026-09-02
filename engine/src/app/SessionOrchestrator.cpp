@@ -149,6 +149,7 @@ void SessionOrchestrator::WireCallbacks()
 
         // Detect transport-related lines
         if (line.find("TCP recv error:") != std::string::npos ||
+            line.find("UDP recv error:") != std::string::npos ||
             line.find("Transport Error:") != std::string::npos ||
             line.find("NETWORK_RECV_ERROR") != std::string::npos)
         {

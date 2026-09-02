@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -17,18 +18,38 @@ namespace datagate::dns
             L"SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig",
         };
 
+        // OpenVPN3 uses "WindowsNT" (no space) for the GPO search-list key; also cover the
+        // documented "Windows NT" spelling and TCPIP Parameters (see openvpn/tun/win/dns.hpp).
+        const wchar_t* const kSearchListSubkeys[] = {
+            L"SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient",
+            L"SOFTWARE\\Policies\\Microsoft\\WindowsNT\\DNSClient",
+            L"SYSTEM\\CurrentControlSet\\Services\\TCPIP\\Parameters",
+        };
+
+        const REGSAM kRegistryViews[] = {
+            KEY_WOW64_64KEY,
+            KEY_WOW64_32KEY,
+        };
+
         bool StartsWithPrefix(const std::wstring& name)
         {
             return name.rfind(kNrptRulePrefix, 0) == 0;
         }
 
-        int DeleteMatchingSubkeys(HKEY root, const wchar_t* subkeyPath)
+        int DeleteMatchingSubkeys(HKEY root, REGSAM view, const wchar_t* subkeyPath)
         {
             int removed = 0;
 
             HKEY nrptKey = nullptr;
-            if (RegOpenKeyExW(root, subkeyPath, 0, KEY_READ | KEY_WRITE, &nrptKey) != ERROR_SUCCESS)
+            if (RegOpenKeyExW(
+                    root,
+                    subkeyPath,
+                    0,
+                    KEY_READ | KEY_WRITE | view,
+                    &nrptKey) != ERROR_SUCCESS)
+            {
                 return 0;
+            }
 
             std::vector<std::wstring> toDelete;
             for (DWORD index = 0;; ++index)
@@ -59,10 +80,117 @@ namespace datagate::dns
         void RemoveStaleNrptRules()
         {
             int removed = 0;
-            for (const auto* subkey : kNrptSubkeys)
-                removed += DeleteMatchingSubkeys(HKEY_LOCAL_MACHINE, subkey);
+            for (const REGSAM view : kRegistryViews)
+            {
+                for (const auto* subkey : kNrptSubkeys)
+                    removed += DeleteMatchingSubkeys(HKEY_LOCAL_MACHINE, view, subkey);
+            }
 
             std::cerr << "[engine][dns] startup: removed " << removed << " stale NRPT rule(s)" << std::endl;
+        }
+
+        bool ReadRegString(HKEY key, const wchar_t* valueName, std::wstring& out)
+        {
+            out.clear();
+            DWORD type = 0;
+            DWORD cb = 0;
+            LONG rc = RegQueryValueExW(key, valueName, nullptr, &type, nullptr, &cb);
+            if (rc == ERROR_FILE_NOT_FOUND)
+                return false;
+            if (rc != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ) || cb < sizeof(wchar_t))
+                return false;
+
+            std::vector<wchar_t> buf(cb / sizeof(wchar_t) + 1, L'\0');
+            rc = RegQueryValueExW(
+                key,
+                valueName,
+                nullptr,
+                &type,
+                reinterpret_cast<LPBYTE>(buf.data()),
+                &cb);
+            if (rc != ERROR_SUCCESS)
+                return false;
+
+            out.assign(buf.data());
+            return true;
+        }
+
+        bool RestoreSearchListUnderKey(HKEY root, REGSAM view, const wchar_t* subkeyPath)
+        {
+            HKEY key = nullptr;
+            if (RegOpenKeyExW(root, subkeyPath, 0, KEY_READ | KEY_WRITE | view, &key) != ERROR_SUCCESS)
+                return false;
+
+            std::wstring original;
+            std::wstring initial;
+            const bool hasOriginal = ReadRegString(key, L"OriginalSearchList", original);
+            const bool hasInitial = ReadRegString(key, L"InitialSearchList", initial);
+
+            if (!hasOriginal && !hasInitial)
+            {
+                RegCloseKey(key);
+                return false;
+            }
+
+            // Mirror openvpn3 Dns::reset_search_domains: restore OriginalSearchList, or empty if absent.
+            const std::wstring restore = hasOriginal ? original : std::wstring{};
+            RegSetValueExW(
+                key,
+                L"SearchList",
+                0,
+                REG_SZ,
+                reinterpret_cast<const BYTE*>(restore.c_str()),
+                static_cast<DWORD>((restore.size() + 1) * sizeof(wchar_t)));
+
+            RegDeleteValueW(key, L"InitialSearchList");
+            RegDeleteValueW(key, L"OriginalSearchList");
+
+            RegCloseKey(key);
+            return true;
+        }
+
+        void RestoreSearchList()
+        {
+            int restored = 0;
+            for (const REGSAM view : kRegistryViews)
+            {
+                for (const auto* subkey : kSearchListSubkeys)
+                {
+                    if (RestoreSearchListUnderKey(HKEY_LOCAL_MACHINE, view, subkey))
+                        ++restored;
+                }
+            }
+
+            std::cerr << "[engine][dns] startup: restored SearchList under " << restored
+                      << " key(s)" << std::endl;
+        }
+
+        void SignalDnsCacheReload()
+        {
+            SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+            if (!scm)
+            {
+                std::cerr << "[engine][dns] startup: OpenSCManager failed" << std::endl;
+                return;
+            }
+
+            SC_HANDLE svc = OpenServiceW(scm, L"Dnscache", SERVICE_PAUSE_CONTINUE);
+            if (!svc)
+            {
+                std::cerr << "[engine][dns] startup: OpenService(Dnscache) failed" << std::endl;
+                CloseServiceHandle(scm);
+                return;
+            }
+
+            SERVICE_STATUS status{};
+            if (ControlService(svc, SERVICE_CONTROL_PARAMCHANGE, &status))
+                std::cerr << "[engine][dns] startup: signaled Dnscache PARAMCHANGE" << std::endl;
+            else
+                std::cerr << "[engine][dns] startup: Dnscache PARAMCHANGE failed err="
+                          << GetLastError() << std::endl;
+
+            CloseServiceHandle(svc);
+            CloseServiceHandle(scm);
         }
 
         void FlushDnsCache()
@@ -77,7 +205,6 @@ namespace datagate::dns
             si.cb = sizeof(si);
             PROCESS_INFORMATION pi{};
 
-            // CreateProcess needs mutable buffer.
             std::vector<wchar_t> cmdLine(cmd.begin(), cmd.end());
             cmdLine.push_back(L'\0');
 
@@ -106,6 +233,7 @@ namespace datagate::dns
 
     void RecoverStaleWindowsDnsState()
     {
+        // Order: NRPT → SearchList → Dnscache reload → flushdns
         try
         {
             RemoveStaleNrptRules();
@@ -117,6 +245,32 @@ namespace datagate::dns
         catch (...)
         {
             std::cerr << "[engine][dns] startup: NRPT cleanup failed: unknown error" << std::endl;
+        }
+
+        try
+        {
+            RestoreSearchList();
+        }
+        catch (const std::exception& ex)
+        {
+            std::cerr << "[engine][dns] startup: SearchList restore failed: " << ex.what() << std::endl;
+        }
+        catch (...)
+        {
+            std::cerr << "[engine][dns] startup: SearchList restore failed: unknown error" << std::endl;
+        }
+
+        try
+        {
+            SignalDnsCacheReload();
+        }
+        catch (const std::exception& ex)
+        {
+            std::cerr << "[engine][dns] startup: Dnscache signal failed: " << ex.what() << std::endl;
+        }
+        catch (...)
+        {
+            std::cerr << "[engine][dns] startup: Dnscache signal failed: unknown error" << std::endl;
         }
 
         try

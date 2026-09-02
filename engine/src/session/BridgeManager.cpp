@@ -1,6 +1,7 @@
 ﻿#include "BridgeManager.h"
 
 #include "SessionController.h"
+#include "EnginePortDefaults.h"
 #include "app/CrashReporter.h"
 #include "bridge/client/WssLocalBridge.h"
 
@@ -16,7 +17,7 @@ namespace datagate::session
     {
         std::unique_ptr<WssLocalBridge> bridge;
         std::string listenIp = "127.0.0.1";
-        uint16_t listenPort = 18080;
+        uint16_t listenPort = kLocalBridgeDefaultListenPort;
         WssLocalBridge::Mode mode = WssLocalBridge::Mode::Tcp;
         LogCallback log;
     };
@@ -38,12 +39,14 @@ namespace datagate::session
 
     std::string BridgeManager::DefaultListenIp(const StartOptions& opt)
     {
-        return opt.bridge.listenIp.empty() ? std::string("127.0.0.1") : opt.bridge.listenIp;
+        // Always loopback: IPC must not be able to bind the OpenVPN bridge on LAN interfaces.
+        (void)opt;
+        return "127.0.0.1";
     }
 
     uint16_t BridgeManager::DefaultListenPort(const StartOptions& opt)
     {
-        return opt.bridge.listenPort == 0 ? static_cast<uint16_t>(18080) : opt.bridge.listenPort;
+        return opt.bridge.listenPort == 0 ? kLocalBridgeDefaultListenPort : opt.bridge.listenPort;
     }
 
     bool BridgeManager::Activate(const StartOptions& opt, std::string& outError)
@@ -51,17 +54,18 @@ namespace datagate::session
         try
         {
             _impl->listenIp = DefaultListenIp(opt);
-            _impl->listenPort = DefaultListenPort(opt);
 
-            const auto proto = ovpn::TryGetProtoFromOvpn(opt.ovpnContentUtf8);
-            const bool useUdp = (proto == "udp");
+            const auto proto = ovpn::ResolveTransportProto(opt.ovpnContentUtf8);
+            const bool useUdp = ovpn::IsUdpProto(proto);
             const auto desiredMode = useUdp ? WssLocalBridge::Mode::Udp : WssLocalBridge::Mode::Tcp;
+
+            const uint16_t preferredPort = DefaultListenPort(opt);
 
             const bool needRecreate =
                 !_impl->bridge ||
+                !_impl->bridge->IsStarted() ||
                 _impl->mode != desiredMode ||
-                _impl->listenIp != DefaultListenIp(opt) ||
-                _impl->listenPort != DefaultListenPort(opt);
+                _impl->listenIp != DefaultListenIp(opt);
 
             if (needRecreate)
             {
@@ -71,16 +75,57 @@ namespace datagate::session
                     _impl->bridge.reset();
                 }
 
-                WssLocalBridge::Options wo;
-                wo.listenIp = _impl->listenIp;
-                wo.listenPort = _impl->listenPort;
-                wo.mode = desiredMode;
-                wo.log = _impl->log;
+                bool bound = false;
+                uint16_t boundPort = preferredPort;
 
-                _impl->bridge = std::make_unique<WssLocalBridge>(std::move(wo));
-                _impl->bridge->Start();
+                for (uint16_t attempt = 0; attempt < kLocalBridgeListenPortAttempts; ++attempt)
+                {
+                    const uint32_t candidate = static_cast<uint32_t>(preferredPort) + attempt;
+                    if (candidate > 65535)
+                        break;
 
+                    const auto port = static_cast<uint16_t>(candidate);
+
+                    WssLocalBridge::Options wo;
+                    wo.listenIp = _impl->listenIp;
+                    wo.listenPort = port;
+                    wo.mode = desiredMode;
+                    wo.log = _impl->log;
+
+                    auto bridge = std::make_unique<WssLocalBridge>(std::move(wo));
+                    if (!bridge->Start())
+                    {
+                        try { bridge->Stop(); } catch (...) {}
+                        bridge.reset();
+                        continue;
+                    }
+
+                    _impl->bridge = std::move(bridge);
+                    boundPort = port;
+                    bound = true;
+                    break;
+                }
+
+                if (!bound)
+                {
+                    outError = "Failed to bind local WSS bridge (listen ports busy)";
+                    return false;
+                }
+
+                _impl->listenPort = boundPort;
                 _impl->mode = desiredMode;
+
+                if (boundPort != preferredPort && _impl->log)
+                {
+                    _impl->log(
+                        "[session] bridge listen port " + std::to_string(preferredPort) +
+                        " busy; using " + std::to_string(boundPort));
+                }
+            }
+            else
+            {
+                // Keep existing successful bind port.
+                _impl->listenPort = _impl->bridge->ListenPort();
             }
 
             WssLocalBridge::Target t;
@@ -98,6 +143,19 @@ namespace datagate::session
                 t.remoteProto = opt.bridge.remoteProto.empty() ? "udp" : opt.bridge.remoteProto;
                 t.remoteHost  = opt.bridge.remoteHost;
                 t.remotePort  = opt.bridge.remotePort;
+
+                // Handshake needs the real OpenVPN endpoint; UI/IPC often omit it.
+                if (t.remoteHost.empty() || t.remotePort == 0)
+                {
+                    ovpn::OvpnRemote remote;
+                    if (ovpn::TryGetFirstRemoteFromOvpn(opt.ovpnContentUtf8, remote))
+                    {
+                        if (t.remoteHost.empty())
+                            t.remoteHost = remote.host;
+                        if (t.remotePort == 0)
+                            t.remotePort = remote.port;
+                    }
+                }
             }
 
             _impl->bridge->UpdateTarget(std::move(t));

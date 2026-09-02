@@ -47,7 +47,8 @@ public:
     explicit WssLocalBridge(Options opt);
     ~WssLocalBridge();
 
-    void Start();
+    // Returns true if the local TCP/UDP listen socket was bound.
+    bool Start();
     void Stop();
 
     bool IsStarted() const;

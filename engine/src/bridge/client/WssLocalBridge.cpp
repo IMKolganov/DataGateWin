@@ -121,16 +121,16 @@ void WssLocalBridge::ClearTarget()
         std::string("[wss-bridge] target cleared tid=") + Tid());
 }
 
-void WssLocalBridge::Start()
+bool WssLocalBridge::Start()
 {
-    if (!impl_) return;
+    if (!impl_) return false;
 
     bool expected = false;
     if (!impl_->started.compare_exchange_strong(expected, true))
     {
         EmitLogMasked(opt_.log, GetGlobalLogMask(), opt_.logMask, LogMask::Info,
             std::string("[wss-bridge] Start skipped (already started) tid=") + Tid());
-        return;
+        return true;
     }
 
     impl_->stopped.store(false);
@@ -169,23 +169,54 @@ void WssLocalBridge::Start()
     auto ov = ToOptView(opt_);
     auto gm = GetGlobalLogMask();
 
+    bool bound = false;
     if (opt_.mode == Mode::Udp)
     {
         impl_->udp = std::make_unique<UdpWssBridge>(
             ov, gm, impl_->ioc, impl_->stopped, impl_->targetMtx, impl_->target, impl_->activeSessions);
 
-        impl_->udp->Start();
+        bound = impl_->udp->Start();
     }
     else
     {
         impl_->tcp = std::make_unique<TcpWssBridge>(
             ov, gm, impl_->ioc, impl_->stopped, impl_->targetMtx, impl_->target, impl_->activeSessions);
 
-        impl_->tcp->Start();
+        bound = impl_->tcp->Start();
+    }
+
+    if (!bound)
+    {
+        EmitLogMasked(opt_.log, gm, opt_.logMask, LogMask::Error,
+            std::string("[wss-bridge] Start FAILED (bind) tid=") + Tid() +
+            " listen=" + opt_.listenIp + ":" + std::to_string(opt_.listenPort));
+
+        // Roll back so a later Start() with another port can run.
+        impl_->started.store(false);
+        const bool wasStopped = impl_->stopped.exchange(true);
+        (void)wasStopped;
+
+        if (impl_->tcp)
+            impl_->tcp->Stop();
+        if (impl_->udp)
+            impl_->udp->Stop();
+        impl_->tcp.reset();
+        impl_->udp.reset();
+
+        if (impl_->work.has_value())
+            impl_->work.reset();
+
+        impl_->ioc.stop();
+        if (impl_->worker.joinable())
+            impl_->worker.join();
+
+        impl_->stopped.store(false);
+        return false;
     }
 
     EmitLogMasked(opt_.log, gm, opt_.logMask, LogMask::Info,
         std::string("[wss-bridge] Start OK tid=") + Tid());
+    return true;
 }
 
 void WssLocalBridge::Stop()
