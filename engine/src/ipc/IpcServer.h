@@ -76,5 +76,6 @@ namespace datagate::ipc
         std::mutex _controlOutMx;
         std::condition_variable _controlOutCv;
         std::deque<std::string> _controlOutQueue;
+        std::size_t _controlOutBytes{ 0 };
     };
 }

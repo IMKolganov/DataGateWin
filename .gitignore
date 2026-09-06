@@ -52,3 +52,7 @@ publish-win*/
 # .NET build artifacts (never commit)
 **/bin/
 **/obj/
+# Local deploy / install scratch (never commit)
+_local_deploy*
+_local_install/
+_local_install_stage/
