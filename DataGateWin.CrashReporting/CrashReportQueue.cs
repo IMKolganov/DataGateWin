@@ -5,20 +5,22 @@ namespace DataGateWin.CrashReporting;
 public sealed class CrashReportQueue
 {
     readonly string _directory;
+    readonly long _maxDirectoryBytes;
 
-    public CrashReportQueue(string? queueDirectory = null)
+    public CrashReportQueue(string? queueDirectory = null, long maxDirectoryBytes = InMemoryLogBudget.MaxQueueBytes)
     {
         _directory = queueDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "DataGateWin",
             "crash-queue");
+        _maxDirectoryBytes = maxDirectoryBytes > 0 ? maxDirectoryBytes : InMemoryLogBudget.MaxQueueBytes;
 
         Directory.CreateDirectory(_directory);
     }
 
     public string QueueDirectory => _directory;
 
-    /// <summary>Persist a payload for retry. Thread-safe.</summary>
+    /// <summary>Persist a payload for retry. Thread-safe. Drops oldest files when over budget.</summary>
     public void Enqueue(string crashFilename, string payloadUtf8, string? processName = null)
     {
         var id = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}";
@@ -26,6 +28,7 @@ public sealed class CrashReportQueue
         var dto = new QueuedDto(crashFilename, payloadUtf8, processName);
         var json = JsonSerializer.Serialize(dto);
         File.WriteAllText(path, json);
+        TrimDirectoryToBudget();
     }
 
     public IReadOnlyList<QueuedCrashReport> ReadPending()
@@ -70,6 +73,47 @@ public sealed class CrashReportQueue
         }
 
         return false;
+    }
+
+    /// <summary>Delete oldest queue files until total size is within budget.</summary>
+    public void TrimDirectoryToBudget()
+    {
+        if (!Directory.Exists(_directory))
+            return;
+
+        FileInfo[] files;
+        try
+        {
+            files = new DirectoryInfo(_directory)
+                .EnumerateFiles("*.queued.json")
+                .OrderBy(f => f.CreationTimeUtc)
+                .ThenBy(f => f.Name, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch
+        {
+            return;
+        }
+
+        long total = 0;
+        foreach (var f in files)
+            total += f.Length;
+
+        foreach (var f in files)
+        {
+            if (total <= _maxDirectoryBytes)
+                break;
+
+            try
+            {
+                total -= f.Length;
+                f.Delete();
+            }
+            catch
+            {
+                // best-effort
+            }
+        }
     }
 
     sealed class QueuedDto

@@ -1,5 +1,6 @@
 ﻿// IpcServer.cpp
 #include "IpcServer.h"
+#include "../util/InMemoryLogBudget.h"
 
 #include <chrono>
 #include <cctype>
@@ -302,6 +303,7 @@ namespace datagate::ipc
         {
             std::lock_guard<std::mutex> lk(_controlOutMx);
             _controlOutQueue.clear();
+            _controlOutBytes = 0;
         }
 
         _controlWriterRunning.store(true);
@@ -327,6 +329,10 @@ namespace datagate::ipc
                         break;
 
                     msg = std::move(_controlOutQueue.front());
+                    if (_controlOutBytes >= msg.size())
+                        _controlOutBytes -= msg.size();
+                    else
+                        _controlOutBytes = 0;
                     _controlOutQueue.pop_front();
                 }
 
@@ -386,6 +392,7 @@ namespace datagate::ipc
         {
             std::lock_guard<std::mutex> lk(_controlOutMx);
             _controlOutQueue.clear();
+            _controlOutBytes = 0;
         }
     }
 
@@ -409,7 +416,20 @@ namespace datagate::ipc
         {
             std::lock_guard<std::mutex> lk(_controlOutMx);
             _controlOutQueue.push_back(line + "\n");
-            std::cerr << "[ipc][control] queue size=" << _controlOutQueue.size() << std::endl;
+            _controlOutBytes += _controlOutQueue.back().size();
+
+            while (_controlOutBytes > datagate::kInMemoryLogBudgetBytes && !_controlOutQueue.empty())
+            {
+                const std::size_t dropped = _controlOutQueue.front().size();
+                _controlOutQueue.pop_front();
+                if (_controlOutBytes >= dropped)
+                    _controlOutBytes -= dropped;
+                else
+                    _controlOutBytes = 0;
+            }
+
+            std::cerr << "[ipc][control] queue size=" << _controlOutQueue.size()
+                      << " bytes=" << _controlOutBytes << std::endl;
         }
 
         _controlOutCv.notify_one();
