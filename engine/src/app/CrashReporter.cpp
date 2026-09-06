@@ -1,16 +1,20 @@
 ﻿#include "CrashReporter.h"
+#include "../util/InMemoryLogBudget.h"
 
 #include <windows.h>
 #include <dbghelp.h>
 #include <eh.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #pragma comment(lib, "Dbghelp.lib")
 
@@ -223,6 +227,78 @@ static std::string BuildPayload(
     return body.str();
 }
 
+static void TrimQueueDirectory(const std::string& queueDir)
+{
+    const std::string pattern = queueDir + "\\*.queued.json";
+    WIN32_FIND_DATAA fd{};
+    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE)
+        return;
+
+    struct Entry
+    {
+        std::string path;
+        FILETIME created{};
+        ULONGLONG size{ 0 };
+    };
+
+    std::vector<Entry> entries;
+    ULONGLONG total = 0;
+    do
+    {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+
+        Entry e;
+        e.path = queueDir + "\\" + fd.cFileName;
+        e.created = fd.ftCreationTime;
+        e.size = (static_cast<ULONGLONG>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow;
+        total += e.size;
+        entries.push_back(std::move(e));
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+
+    if (total <= datagate::kInMemoryLogBudgetBytes)
+        return;
+
+    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b)
+    {
+        return CompareFileTime(&a.created, &b.created) < 0;
+    });
+
+    for (const auto& e : entries)
+    {
+        if (total <= datagate::kInMemoryLogBudgetBytes)
+            break;
+        if (DeleteFileA(e.path.c_str()))
+        {
+            if (total >= e.size)
+                total -= e.size;
+            else
+                total = 0;
+        }
+    }
+}
+
+static bool ShouldDropDuplicateNonFatal(const std::string& exceptionName, const std::string& message)
+{
+    static std::mutex mx;
+    static std::string lastKey;
+    static ULONGLONG lastTickMs = 0;
+    constexpr ULONGLONG kMinIntervalMs = 30'000;
+
+    const std::string key = exceptionName + "\n" + message;
+    const ULONGLONG now = GetTickCount64();
+
+    std::lock_guard<std::mutex> lock(mx);
+    if (key == lastKey && (now - lastTickMs) < kMinIntervalMs)
+        return true;
+
+    lastKey = key;
+    lastTickMs = now;
+    return false;
+}
+
 static void QueueCrashReport(const std::string& filename, const std::string& payload)
 {
     const std::string queueDir = GetQueueDirectory();
@@ -253,6 +329,9 @@ static void QueueCrashReport(const std::string& filename, const std::string& pay
          << "\",\"Payload\":\"" << JsonEscape(payload)
          << "\",\"ProcessName\":\"" << EngineProcessName
          << "\"}";
+    file.close();
+
+    TrimQueueDirectory(queueDir);
 }
 
 static LONG WINAPI UnhandledExceptionFilterFn(EXCEPTION_POINTERS* ep)
@@ -323,6 +402,9 @@ void CrashReporter::ReportFatal(const std::string& exceptionName, const std::str
 
 void CrashReporter::ReportNonFatal(const std::string& exceptionName, const std::string& message)
 {
+    if (ShouldDropDuplicateNonFatal(exceptionName, message))
+        return;
+
     QueueCrashReport(
         BuildCrashFilenameUtc(),
         BuildPayload(exceptionName, message, "nonfatal", GetCurrentThreadId(), std::string()));
