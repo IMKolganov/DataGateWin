@@ -205,18 +205,24 @@ void IpcCommandRouter::Install()
             TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
             TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
 
+            // Default true (catalog / DataGate WSS). Imported .ovpn uses useWssBridge=false.
+            opt.useWssBridge = true;
+            TryExtractJsonBoolField(cmd.payloadJson, "useWssBridge", opt.useWssBridge);
+
             // Force loopback regardless of IPC payload (defense in depth vs permissive pipe ACL).
             opt.bridge.listenIp = "127.0.0.1";
             if (opt.bridge.listenPort == 0)
                 opt.bridge.listenPort = datagate::session::kLocalBridgeDefaultListenPort;
 
-            if (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty())
+            if (opt.useWssBridge
+                && (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty()))
             {
                 ipc_.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path");
                 return;
             }
 
             std::cerr << "[router] StartSession recv id=" << cmd.id
+                      << " useWssBridge=" << (opt.useWssBridge ? "true" : "false")
                       << " host=" << opt.bridge.host
                       << " port=" << opt.bridge.port
                       << " path=" << opt.bridge.path

@@ -3,6 +3,7 @@ using DataGateWin.Controllers;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Models.Ipc;
+using DataGateWin.Services.Ui;
 using DataGateWin.Services.VpnServers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -33,7 +34,7 @@ public sealed partial class HomePage : Page
         ConnectionStatusLabel.Text = Loc.T("Home_ConnectionStatus");
         VpnServerLabel.Text = Loc.T("Home_VpnServer");
         ServerLabel.Text = Loc.T("Home_Server");
-        RefreshServersButton.Content = Loc.T("Home_Refresh");
+        RefreshServersButtonText.Text = Loc.T("Home_Refresh");
         ConnectButton.Content = Loc.T("Home_Connect");
         DisconnectButton.Content = Loc.T("Home_Disconnect");
         LogsLabel.Text = Loc.T("Home_EngineLogs");
@@ -204,7 +205,7 @@ public sealed partial class HomePage : Page
 
     private void ApplyUiState(UiState state, string statusText, VpnConnectionSessionInfo? network)
     {
-        StatusText.Text = statusText;
+        ServerNameUi.SetTextEnlargingFlags(StatusText, statusText);
         var isBusy = state is UiState.Connecting or UiState.Disconnecting;
         var idle = state == UiState.Idle;
         ConnectButton.IsEnabled = !isBusy && idle;
@@ -224,8 +225,8 @@ public sealed partial class HomePage : Page
             return;
 
         var dash = Loc.T("Home_Network_Unavailable");
-        NetworkServerText.Text = Loc.T("Home_Network_Server") + ": " +
-            (string.IsNullOrWhiteSpace(network!.ServerName) ? dash : network.ServerName);
+        var server = string.IsNullOrWhiteSpace(network!.ServerName) ? dash : network.ServerName;
+        ServerNameUi.SetLabeledServer(NetworkServerText, Loc.T("Home_Network_Server") + ": ", server);
         NetworkVpnIpText.Text = Loc.T("Home_Network_VpnIp") + ": " +
             (string.IsNullOrWhiteSpace(network.VpnIp) ? dash : network.VpnIp!);
         NetworkExternalIpText.Text = Loc.T("Home_Network_ExternalIp") + ": " +
@@ -332,11 +333,7 @@ public sealed partial class HomePage : Page
                     })
                     .ToList();
 
-                items = _cachedServerRows.Select(r => new HomeVpnServerListItem
-                {
-                    Id = r.Id,
-                    Display = FormatServerDisplay(r)
-                }).ToList();
+                items = _cachedServerRows.Select(CreateServerListItem).ToList();
             }
             catch (Exception ex)
             {
@@ -355,7 +352,6 @@ public sealed partial class HomePage : Page
                     ManualServerCombo.Items.Clear();
                     foreach (var item in items)
                         ManualServerCombo.Items.Add(item);
-                    ManualServerCombo.DisplayMemberPath = nameof(HomeVpnServerListItem.Display);
                     ApplyManualSelectionFromSettings();
                 }
                 finally
@@ -387,15 +383,8 @@ public sealed partial class HomePage : Page
                 ?? App.Settings.HomeVpnManualServerId;
             ManualServerCombo.Items.Clear();
             foreach (var r in _cachedServerRows)
-            {
-                ManualServerCombo.Items.Add(new HomeVpnServerListItem
-                {
-                    Id = r.Id,
-                    Display = FormatServerDisplay(r)
-                });
-            }
+                ManualServerCombo.Items.Add(CreateServerListItem(r));
 
-            ManualServerCombo.DisplayMemberPath = nameof(HomeVpnServerListItem.Display);
             if (prev > 0)
             {
                 foreach (HomeVpnServerListItem item in ManualServerCombo.Items)
@@ -414,13 +403,23 @@ public sealed partial class HomePage : Page
         }
     }
 
-    private static string FormatServerDisplay(CachedVpnServerRow r)
+    private static HomeVpnServerListItem CreateServerListItem(CachedVpnServerRow r)
     {
-        var name = string.IsNullOrWhiteSpace(r.Name)
+        var rawName = string.IsNullOrWhiteSpace(r.Name)
             ? Loc.T("Home_ServerFallbackFmt", r.Id)
             : r.Name;
+        ServerNameFlag.TrySplit(rawName, out var flag, out var nameWithoutFlag);
+        if (string.IsNullOrEmpty(flag))
+            nameWithoutFlag = rawName;
+
         var onOff = r.Online ? Loc.T("Common_Online") : Loc.T("Common_Offline");
-        return Loc.T("Home_ServerRowFmt", name, r.Clients, onOff);
+        var label = Loc.T("Home_ServerRowFmt", nameWithoutFlag, r.Clients, onOff);
+        return new HomeVpnServerListItem
+        {
+            Id = r.Id,
+            Flag = flag,
+            Label = label,
+        };
     }
 
     private sealed class CachedVpnServerRow
@@ -434,7 +433,9 @@ public sealed partial class HomePage : Page
     private sealed class HomeVpnServerListItem
     {
         public int Id { get; init; }
-        public string Display { get; init; } = "";
-        public override string ToString() => Display;
+        public string Flag { get; init; } = "";
+        public string Label { get; init; } = "";
+        public override string ToString()
+            => string.IsNullOrEmpty(Flag) ? Label : $"{Flag} {Label}";
     }
 }

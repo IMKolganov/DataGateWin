@@ -182,6 +182,19 @@ public sealed class EngineSessionService(
             return false;
         }
 
+        return await SendStartSessionAsync(payload, ct).ConfigureAwait(false);
+    }
+
+    public Task<bool> StartSessionWithPayloadAsync(JObject payload, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        EnsureClientCreated();
+        LastStartFailedNoEligibleServers = false;
+        return SendStartSessionAsync(payload, ct);
+    }
+
+    private async Task<bool> SendStartSessionAsync(JObject payload, CancellationToken ct)
+    {
         using var startCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         startCts.CancelAfter(TimeSpan.FromSeconds(20));
 

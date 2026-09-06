@@ -26,7 +26,12 @@
                 x:Name="RefreshButton"
                 Grid.Column="1"
                 MinWidth="110"
-                Click="Refresh_OnClick" />
+                Click="Refresh_OnClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                    <TextBlock x:Name="RefreshButtonText" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
         </Grid>
 
         <Border
@@ -54,7 +59,41 @@
             <TextBlock x:Name="ErrorText" Foreground="OrangeRed" />
         </StackPanel>
 
-        <ListView x:Name="ServersList" Grid.Row="3" SelectionMode="None" />
+        <Border
+            Grid.Row="3"
+            Padding="0"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8"
+            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+            BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Padding="12,10" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition Width="72" />
+                        <ColumnDefinition Width="80" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ColServer" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ColClients" Grid.Column="1" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ColIn" Grid.Column="2" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ColOut" Grid.Column="3" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ColOnline" Grid.Column="4" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ColPlan" Grid.Column="5" FontWeight="SemiBold" />
+                </Grid>
+                <ListView
+                    x:Name="ServersList"
+                    Grid.Row="1"
+                    SelectionMode="None"
+                    IsItemClickEnabled="False" />
+            </Grid>
+        </Border>
 
         <TextBlock x:Name="TotalClientsLineText" Grid.Row="4" Opacity="0.75" />
     </Grid>

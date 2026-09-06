@@ -2,6 +2,7 @@ using System.Globalization;
 using DataGateWin.Configuration;
 using DataGateWin.Localization;
 using DataGateWin.Services.IpList;
+using DataGateWin.Services.Ui;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -19,7 +20,7 @@ public sealed partial class IpListSettingsWindow : Window
     public IpListSettingsWindow()
     {
         InitializeComponent();
-        AppWindow.Resize(new SizeInt32(560, 720));
+        WindowChrome.ApplyDefault(this, width: 560, height: 720);
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsMinimizable = false;

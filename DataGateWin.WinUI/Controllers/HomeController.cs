@@ -6,6 +6,7 @@ using DataGateWin.Services.Installation;
 using DataGateWin.Services.Ipc;
 using DataGateWin.Services.IpList;
 using DataGateWin.Services.OpenVpnFiles;
+using DataGateWin.Services.Profiles;
 using DataGateWin.Services.VpnServers;
 
 namespace DataGateWin.Controllers;
@@ -19,8 +20,12 @@ public sealed class HomeController : IDisposable
     private int _reconnectAttempt;
     private bool _connectAutoPick = true;
     private int? _connectManualId;
+    private Guid? _connectImportedProfileId;
 
     private readonly EngineSessionService _engine;
+    private readonly InstallationIdService _installation = new();
+    private readonly ImportedVpnProfileStore _importedProfiles = new();
+    private readonly StartSessionPayloadBuilder _payloadBuilder;
 
     private readonly object _uiLock = new();
 
@@ -36,20 +41,18 @@ public sealed class HomeController : IDisposable
     {
         var serversApi = new OpenVpnServersApiClient(App.AuthedApiHttp);
         var selector = new WssServerSelector(serversApi);
-
-        var installation = new InstallationIdService();
         var filesApi = new OpenVpnFilesApiClient(App.AuthedApiHttp);
 
-        var payloadBuilder = new StartSessionPayloadBuilder(
+        _payloadBuilder = new StartSessionPayloadBuilder(
             wssServerSelector: selector,
-            installationIdService: installation,
+            installationIdService: _installation,
             filesApi: filesApi,
             session: App.Session,
             ipListRoutes: new IpListRoutesRepository());
 
         _engine = new EngineSessionService(
             enginePathResolver: new EnginePathResolver(),
-            payloadBuilder: payloadBuilder,
+            payloadBuilder: _payloadBuilder,
             log: Log,
             onEngineEvent: HandleEngineEvent
         );
@@ -134,7 +137,17 @@ public sealed class HomeController : IDisposable
         _desiredConnected = true;
         _connectAutoPick = autoPickServer;
         _connectManualId = manualVpnServerId;
+        _connectImportedProfileId = null;
         await EnsureConnectedAsync();
+    }
+
+    /// <returns>True when a start was accepted (or the desired session was already up).</returns>
+    public async Task<bool> ConnectImportedProfileAsync(Guid profileId)
+    {
+        _desiredConnected = true;
+        _connectImportedProfileId = profileId;
+        _connectManualId = null;
+        return await EnsureConnectedAsync();
     }
 
     public async Task DisconnectAsync()
@@ -143,7 +156,7 @@ public sealed class HomeController : IDisposable
         await EnsureDisconnectedAsync(userInitiated: true);
     }
 
-    private async Task EnsureConnectedAsync()
+    private async Task<bool> EnsureConnectedAsync()
     {
         var ct = _lifetimeCts?.Token ?? CancellationToken.None;
 
@@ -157,16 +170,36 @@ public sealed class HomeController : IDisposable
             var state = await _engine.GetEngineStateAsync(ct);
             if (!EngineState.IsIdle(state))
             {
-                RememberSelectionFromEngine();
-                ApplyUiState(UiState.Connected, ConnectedStatusText(state));
-                return;
+                if (!NeedsSessionRestart())
+                {
+                    RememberSelectionFromEngine();
+                    ApplyUiState(UiState.Connected, ConnectedStatusText(state));
+                    return true;
+                }
+
+                // Switch target: stop current session, then start below (same op lock).
+                ApplyUiState(UiState.Disconnecting, Loc.T("Home_Status_Disconnecting"));
+                await _engine.StopSessionSafeAsync(ct);
+                ClearSessionInfo();
+                ApplyUiState(UiState.Connecting, Loc.T("Home_Status_Connecting"));
             }
 
-            var started = await _engine.StartSessionAsync(_connectAutoPick, _connectManualId, ct);
+            bool started;
+            if (_connectImportedProfileId is Guid importedId)
+            {
+                started = await StartImportedProfileAsync(importedId, ct);
+            }
+            else
+            {
+                started = await _engine.StartSessionAsync(_connectAutoPick, _connectManualId, ct);
+                if (started)
+                    RememberSelectionFromEngine();
+            }
+
             if (!started)
             {
                 ClearSessionInfo();
-                if (_engine.LastStartFailedNoEligibleServers)
+                if (_engine.LastStartFailedNoEligibleServers && _connectImportedProfileId is null)
                 {
                     Log(Loc.T("Home_Log_NoWss"));
                     _desiredConnected = false;
@@ -175,17 +208,17 @@ public sealed class HomeController : IDisposable
                 ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleStartFailed"));
                 if (_desiredConnected)
                     _ = ScheduleReconnectAsync();
-                return;
+                return false;
             }
 
-            RememberSelectionFromEngine();
             ApplyUiState(UiState.Connecting, Loc.T("Home_Status_ConnectingWaiting"));
             _reconnectAttempt = 0;
+            return true;
         }
         catch (Exception ex)
         {
             if (TryHandleEngineMissing(ex))
-                return;
+                return false;
 
             CrashReporter.ReportNonFatal(ex, "HomeController.EnsureConnected");
             ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleErrorFmt", ex.Message));
@@ -193,10 +226,65 @@ public sealed class HomeController : IDisposable
 
             if (_desiredConnected)
                 _ = ScheduleReconnectAsync();
+            return false;
         }
         finally
         {
             _opLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// True when the active engine session should be stopped before starting the desired target.
+    /// Imported connects always restart; catalog reconnect keeps the session unless a different manual server is selected.
+    /// </summary>
+    private bool NeedsSessionRestart()
+    {
+        if (_connectImportedProfileId is not null)
+            return true;
+
+        if (_connectManualId is int wantId
+            && _sessionInfo is { ServerId: var haveId }
+            && haveId > 0
+            && haveId != wantId)
+            return true;
+
+        return false;
+    }
+
+    private async Task<bool> StartImportedProfileAsync(Guid profileId, CancellationToken ct)
+    {
+        var profile = _importedProfiles.Get(profileId);
+        if (profile is null)
+        {
+            Log(Loc.T("Import_Log_ProfileMissing"));
+            return false;
+        }
+
+        if (profile.Protocol != ImportedVpnProtocol.OpenVpn)
+        {
+            Log(Loc.T("Import_Log_XrayNotReady"));
+            return false;
+        }
+
+        try
+        {
+            var payload = ImportedOpenVpnPayloadBuilder.Build(profile, _installation);
+            _sessionInfo = new VpnConnectionSessionInfo
+            {
+                ServerId = 0,
+                ServerName = profile.Name,
+                ExternalIp = null,
+            };
+            _payloadBuilder.ClearLastSelection();
+            Log(Loc.T("Import_Log_ConnectingFmt", profile.Name));
+            return await _engine.StartSessionWithPayloadAsync(payload, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.StartImportedProfile");
+            Log(Loc.T("Home_Log_ErrorFmt", ex.Message));
+            return false;
         }
     }
 

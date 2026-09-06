@@ -36,6 +36,9 @@ namespace datagate::session
             uint16_t localPort,
             bool useUdp);
 
+        // Direct OpenVPN (imported profile): keep remotes, ensure windows-driver wintun.
+        OvpnBuildResult BuildDirect(const std::string& ovpnContentUtf8);
+
         // Validates that patched config contains exactly 1 "remote" line.
         bool ValidateSingleRemote(const std::string& ovpn, std::string& outError);
 

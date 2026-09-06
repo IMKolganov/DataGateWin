@@ -33,7 +33,9 @@ namespace datagate::session
         std::string guiVersion;
         BridgeOptions bridge;
 
-        bool forceWssBridge = true;
+        // When false, OpenVPN talks to remotes in the .ovpn as-is (imported profiles).
+        // Default true: DataGate catalog path via local WSS bridge.
+        bool useWssBridge = true;
     };
 
     struct ConnectedInfo

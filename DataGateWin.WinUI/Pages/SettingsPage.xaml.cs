@@ -50,10 +50,10 @@ public sealed partial class SettingsPage : Page
         ThemeToggle.Header = Loc.T("Settings_DarkMode");
         IpListsHeader.Text = Loc.T("Settings_IpLists");
         IpListsMainToggle.Header = Loc.T("Settings_IpLists_Enable");
-        IpListsConfigureButton.Content = Loc.T("Settings_IpLists_Open");
+        IpListsConfigureButtonText.Text = Loc.T("Settings_IpLists_Open");
         VersionHeader.Text = Loc.T("Settings_CurrentVersion");
-        AboutButton.Content = Loc.T("Settings_About");
-        LogoutButton.Content = Loc.T("Settings_Logout");
+        AboutButtonText.Text = Loc.T("Settings_About");
+        LogoutButtonText.Text = Loc.T("Settings_Logout");
     }
 
     private void SettingsPage_OnLoaded(object sender, RoutedEventArgs e)
@@ -162,11 +162,7 @@ public sealed partial class SettingsPage : Page
         var dark = ThemeToggle.IsOn;
         App.Settings.Theme = dark ? "Dark" : "Light";
         AppSettingsStore.SaveSafe(App.Settings);
-        if (Application.Current is App)
-        {
-            Application.Current.RequestedTheme = dark ? ApplicationTheme.Dark : ApplicationTheme.Light;
-            App.ApplyElementTheme(dark ? ElementTheme.Dark : ElementTheme.Light);
-        }
+        App.ApplyElementTheme(dark ? ElementTheme.Dark : ElementTheme.Light);
     }
 
     private async void LogoutButton_OnClick(object sender, RoutedEventArgs e)
@@ -178,8 +174,8 @@ public sealed partial class SettingsPage : Page
         {
             Title = Loc.T("Msg_LogoutTitle"),
             Content = Loc.T("Msg_LogoutConfirm"),
-            PrimaryButtonText = "Yes",
-            CloseButtonText = "No",
+            PrimaryButtonText = Loc.T("Action_Yes"),
+            CloseButtonText = Loc.T("Action_No"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = XamlRoot,
         };
@@ -191,10 +187,7 @@ public sealed partial class SettingsPage : Page
             await App.Session.LogoutAsync(CancellationToken.None);
             _authState.Clear();
             if (Application.Current is App app)
-            {
-                App.CurrentMainWindow?.Close();
                 app.ShowLogin(_authState);
-            }
         }
         catch (Exception ex)
         {

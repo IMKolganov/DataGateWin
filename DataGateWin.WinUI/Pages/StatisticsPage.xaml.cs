@@ -1,10 +1,8 @@
 using System.Net.Http;
-using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Statistics;
 using DataGateWin.ViewModels;
-using LiveChartsCore.SkiaSharpView.WinUI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -12,66 +10,18 @@ namespace DataGateWin.Pages;
 
 public sealed partial class StatisticsPage : Page
 {
-    private readonly StatisticsViewModel _vm;
-    private CartesianChart? _chart;
+    public StatisticsViewModel Vm { get; }
 
     public StatisticsPage(HttpClient authedApiHttp, AuthSession session)
     {
+        Vm = new StatisticsViewModel(new StatisticsApiClient(authedApiHttp), session);
         InitializeComponent();
-        _vm = new StatisticsViewModel(new StatisticsApiClient(authedApiHttp), session);
-        _vm.PropertyChanged += (_, args) =>
-        {
-            ApplyVmChrome();
-            if (args.PropertyName is null
-                or nameof(StatisticsViewModel.Series)
-                or nameof(StatisticsViewModel.XAxes)
-                or nameof(StatisticsViewModel.YAxes))
-                ApplyChart();
-        };
+        Vm.PropertyChanged += (_, _) => ApplyVmChrome();
         ActualThemeChanged += (_, _) =>
-            _vm.SetChartTheme(ActualTheme == ElementTheme.Dark);
+            Vm.SetChartTheme(ActualTheme == ElementTheme.Dark);
         ApplyLocalizedChrome();
         ApplyVmChrome();
-        EnsureChart();
-        _vm.SetChartTheme(ActualTheme == ElementTheme.Dark);
-        ApplyChart();
-    }
-
-    private void EnsureChart()
-    {
-        if (_chart is not null)
-            return;
-
-        try
-        {
-            _chart = new CartesianChart
-            {
-                Height = 260,
-                TooltipPosition = LiveChartsCore.Measure.TooltipPosition.Top,
-            };
-            ChartHost.Children.Clear();
-            ChartHost.Children.Add(_chart);
-        }
-        catch (Exception ex)
-        {
-            CrashReporter.ReportNonFatal(ex, "StatisticsPage.EnsureChart");
-            ChartHost.Children.Clear();
-            ChartHost.Children.Add(new TextBlock
-            {
-                Text = Loc.T("Stats_Series_Upload") + " — chart unavailable: " + ex.Message,
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.85,
-            });
-        }
-    }
-
-    private void ApplyChart()
-    {
-        if (_chart is null)
-            return;
-        _chart.Series = _vm.Series;
-        _chart.XAxes = _vm.XAxes;
-        _chart.YAxes = _vm.YAxes;
+        Vm.SetChartTheme(ActualTheme == ElementTheme.Dark);
     }
 
     private void ApplyLocalizedChrome()
@@ -79,49 +29,54 @@ public sealed partial class StatisticsPage : Page
         TitleText.Text = Loc.T("Stats_Title");
         FromLabel.Text = Loc.T("Stats_From");
         ToLabel.Text = Loc.T("Stats_To");
-        Last7Button.Content = "7d";
-        Last30Button.Content = "30d";
-        ApplyButton.Content = Loc.T("Btn_Refresh");
-        ResetButton.Content = Loc.T("Action_Ok");
+        Last7Button.Content = Loc.T("Stats_Last7");
+        Last30Button.Content = Loc.T("Stats_Last30");
+        Last90Button.Content = Loc.T("Stats_Last90");
+        ApplyButton.Content = Loc.T("Stats_Apply");
+        ResetButton.Content = Loc.T("Stats_Reset");
     }
 
     private void ApplyVmChrome()
     {
-        GroupingText.Text = _vm.GroupingText;
-        PeriodText.Text = _vm.PeriodText;
-        TotalUploadedText.Text = _vm.TotalUploadedText;
-        ErrorText.Text = _vm.ErrorText ?? "";
-        LoadingRing.IsActive = _vm.IsLoading;
-        if (_vm.FromLocalDate is { } from)
+        GroupingText.Text = Vm.GroupingText;
+        PeriodText.Text = Vm.PeriodText;
+        TotalUploadedText.Text = Vm.TotalUploadedText;
+        ErrorText.Text = Vm.ErrorText ?? "";
+        LoadingRing.IsActive = Vm.IsLoading;
+        if (Vm.FromLocalDate is { } from)
             FromPicker.Date = from;
-        if (_vm.ToLocalDate is { } to)
+        if (Vm.ToLocalDate is { } to)
             ToPicker.Date = to;
+        Bindings.Update();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
-        => await _vm.LoadAsync(CancellationToken.None);
+        => await Vm.LoadAsync(CancellationToken.None);
 
     private void FromPicker_OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
     {
         if (args.NewDate is { } d)
-            _vm.FromLocalDate = d;
+            Vm.FromLocalDate = d;
     }
 
     private void ToPicker_OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
     {
         if (args.NewDate is { } d)
-            _vm.ToLocalDate = d;
+            Vm.ToLocalDate = d;
     }
 
     private void Last7_OnClick(object sender, RoutedEventArgs e)
-        => _vm.SetLastDaysCommand.Execute("7");
+        => Vm.SetLastDaysCommand.Execute("7");
 
     private void Last30_OnClick(object sender, RoutedEventArgs e)
-        => _vm.SetLastDaysCommand.Execute("30");
+        => Vm.SetLastDaysCommand.Execute("30");
+
+    private void Last90_OnClick(object sender, RoutedEventArgs e)
+        => Vm.SetLastDaysCommand.Execute("90");
 
     private async void Apply_OnClick(object sender, RoutedEventArgs e)
-        => await _vm.ApplyFiltersCommand.ExecuteAsync(null);
+        => await Vm.ApplyFiltersCommand.ExecuteAsync(null);
 
     private void Reset_OnClick(object sender, RoutedEventArgs e)
-        => _vm.ResetFiltersCommand.Execute(null);
+        => Vm.ResetFiltersCommand.Execute(null);
 }

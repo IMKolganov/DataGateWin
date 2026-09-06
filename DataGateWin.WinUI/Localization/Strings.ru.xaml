@@ -1,4 +1,4 @@
-﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     >
 
@@ -35,6 +35,8 @@
     <x:String x:Key="Access_UsedLineFmt">Использовано {0} из {1} ({2}%)</x:String>
     <x:String x:Key="Access_ValidUntilFmt">Действует до: {0}</x:String>
     <x:String x:Key="Action_Ok">OK</x:String>
+    <x:String x:Key="Action_Yes">Да</x:String>
+    <x:String x:Key="Action_No">Нет</x:String>
     <x:String x:Key="App_Title">DataGate</x:String>
     <x:String x:Key="Btn_Refresh">Обновить</x:String>
     <x:String x:Key="Common_Offline">офлайн</x:String>
@@ -160,6 +162,7 @@
     <x:String x:Key="FreeTierOnboarding_CodeRequestFailed">Не удалось получить код привязки.</x:String>
     <x:String x:Key="Nav_Access">Доступ</x:String>
     <x:String x:Key="Nav_Home">Главная</x:String>
+    <x:String x:Key="Nav_Import">Импорт</x:String>
     <x:String x:Key="Nav_Settings">Настройки</x:String>
     <x:String x:Key="Nav_Statistics">Статистика</x:String>
     <x:String x:Key="PlanAccess_Dash">—</x:String>
@@ -246,5 +249,34 @@
     <x:String x:Key="Tray_Exit">Выход</x:String>
     <x:String x:Key="Tray_Open">Открыть</x:String>
     <x:String x:Key="Tray_Tooltip">DataGate</x:String>
+
+    <x:String x:Key="Import_Title">Импорт профилей</x:String>
+    <x:String x:Key="Import_Subtitle">Добавьте свой OpenVPN (.ovpn) или Xray-конфиг и подключайтесь без каталога серверов.</x:String>
+    <x:String x:Key="Import_Protocol">Протокол</x:String>
+    <x:String x:Key="Import_Protocol_OpenVpn">OpenVPN</x:String>
+    <x:String x:Key="Import_Protocol_Xray">Xray</x:String>
+    <x:String x:Key="Import_XrayComingSoon">Импорт и подключение Xray на Windows пока недоступны.</x:String>
+    <x:String x:Key="Import_AddSection">Добавить профиль</x:String>
+    <x:String x:Key="Import_Browse">Выбрать файл…</x:String>
+    <x:String x:Key="Import_Paste">Вставить конфиг…</x:String>
+    <x:String x:Key="Import_Hint_OpenVpn">Выберите файл .ovpn / .conf или вставьте полный клиентский конфиг OpenVPN (нужна ровно одна строка remote).</x:String>
+    <x:String x:Key="Import_SavedProfiles">Сохранённые профили</x:String>
+    <x:String x:Key="Import_Empty">Пока нет импортированных профилей.</x:String>
+    <x:String x:Key="Import_Delete">Удалить</x:String>
+    <x:String x:Key="Import_PasteTitle">Вставить конфиг OpenVPN</x:String>
+    <x:String x:Key="Import_PastePlaceholder">client&#x0a;dev tun&#x0a;remote example.com 1194&#x0a;…</x:String>
+    <x:String x:Key="Import_Save">Сохранить</x:String>
+    <x:String x:Key="Import_ProfileMetaFmt">{0} · обновлён {1}</x:String>
+    <x:String x:Key="Import_Status_ImportedFmt">Импортирован «{0}».</x:String>
+    <x:String x:Key="Import_Status_Deleted">Профиль удалён.</x:String>
+    <x:String x:Key="Import_Status_ConnectingFmt">Подключение «{0}»…</x:String>
+    <x:String x:Key="Import_Status_ConnectStartedFmt">Запуск «{0}» запрошен. Статус смотрите на Главной.</x:String>
+    <x:String x:Key="Import_Status_ConnectFailedFmt">Не удалось запустить «{0}». Подробности — на Главной.</x:String>
+    <x:String x:Key="Import_Validate_empty">Конфиг пустой.</x:String>
+    <x:String x:Key="Import_Validate_no_remote">В конфиге должна быть строка remote.</x:String>
+    <x:String x:Key="Import_Validate_multiple_remote">В конфиге должна быть ровно одна строка remote.</x:String>
+    <x:String x:Key="Import_Log_ProfileMissing">Импортированный профиль не найден.</x:String>
+    <x:String x:Key="Import_Log_XrayNotReady">Xray пока не поддерживается.</x:String>
+    <x:String x:Key="Import_Log_ConnectingFmt">Запуск импортированного OpenVPN-профиля: {0}</x:String>
 </ResourceDictionary>
 

@@ -49,19 +49,60 @@ if ($left.Count -gt 0) {
 L 'processes stopped'
 
 # --- sync install (WinUI unpackaged publish layout) ---
+# Prefer non-Platform publish dir (dotnet publish -r win-x64 writes here) over bin\x64\...
 $src = 'F:\C++\DataGateWin\DataGateWin.WinUI\bin\Release\net10.0-windows10.0.26100.0\win-x64\publish'
+if (-not (Test-Path $src\DataGateWin.exe)) {
+  $src = 'F:\C++\DataGateWin\DataGateWin.WinUI\bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\publish'
+}
 $dst = 'C:\Program Files\DataGate'
 if (-not (Test-Path $src\DataGateWin.exe)) { L "FAIL missing $src\DataGateWin.exe — run Build-Release.ps1 first"; exit 3 }
+if (-not (Test-Path $src\DataGateWin.pri)) { L "FAIL missing $src\DataGateWin.pri — XAML will not load"; exit 3 }
+$priLen = (Get-Item $src\DataGateWin.pri).Length
+L ("src=$src priBytes=$priLen")
+if ($priLen -lt 100000) { L "FAIL DataGateWin.pri too small ($priLen) — need SDK EmbeddedData PRI with themes"; exit 3 }
 if (-not (Test-Path $src\engine\engine.exe)) { L "FAIL missing engine.exe"; exit 3 }
 
 New-Item -ItemType Directory -Force -Path $dst | Out-Null
-# Mirror app bits; exclude release zip and pdb noise optional
-& robocopy.exe $src $dst /E /XO /R:2 /W:1 /NFL /NDL /NJH /NJS `
+# Mirror app bits; /IS /IT force overwrite same/tweaked files (avoid stale tiny PRI).
+& robocopy.exe $src $dst /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS `
   /XD '_local_install' `
   /XF 'DataGateWin.v*.zip' '*.pdb' | Out-Null
 $rc = $LASTEXITCODE
 L ("robocopy exit=$rc (0-7 ok)")
 if ($rc -ge 8) { exit 4 }
+
+# Drop pre-1.0.7 Start Menu name "DataGate OpenVPN 3" so Start shows DataGate only.
+$startFolder = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\DataGate'
+foreach ($legacy in @('DataGate OpenVPN 3.lnk', 'DataGateOpenVPN3.lnk')) {
+  $p = Join-Path $startFolder $legacy
+  if (Test-Path $p) {
+    Remove-Item $p -Force -EA SilentlyContinue
+    L ("removed legacy Start shortcut: $legacy")
+  }
+}
+$desktopLegacy = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'DataGate OpenVPN 3.lnk'
+if (Test-Path $desktopLegacy) {
+  Remove-Item $desktopLegacy -Force -EA SilentlyContinue
+  L 'removed legacy Desktop shortcut: DataGate OpenVPN 3.lnk'
+}
+# Ensure current Start shortcut exists with ProductName=DataGate
+$exe = Join-Path $dst 'DataGateWin.exe'
+$lnk = Join-Path $startFolder 'DataGate.lnk'
+New-Item -ItemType Directory -Force -Path $startFolder | Out-Null
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut($lnk)
+$sc.TargetPath = $exe
+$sc.WorkingDirectory = $dst
+$sc.Description = 'DataGate'
+$iconCandidates = @(
+  (Join-Path $dst 'Images\favicon.ico'),
+  (Join-Path $dst 'Assets\favicon.ico'),
+  (Join-Path $dst 'Assets\AppIcon.ico')
+)
+$icon = $iconCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($icon) { $sc.IconLocation = "$icon,0" } else { $sc.IconLocation = "$exe,0" }
+$sc.Save()
+L "Start shortcut refreshed: $lnk icon=$($sc.IconLocation)"
 
 $exe = Join-Path $dst 'DataGateWin.exe'
 $eng = Join-Path $dst 'engine\engine.exe'

@@ -4,14 +4,12 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>DataGateWin</RootNamespace>
-    <!-- Cutover: same exe name as WPF so installer / App Paths / ZIP stay DataGateWin.exe -->
     <AssemblyName>DataGateWin</AssemblyName>
     <Product>DataGate</Product>
     <AssemblyTitle>DataGate</AssemblyTitle>
     <Description>DataGate</Description>
     <AssemblyVersion>1.0.13</AssemblyVersion>
     <FileVersion>1.0.13</FileVersion>
-    <!-- Release: admin via UAC. Debug: asInvoker so F5/Cursor attaches to the real UI process. -->
     <ApplicationManifest Condition="'$(Configuration)'=='Debug'">app.manifest.debug.xml</ApplicationManifest>
     <ApplicationManifest Condition="'$(Configuration)'!='Debug'">app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\favicon.ico</ApplicationIcon>
@@ -23,64 +21,41 @@
     <EnableMsixTooling>false</EnableMsixTooling>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <!-- WinUI breaks with trim; keep disabled for all configurations. -->
     <PublishTrimmed>false</PublishTrimmed>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\SplashScreen.scale-200.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\LockScreenLogo.scale-200.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Square150x150Logo.scale-200.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Square44x44Logo.scale-200.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\StoreLogo.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\AppIcon.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\favicon.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\Wide310x150Logo.scale-200.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Images\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\IpLists\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Include="Localization\Strings.*.xaml">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="..\drivers\wintun\wintun.dll" Link="engine\wintun.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <Content Include="Assets\SplashScreen.scale-200.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\LockScreenLogo.scale-200.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square150x150Logo.scale-200.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square44x44Logo.scale-200.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\StoreLogo.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\AppIcon.ico"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\favicon.ico"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\Wide310x150Logo.scale-200.png"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Images\**\*"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="Assets\IpLists\**\*"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <None Include="Localization\Strings.*.xaml"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="..\drivers\wintun\wintun.dll" Link="engine\wintun.dll"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <!-- Runtime XDocument load — must not enter PRI (Strings.es-mx.xaml → PRI249). -->
+    <Page Remove="Localization\**\*" />
+    <ApplicationDefinition Remove="Localization\**\*" />
+    <PRIResource Remove="Localization\**\*" />
+    <!-- Keep assets as loose files only — Content inclusion pulled them into SDK PRI layout
+         and broke unpackaged XamlControlsResources theme lookup in smoke bisect. -->
+    <Content Remove="Assets\**\*" />
+    <Content Remove="Images\**\*" />
+    <None Include="Assets\**\*"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="Images\**\*"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="appsettings.example.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
+    <None Update="appsettings.json"><CopyToOutputDirectory>Always</CopyToOutputDirectory></None>
+    <None Update="appsettings.example.json"><CopyToOutputDirectory>Always</CopyToOutputDirectory></None>
   </ItemGroup>
 
   <ItemGroup>
@@ -104,9 +79,25 @@
     <ProjectReference Include="..\DataGateWin.CrashReporting\DataGateWin.CrashReporting.csproj" />
   </ItemGroup>
 
-  <!-- Publish Properties -->
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
   </PropertyGroup>
+
+  <!-- Unpackaged WinUI: publish often drops or replaces the SDK app PRI. Stage the
+       SDK-built DataGateWin.pri (EmbeddedData XBF + merged Controls/LiveCharts themes)
+       and loose *.xbf for diagnostics. Do NOT rebuild a Path-only PRI — that drops themes. -->
+  <Target Name="RebuildUnpackagedAppPri" AfterTargets="Publish">
+    <PropertyGroup>
+      <_MakePri>$(NuGetPackageRoot)microsoft.windows.sdk.buildtools\10.0.28000.2705\bin\10.0.28000.0\x64\makepri.exe</_MakePri>
+      <_RebuildPriScript>$(MSBuildProjectDirectory)\tools\Rebuild-UnpackagedPri.ps1</_RebuildPriScript>
+      <_PublishDirTrimmed>$([System.String]::Copy('$(PublishDir)').TrimEnd('\').TrimEnd('/'))</_PublishDirTrimmed>
+      <_IntermediateTrimmed>$([System.String]::Copy('$(IntermediateOutputPath)').TrimEnd('\').TrimEnd('/'))</_IntermediateTrimmed>
+      <_OutputPriCandidate>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(OutputPath)$(AssemblyName).pri'))</_OutputPriCandidate>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RebuildPriScript)&quot; -PublishDir &quot;$(_PublishDirTrimmed)&quot; -IntermediateDir &quot;$(_IntermediateTrimmed)&quot; -AssemblyName &quot;$(AssemblyName)&quot; -MakePri &quot;$(_MakePri)&quot; -OutputPri &quot;$(_OutputPriCandidate)&quot;"
+          Condition="Exists('$(_RebuildPriScript)') And '$(_PublishDirTrimmed)' != ''" />
+    <Warning Text="Skipped Rebuild-UnpackagedPri (script/PublishDir missing)."
+             Condition="!Exists('$(_RebuildPriScript)') Or '$(_PublishDirTrimmed)' == ''" />
+  </Target>
 </Project>

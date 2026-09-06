@@ -2,6 +2,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Security.Principal;
+using DataGateWin.Services.Ui;
 using DataGateWin.Configuration;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
@@ -9,9 +10,9 @@ using DataGateWin.Services.Auth;
 using DataGateWin.Services.Ipc;
 using DataGateWin.Services.Tray;
 using DataGateWin.Services.Update;
-using DataGateWin.Views;
 using Microsoft.Extensions.Configuration;
 using Microsoft.UI.Dispatching;
+using DataGateWin.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -33,13 +34,63 @@ public partial class App : Application
     private string? _engineExePath;
     private Window? _startupWindow;
     private bool _exitRequested;
+    private bool _suppressExitOnWindowClose;
 
     public App()
     {
-        InitializeComponent();
+        try
+        {
+            // Must run before any window — otherwise WinUI unpackaged taskbar icon stays blank/generic.
+            AppIcon.SetProcessAppUserModelId();
+
+            var boot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DataGateWin",
+                "startup-error.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(boot)!);
+            File.WriteAllText(boot, "App() before InitializeComponent\n");
+
+            // Application.RequestedTheme is only reliably set before the first window.
+            Settings = AppSettingsStore.LoadSafe();
+            try
+            {
+                RequestedTheme = ResolveApplicationTheme(Settings.Theme);
+            }
+            catch (Exception ex)
+            {
+                File.AppendAllText(boot, "RequestedTheme early WARN: " + ex.Message + "\n");
+            }
+
+            InitializeComponent();
+            File.AppendAllText(boot, "App() after InitializeComponent OK\n");
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                var boot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DataGateWin",
+                    "startup-error.log");
+                Directory.CreateDirectory(Path.GetDirectoryName(boot)!);
+                File.WriteAllText(boot, "App() InitializeComponent FAILED\n" + ex);
+            }
+            catch { /* ignore */ }
+            throw;
+        }
+
         UnhandledException += (_, e) =>
         {
             CrashReporter.HandleDispatcherUnhandled(e.Exception);
+            try
+            {
+                var boot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DataGateWin",
+                    "startup-error.log");
+                File.AppendAllText(boot, "\nUnhandled: " + e.Exception + "\n");
+            }
+            catch { /* ignore */ }
             e.Handled = true;
         };
     }
@@ -48,19 +99,33 @@ public partial class App : Application
     {
         try
         {
+            var boot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DataGateWin",
+                "startup-error.log");
+            File.WriteAllText(boot, "OnLaunched\n");
+
             CrashReporter.InstallDomainHandlers();
             UiDispatcher = DispatcherQueue.GetForCurrentThread();
-            WinUiLanguageService.WireLocResolver();
 
+            try
+            {
+                Resources.MergedDictionaries.Add(new Microsoft.UI.Xaml.Controls.XamlControlsResources());
+                File.AppendAllText(boot, "XamlControlsResources OK\n");
+            }
+            catch (Exception ex)
+            {
+                File.AppendAllText(boot, "XamlControlsResources WARN: " + ex + "\n");
+            }
+
+            WinUiLanguageService.WireLocResolver();
+            // Settings already loaded in App() for early RequestedTheme.
             Settings = AppSettingsStore.LoadSafe();
             WinUiLanguageService.ApplyFromSettings();
-            ApplyThemeFromSettings();
+            NormalizeThemeSetting();
 
-            // SMOKE: code-only MainWindow — no XAML LoadComponent.
-            var smoke = new MainWindow(new AuthStateStore(), new HttpClient());
-            CurrentMainWindow = smoke;
-            _startupWindow = smoke;
-            smoke.Activate();
+            File.AppendAllText(boot, "RunStartupAsync begin\n");
+            _ = RunStartupAsync();
         }
         catch (Exception ex)
         {
@@ -79,26 +144,42 @@ public partial class App : Application
         }
     }
 
-    private void ApplyThemeFromSettings()
+    private void NormalizeThemeSetting()
     {
         var themeName = Settings.Theme;
         if (!string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase))
         {
-            themeName = "Dark";
-            Settings.Theme = themeName;
+            Settings.Theme = "Dark";
             AppSettingsStore.SaveSafe(Settings);
         }
-
-        RequestedTheme = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
-            ? ApplicationTheme.Light
-            : ApplicationTheme.Dark;
     }
 
-    public static void ApplyElementTheme(ElementTheme theme)
+    private static ApplicationTheme ResolveApplicationTheme(string? themeName)
+        => string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
+            ? ApplicationTheme.Light
+            : ApplicationTheme.Dark;
+
+    public static ElementTheme ResolveElementTheme()
+        => string.Equals(Settings.Theme, "Light", StringComparison.OrdinalIgnoreCase)
+            ? ElementTheme.Light
+            : ElementTheme.Dark;
+
+    /// <summary>
+    /// Runtime theme switch: Application.RequestedTheme cannot change after launch on WinUI.
+    /// Set ElementTheme on each shell window root instead.
+    /// </summary>
+    public static void ApplyElementTheme(ElementTheme? theme = null)
     {
-        if (CurrentMainWindow?.Content is FrameworkElement root)
-            root.RequestedTheme = theme;
+        var resolved = theme ?? ResolveElementTheme();
+        ApplyElementThemeToWindow(CurrentMainWindow, resolved);
+    }
+
+    public static void ApplyElementThemeToWindow(Window? window, ElementTheme? theme = null)
+    {
+        if (window?.Content is not FrameworkElement root)
+            return;
+        root.RequestedTheme = theme ?? ResolveElementTheme();
     }
 
     public static XamlRoot? GetActiveXamlRoot()
@@ -158,8 +239,14 @@ public partial class App : Application
 
     private async Task RunStartupAsync()
     {
+        var boot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DataGateWin",
+            "startup-error.log");
+
         try
         {
+            File.AppendAllText(boot, "admin check\n");
             if (ShouldQuitForMissingAdministrator())
             {
                 await ShowMessageAsync(Loc.T("Msg_AdminTitle"), Loc.T("Msg_AdminBody")).ConfigureAwait(true);
@@ -170,6 +257,7 @@ public partial class App : Application
             _engineExePath = _enginePathResolver.ResolveEngineExePath();
             var configDir = AppContext.BaseDirectory;
             var configPath = Path.Combine(configDir, "appsettings.json");
+            File.AppendAllText(boot, $"config={configPath} engine={_engineExePath}\n");
 
             while (true)
             {
@@ -178,6 +266,7 @@ public partial class App : Application
                 if (AppsettingsConnection.IsComplete(api, google))
                     break;
 
+                File.AppendAllText(boot, "FirstRun show\n");
                 var dlg = new FirstRunConfigurationWindow(api, google);
                 var completed = await dlg.ShowAsync().ConfigureAwait(true);
                 if (!completed)
@@ -187,6 +276,7 @@ public partial class App : Application
                 }
             }
 
+            File.AppendAllText(boot, "config OK, building services\n");
             AppConfiguration = new ConfigurationBuilder()
                 .SetBasePath(configDir)
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
@@ -229,26 +319,27 @@ public partial class App : Application
 
             var authState = new AuthStateStore();
             var token = await Session.GetValidAccessTokenAsync(CancellationToken.None);
+            File.AppendAllText(boot, $"token empty={string.IsNullOrWhiteSpace(token)}\n");
 
             if (!string.IsNullOrWhiteSpace(token))
             {
                 authState.SetAuthorized(token);
+                File.AppendAllText(boot, "ShowMain\n");
                 ShowMain(authState);
+                File.AppendAllText(boot, "ShowMain done\n");
                 return;
             }
 
+            File.AppendAllText(boot, "ShowLogin\n");
             ShowLogin(authState);
+            File.AppendAllText(boot, "ShowLogin done\n");
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "StartupFailed");
             try
             {
-                var logPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "DataGateWin",
-                    "startup-error.log");
-                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(boot)!);
                 var detail = ex.ToString();
                 if (ex is Microsoft.UI.Xaml.Markup.XamlParseException xpe)
                 {
@@ -258,7 +349,7 @@ public partial class App : Application
                         $"{Environment.NewLine}Inner={xpe.InnerException}";
                 }
 
-                await File.WriteAllTextAsync(logPath, detail).ConfigureAwait(true);
+                await File.WriteAllTextAsync(boot, detail).ConfigureAwait(true);
             }
             catch { /* ignore */ }
 
@@ -271,30 +362,67 @@ public partial class App : Application
 
     public void ShowMain(AuthStateStore authState)
     {
-        var main = new MainWindow(authState, AuthedApiHttp);
-        CurrentMainWindow = main;
-        _startupWindow = main;
-        main.Closed += (_, _) =>
+        _suppressExitOnWindowClose = true;
+        try
         {
-            if (!_exitRequested && _tray is null)
-                ExitApp();
-        };
-        main.Activate();
+            var previous = CurrentMainWindow;
+            var main = new MainWindow(authState, AuthedApiHttp);
+            CurrentMainWindow = main;
+            _startupWindow = main;
+            main.Closed += OnShellWindowClosed;
+            ApplyElementThemeToWindow(main);
+            main.Activate();
 
-        ScheduleUpdateCheck();
+            ScheduleUpdateCheck();
 
-        _tray = new TrayService();
-        _tray.AttachMainWindow(main);
-        _tray.Register();
+            try { _tray?.Unregister(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "App.ShowMain.TrayUnregister"); }
+            _tray = new TrayService();
+            _tray.AttachMainWindow(main);
+            _tray.Register();
+
+            if (previous is not null && !ReferenceEquals(previous, main))
+                previous.Close();
+        }
+        finally
+        {
+            _suppressExitOnWindowClose = false;
+        }
     }
 
     public void ShowLogin(AuthStateStore authState)
     {
-        var login = new LoginWindow(authState);
-        CurrentMainWindow = login;
-        _startupWindow = login;
-        login.Activate();
-        ScheduleUpdateCheck();
+        _suppressExitOnWindowClose = true;
+        try
+        {
+            var previous = CurrentMainWindow;
+            try { _tray?.Unregister(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "App.ShowLogin.TrayUnregister"); }
+            _tray = null;
+
+            var login = new LoginWindow(authState);
+            CurrentMainWindow = login;
+            _startupWindow = login;
+            login.Closed += OnShellWindowClosed;
+            ApplyElementThemeToWindow(login);
+            login.Activate();
+            ScheduleUpdateCheck();
+
+            if (previous is not null && !ReferenceEquals(previous, login))
+                previous.Close();
+        }
+        finally
+        {
+            _suppressExitOnWindowClose = false;
+        }
+    }
+
+    private void OnShellWindowClosed(object sender, WindowEventArgs args)
+    {
+        if (_exitRequested || _suppressExitOnWindowClose)
+            return;
+
+        // Last shell window gone with no tray → quit (e.g. user closed Login).
+        if (_tray is null && ReferenceEquals(CurrentMainWindow, sender))
+            ExitApp();
     }
 
     internal static void ScheduleUpdateCheck()

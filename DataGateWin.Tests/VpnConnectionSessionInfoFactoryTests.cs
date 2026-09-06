@@ -26,6 +26,22 @@ public sealed class VpnConnectionSessionInfoFactoryTests
         Assert.Null(info.ExternalIp);
     }
 
+    [Fact]
+    public void FromStatusRow_PrefixesIsoCountryCodeWithFlagEmoji()
+    {
+        var row = BuildRow(serverId: 3, serverName: "FI Helsinki 3 tcp", remoteIp: "1.2.3.4");
+        var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Assert.Equal("🇫🇮 Helsinki 3 tcp", info.ServerName);
+    }
+
+    [Fact]
+    public void FromStatusRow_KeepsExistingLeadingFlagEmoji()
+    {
+        var row = BuildRow(serverId: 4, serverName: "🇫🇮 Helsinki 3", remoteIp: "1.2.3.4");
+        var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Assert.Equal("🇫🇮 Helsinki 3", info.ServerName);
+    }
+
     private static VpnServerWithStatusV2Dto BuildRow(int serverId, string serverName, string? remoteIp)
     {
         // Prefer JSON round-trip so we stay resilient to DTO ctor churn.

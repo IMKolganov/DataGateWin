@@ -194,7 +194,10 @@ namespace datagate::session
                 _impl->store.PublishLogLine("[session] wintun adapter ifIndex=<unknown>");
         }
 
-        // 1) Start local WSS->(TCP/UDP) bridge
+        // 1) Optional local WSS->(TCP/UDP) bridge (catalog path). Imported profiles skip this.
+        std::string localIp;
+        uint16_t localPort = 0;
+        if (opt.useWssBridge)
         {
             std::string bridgeErr;
             _impl->store.PublishLogLine("[session] bridge.Activate()...");
@@ -221,22 +224,38 @@ namespace datagate::session
                 _impl->store.PublishLogLine(oss.str());
             }
 
+            localIp = _impl->bridge.ListenIp();
+            localPort = _impl->bridge.ListenPort();
+            _impl->store.SetPhase(SessionPhase::Connecting);
+            _impl->store.PublishStateSnapshot();
+        }
+        else
+        {
+            _impl->store.PublishLogLine("[session] useWssBridge=false — direct OpenVPN (imported profile)");
             _impl->store.SetPhase(SessionPhase::Connecting);
             _impl->store.PublishStateSnapshot();
         }
 
-        // 2) Patch OVPN to point to local bridge, validate, add windows-driver
-        const std::string localIp = _impl->bridge.ListenIp();
-        const uint16_t localPort = _impl->bridge.ListenPort();
-
+        // 2) Patch OVPN for bridge, or keep remotes for direct mode; validate; add windows-driver
         {
             std::ostringstream oss;
-            oss << "[session] ovpn.BuildForLocalBridge() local=" << localIp << ":" << localPort;
+            if (opt.useWssBridge)
+                oss << "[session] ovpn.BuildForLocalBridge() local=" << localIp << ":" << localPort;
+            else
+                oss << "[session] ovpn.BuildDirect()";
             _impl->store.PublishLogLine(oss.str());
         }
 
-        const bool useUdp = ovpn::IsUdpProto(ovpn::ResolveTransportProto(opt.ovpnContentUtf8));
-        auto built = _impl->ovpn.BuildForLocalBridge(opt.ovpnContentUtf8, localIp, localPort, useUdp);
+        OvpnBuildResult built;
+        if (opt.useWssBridge)
+        {
+            const bool useUdp = ovpn::IsUdpProto(ovpn::ResolveTransportProto(opt.ovpnContentUtf8));
+            built = _impl->ovpn.BuildForLocalBridge(opt.ovpnContentUtf8, localIp, localPort, useUdp);
+        }
+        else
+        {
+            built = _impl->ovpn.BuildDirect(opt.ovpnContentUtf8);
+        }
 
         {
             std::string ovpnErr;

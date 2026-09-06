@@ -50,7 +50,8 @@ public sealed class TrayService : IDisposable
         _wndProc = WndProc;
         _prevWndProc = SetWindowLongPtr(_hwnd, -4, Marshal.GetFunctionPointerForDelegate(_wndProc));
 
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Images", "favicon.ico");
+        var iconPath = DataGateWin.Services.Ui.AppIcon.ResolveIconPath()
+            ?? Path.Combine(AppContext.BaseDirectory, "Images", "favicon.ico");
         if (!File.Exists(iconPath))
             iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "favicon.ico");
         if (File.Exists(iconPath))
@@ -136,7 +137,8 @@ public sealed class TrayService : IDisposable
         if (msg == WmTray)
         {
             var mouseMsg = (uint)lParam.ToInt64() & 0xFFFF;
-            if (mouseMsg == WmLButtonDblClk)
+            // WPF FocusOnLeftClick parity: restore on single left-click as well as double-click.
+            if (mouseMsg is WmLButtonDblClk or 0x0202 /* WM_LBUTTONUP */)
             {
                 ShowMainWindow();
                 return IntPtr.Zero;

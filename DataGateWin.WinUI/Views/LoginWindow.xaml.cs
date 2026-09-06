@@ -2,6 +2,7 @@ using DataGateWin.Configuration;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Support;
+using DataGateWin.Services.Ui;
 using DataGateWin.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.UI.Xaml;
@@ -18,6 +19,7 @@ public sealed partial class LoginWindow : Window
     public LoginWindow(AuthStateStore authState)
     {
         InitializeComponent();
+        WindowChrome.ApplyDefault(this, width: 520, height: 560);
         _authState = authState ?? throw new ArgumentNullException(nameof(authState));
 
         var googleSettings = App.AppConfiguration.GetSection("GoogleAuth").Get<GoogleAuthSettings>()
@@ -35,10 +37,7 @@ public sealed partial class LoginWindow : Window
         {
             _authState.SetAuthorized(accessToken);
             if (Application.Current is App app)
-            {
-                Close();
                 app.ShowMain(_authState);
-            }
         };
 
         WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
@@ -67,6 +66,8 @@ public sealed partial class LoginWindow : Window
         CancelButton.Content = Loc.T("Login_Cancel");
         TelegramButton.Content = Loc.T("Telegram_SubscribeHint");
         FooterHint.Text = Loc.T("Login_FooterHint");
+        ReportIssueButton.Content = Loc.T("Home_ReportIssue");
+        ToolTipService.SetToolTip(ReportIssueButton, Loc.T("Home_ReportIssue"));
     }
 
     private void OnUiLanguageChanged(object? sender, EventArgs e)

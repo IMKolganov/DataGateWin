@@ -16,7 +16,7 @@ public static class VpnConnectionSessionInfoFactory
         return new VpnConnectionSessionInfo
         {
             ServerId = server.Id,
-            ServerName = server.ServerName?.Trim() ?? "",
+            ServerName = ServerNameFlag.WithFlagPrefix(server.ServerName),
             ExternalIp = remote,
         };
     }

@@ -17,10 +17,18 @@
 
         <Grid>
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="12">
+            <Image
+                Width="28"
+                Height="28"
+                Margin="0,0,12,0"
+                Source="ms-appx:///Images/favicon.png"
+                Stretch="Uniform"
+                VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                 <TextBlock
                     x:Name="LanguageLabel"
                     VerticalAlignment="Center"
@@ -28,14 +36,14 @@
                     Text="Language" />
                 <ComboBox
                     x:Name="LoginLanguageCombo"
-                    MinWidth="280"
+                    MinWidth="240"
                     SelectionChanged="LoginLanguageCombo_OnSelectionChanged" />
             </StackPanel>
             <Button
-                Grid.Column="1"
+                x:Name="ReportIssueButton"
+                Grid.Column="2"
                 Click="ReportIssue_OnClick"
-                Content="?"
-                ToolTipService.ToolTip="Report" />
+                Content="Report" />
         </Grid>
 
         <Border

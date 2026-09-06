@@ -21,14 +21,29 @@
 
                     <TextBlock x:Name="IpListsHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
                     <ToggleSwitch x:Name="IpListsMainToggle" Toggled="IpListsMainToggle_OnToggled" />
-                    <Button x:Name="IpListsConfigureButton" Click="IpListsConfigure_OnClick" />
+                    <Button x:Name="IpListsConfigureButton" Click="IpListsConfigure_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE713;" FontSize="14" />
+                            <TextBlock x:Name="IpListsConfigureButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
 
                     <TextBlock x:Name="VersionHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
                     <TextBlock x:Name="CurrentVersionText" />
                     <TextBlock x:Name="LatestVersionText" Opacity="0.75" />
 
-                    <Button x:Name="AboutButton" Click="AboutButton_OnClick" />
-                    <Button x:Name="LogoutButton" Click="LogoutButton_OnClick" Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="AboutButton" Click="AboutButton_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE946;" FontSize="14" />
+                            <TextBlock x:Name="AboutButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="LogoutButton" Click="LogoutButton_OnClick" Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE7E8;" FontSize="14" />
+                            <TextBlock x:Name="LogoutButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -2,6 +2,7 @@ using System.Globalization;
 using DataGateWin.Configuration;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
+using DataGateWin.Services.Ui;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -15,6 +16,7 @@ public sealed partial class FirstRunConfigurationWindow : Window
     public FirstRunConfigurationWindow(ApiSettings? existingApi, GoogleAuthSettings? existingGoogle)
     {
         InitializeComponent();
+        WindowChrome.ApplyDefault(this, width: 560, height: 480);
 
         Title = Loc.T("FirstRun_Title");
         TitleText.Text = Loc.T("FirstRun_Title");
