@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DataGateWin.Pages.StatisticsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Loaded="OnLoaded">
+
+    <ScrollViewer>
+        <StackPanel Margin="20" Spacing="12">
+            <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" />
+
+            <Border Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="FromLabel" VerticalAlignment="Center" />
+                        <CalendarDatePicker x:Name="FromPicker" DateChanged="FromPicker_OnDateChanged" />
+                        <TextBlock x:Name="ToLabel" VerticalAlignment="Center" />
+                        <CalendarDatePicker x:Name="ToPicker" DateChanged="ToPicker_OnDateChanged" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="Last7Button" Click="Last7_OnClick" />
+                        <Button x:Name="Last30Button" Click="Last30_OnClick" />
+                        <Button x:Name="ApplyButton" Click="Apply_OnClick" Style="{StaticResource AccentButtonStyle}" />
+                        <Button x:Name="ResetButton" Click="Reset_OnClick" />
+                    </StackPanel>
+                    <TextBlock x:Name="GroupingText" Opacity="0.85" />
+                    <TextBlock x:Name="PeriodText" Opacity="0.85" />
+                    <TextBlock x:Name="TotalUploadedText" FontWeight="SemiBold" />
+                    <ProgressRing x:Name="LoadingRing" Width="28" Height="28" IsActive="False" />
+                    <TextBlock x:Name="ErrorText" Foreground="OrangeRed" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Padding="16" MinHeight="160" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <!-- TODO(parity): chart control (OxyPlot not available on WinUI) -->
+                <TextBlock x:Name="ChartStubText" TextWrapping="Wrap" Opacity="0.9" />
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
