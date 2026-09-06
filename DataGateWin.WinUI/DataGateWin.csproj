@@ -4,10 +4,11 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>DataGateWin</RootNamespace>
-    <AssemblyName>DataGateWin.WinUI</AssemblyName>
+    <!-- Cutover: same exe name as WPF so installer / App Paths / ZIP stay DataGateWin.exe -->
+    <AssemblyName>DataGateWin</AssemblyName>
     <Product>DataGate</Product>
     <AssemblyTitle>DataGate</AssemblyTitle>
-    <Description>DataGate (WinUI)</Description>
+    <Description>DataGate</Description>
     <AssemblyVersion>1.0.13</AssemblyVersion>
     <FileVersion>1.0.13</FileVersion>
     <!-- Release: admin via UAC. Debug: asInvoker so F5/Cursor attaches to the real UI process. -->
@@ -68,6 +69,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="LiveChartsCore.SkiaSharpView.WinUI" Version="2.0.0-rc6.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="10.0.2" />

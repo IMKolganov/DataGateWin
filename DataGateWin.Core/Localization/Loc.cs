@@ -4,12 +4,11 @@ using DataGateWin.CrashReporting;
 namespace DataGateWin.Localization;
 
 /// <summary>
-/// Phase 0 portable stub with optional <see cref="Resolver"/> (WinUI wires via <c>WinUiLanguageService</c>).
-/// WPF still owns ResourceDictionary-backed <c>Loc</c> in DataGateWin.UI.
+/// Shared string lookup. Hosts wire <see cref="Resolver"/> (WPF ResourceDictionary / WinUI resources).
 /// </summary>
 public static class Loc
 {
-    /// <summary>Optional lookup (e.g. WinUI resources). When null/empty, <see cref="T(string)"/> returns the key.</summary>
+    /// <summary>Optional lookup (e.g. WPF/WinUI resources). When null/empty, <see cref="T(string)"/> returns the key.</summary>
     public static Func<string, string?>? Resolver { get; set; }
 
     public static string T(string key)

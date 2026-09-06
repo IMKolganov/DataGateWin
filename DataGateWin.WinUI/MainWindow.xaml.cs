@@ -6,7 +6,9 @@ using DataGateWin.Pages;
 using DataGateWin.Pages.Home;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Identity;
+using DataGateWin.Services.Security;
 using DataGateWin.Services.Support;
+using DataGateWin.Services.Ui;
 using DataGateWin.Views;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -25,6 +27,7 @@ public sealed partial class MainWindow : Window
     private readonly AccessPage _accessPage = new();
     private readonly StatisticsPage _statisticsPage;
     private readonly SettingsPage _settingsPage;
+    private readonly TorrentClientMonitor _torrentClientMonitor;
 
     public MainWindow(AuthStateStore authState, HttpClient authedApiHttp)
     {
@@ -39,23 +42,23 @@ public sealed partial class MainWindow : Window
         _homePage = new HomePage(_homeController);
         _settingsPage = new SettingsPage(_authState);
         _statisticsPage = new StatisticsPage(authedApiHttp, App.Session);
+        _torrentClientMonitor = new TorrentClientMonitor(
+            DispatcherQueue,
+            () => Content is FrameworkElement fe ? fe.XamlRoot : null);
 
         ApplyNavLabels();
         WinUiLanguageService.LanguageChanged += OnLanguageChanged;
         Closed += (_, _) =>
         {
             WinUiLanguageService.LanguageChanged -= OnLanguageChanged;
+            _torrentClientMonitor.Dispose();
             _homeController.Dispose();
-        };
-
-        Activated += async (_, _) =>
-        {
-            // First activation: navigate + footer + onboarding
         };
 
         // Navigate after content is ready
         DispatcherQueue.TryEnqueue(async () =>
         {
+            _torrentClientMonitor.Start();
             NavigateTo("home");
             await ApplyUserPaneFooterAsync();
             await CheckAndShowFreeTierOnboardingIfNeededAsync(force: true);
@@ -79,14 +82,59 @@ public sealed partial class MainWindow : Window
 
     private async Task ApplyUserPaneFooterAsync()
     {
+        void ShowUserAvatarFallback()
+        {
+            UserAvatarImage.Source = null;
+            UserAvatarImage.Visibility = Visibility.Collapsed;
+            UserAvatarInitials.Visibility = Visibility.Visible;
+        }
+
         var token = App.Session.Current?.Token;
         var displayName = AccountDisplay.TryResolveDisplayName(token) ?? Loc.T("Common_Unknown");
         UserDisplayName.Text = displayName;
         UserAvatarInitials.Text = AccountDisplay.GetInitials(displayName);
-        // TODO(parity): load profile image via UserAvatarCache (WPF helper not yet ported)
-        UserAvatarImage.Visibility = Visibility.Collapsed;
-        UserAvatarInitials.Visibility = Visibility.Visible;
-        await Task.CompletedTask;
+        // Taskbar avatar overlay: skipped on WinUI (AppWindow overlay API is not straightforward); pane avatar below.
+
+        var picUrl = JwtClaimReader.GetProfileImageUrlFromBearerToken(token);
+        if (string.IsNullOrWhiteSpace(picUrl))
+        {
+            ShowUserAvatarFallback();
+            return;
+        }
+
+        var userId = JwtClaimReader.GetNumericUserIdFromBearerToken(token);
+
+        try
+        {
+            var path = await UserAvatarCache.TryEnsureCachedPathAsync(picUrl, userId, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (path is null)
+                    {
+                        ShowUserAvatarFallback();
+                        return;
+                    }
+
+                    UserAvatarImage.Source = UserAvatarCache.CreateBitmapFromFile(path);
+                    UserAvatarImage.Visibility = Visibility.Visible;
+                    UserAvatarInitials.Visibility = Visibility.Collapsed;
+                }
+                catch (Exception ex)
+                {
+                    CrashReporter.ReportNonFatal(ex, "MainWindow.ApplyUserPaneFooter.ApplyImage");
+                    ShowUserAvatarFallback();
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "MainWindow.ApplyUserPaneFooter");
+            DispatcherQueue.TryEnqueue(ShowUserAvatarFallback);
+        }
     }
 
     private void TitleBar_PaneToggleRequested(TitleBar sender, object args)

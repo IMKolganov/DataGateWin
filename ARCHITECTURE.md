@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the interaction model between the **UI** (WPF) and the **Engine** (native process) using IPC. The design supports all lifecycle combinations:
+This document describes the interaction model between the **UI** (WinUI 3 shipping shell; WPF kept as fallback) and the **Engine** (native process) using IPC. The design supports all lifecycle combinations:
 
 - UI starts first / Engine starts first
 - UI can restart without breaking an active VPN session
@@ -11,11 +11,13 @@ This document describes the interaction model between the **UI** (WPF) and the *
 
 The Engine is the **single source of truth** for VPN session state.
 
+Shipping UI cutover: unpackaged **WinUI 3** (`DataGateWin.WinUI`, output `DataGateWin.exe`) + `DataGateWin.Core`. See `docs/WINUI3_PUBLISH_LAYOUT.md` and `docs/WINUI3_PARITY_CHECKLIST.md`. Legacy WPF project remains in `DataGateWin.UI` as a fallback build until retired.
+
 ---
 
 ## Components
 
-### UI (WPF)
+### UI (WinUI 3 + Core)
 Responsibilities:
 - User experience (Connect/Disconnect, status, settings, logs)
 - Starting Engine (optional policy)
@@ -25,6 +27,8 @@ Responsibilities:
 Non-responsibilities:
 - UI does **not** own the truth about connection status.
 - UI does **not** keep the tunnel alive by itself.
+
+Portable logic lives in `DataGateWin.Core` (auth, IPC client, VPN server APIs, IP lists, etc.). WPF `DataGateWin.UI` also references Core while it remains available as fallback.
 
 ### Engine (Native process)
 Responsibilities:

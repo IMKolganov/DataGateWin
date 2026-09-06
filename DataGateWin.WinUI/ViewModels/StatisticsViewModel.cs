@@ -10,10 +10,15 @@ using DataGateWin.Services.Statistics;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServerClients.Requests;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServerClients.Responses;
 using DataGateMonitor.SharedModels.Enums;
+using LiveChartsCore;
+using LiveChartsCore.Defaults;
+using LiveChartsCore.Kernel.Sketches;
+using LiveChartsCore.SkiaSharpView;
+using LiveChartsCore.SkiaSharpView.Painting;
+using SkiaSharp;
 
 namespace DataGateWin.ViewModels;
 
-/// <summary>Statistics VM without OxyPlot — summary + series text stub for WinUI.</summary>
 public sealed class StatisticsViewModel : INotifyPropertyChanged
 {
     private readonly StatisticsApiClient _api;
@@ -49,11 +54,25 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
         private set { _periodText = value; OnPropertyChanged(); }
     }
 
-    private string _chartStubText = "";
-    public string ChartStubText
+    private ISeries[] _series = Array.Empty<ISeries>();
+    public ISeries[] Series
     {
-        get => _chartStubText;
-        private set { _chartStubText = value; OnPropertyChanged(); }
+        get => _series;
+        private set { _series = value; OnPropertyChanged(); }
+    }
+
+    private ICartesianAxis[] _xAxes = Array.Empty<ICartesianAxis>();
+    public ICartesianAxis[] XAxes
+    {
+        get => _xAxes;
+        private set { _xAxes = value; OnPropertyChanged(); }
+    }
+
+    private ICartesianAxis[] _yAxes = Array.Empty<ICartesianAxis>();
+    public ICartesianAxis[] YAxes
+    {
+        get => _yAxes;
+        private set { _yAxes = value; OnPropertyChanged(); }
     }
 
     private DateTimeOffset? _fromLocalDate;
@@ -114,6 +133,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     private OverviewSeriesResponse? _lastData;
     private DateTimeOffset? _loadedFromUtc;
     private DateTimeOffset? _loadedToUtc;
+    private bool _darkTheme = true;
 
     public StatisticsViewModel(StatisticsApiClient api, AuthSession session)
     {
@@ -127,8 +147,13 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
 
         WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
         ResetFilters();
-        ChartStubText = Loc.T("Stats_Series_Upload") + " — chart pending (OxyPlot not ported)";
-        // TODO(parity): replace ChartStubText with a WinUI chart control when available
+        ApplyEmptyChart();
+    }
+
+    public void SetChartTheme(bool dark)
+    {
+        _darkTheme = dark;
+        RefreshChart();
     }
 
     private void OnUiLanguageChanged(object? sender, EventArgs e)
@@ -138,7 +163,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
             ApplyLoadedPeriodText();
         else
             UpdatePeriodTextPreview();
-        RefreshSummaryStub();
+        RefreshChart();
     }
 
     public Task LoadAsync(CancellationToken ct) => ApplyAsync(ct);
@@ -196,7 +221,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
             _loadedFromUtc = from;
             _loadedToUtc = to;
             ApplyLoadedPeriodText();
-            RefreshSummaryStub();
+            RefreshChart();
         }
         catch (Exception ex)
         {
@@ -209,20 +234,76 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
         }
     }
 
-    private void RefreshSummaryStub()
+    public void RefreshChart()
     {
         if (_lastData is null)
-        {
-            ChartStubText = Loc.T("Stats_Series_Upload") + " — no data";
-            return;
-        }
+            ApplyEmptyChart();
+        else
+            ApplySeriesChart(_lastData);
+    }
 
-        var rows = _lastData.OverviewSeriesRows?.Count ?? 0;
-        ChartStubText = Loc.T("Stats_Series_Upload")
-            + Environment.NewLine
-            + $"{rows} points · {Loc.T("Stats_Axis_Traffic")}: {TotalUploadedText}"
-            + Environment.NewLine
-            + "(chart stub — OxyPlot not available on WinUI)";
+    private void ApplyEmptyChart()
+    {
+        Series = Array.Empty<ISeries>();
+        ApplyAxes();
+    }
+
+    private void ApplySeriesChart(OverviewSeriesResponse data)
+    {
+        var accent = new SKColor(0x4C, 0x9A, 0xFF);
+        var points = new List<DateTimePoint>();
+        foreach (var row in data.OverviewSeriesRows)
+            points.Add(new DateTimePoint(row.Ts.UtcDateTime, row.TrafficOutBytes));
+
+        Series =
+        [
+            new LineSeries<DateTimePoint>
+            {
+                Name = Loc.T("Stats_Series_Upload"),
+                Values = points,
+                GeometrySize = 0,
+                Fill = new SolidColorPaint(accent.WithAlpha(80)),
+                Stroke = new SolidColorPaint(accent) { StrokeThickness = 2 },
+                LineSmoothness = 0
+            }
+        ];
+        ApplyAxes();
+    }
+
+    private void ApplyAxes()
+    {
+        var fg = _darkTheme ? new SKColor(0xE0, 0xE0, 0xE0) : new SKColor(0x20, 0x20, 0x20);
+        var grid = _darkTheme
+            ? new SKColor(0xE0, 0xE0, 0xE0, 60)
+            : new SKColor(0x20, 0x20, 0x20, 60);
+
+        XAxes =
+        [
+            new Axis
+            {
+                Labeler = value =>
+                {
+                    try { return new DateTime((long)value).ToString("dd MMM", CultureInfo.CurrentCulture); }
+                    catch { return ""; }
+                },
+                LabelsPaint = new SolidColorPaint(fg),
+                SeparatorsPaint = new SolidColorPaint(grid) { StrokeThickness = 1 },
+                UnitWidth = TimeSpan.FromDays(1).Ticks,
+                MinStep = TimeSpan.FromHours(1).Ticks
+            }
+        ];
+
+        YAxes =
+        [
+            new Axis
+            {
+                Name = Loc.T("Stats_Axis_Traffic"),
+                NamePaint = new SolidColorPaint(fg),
+                LabelsPaint = new SolidColorPaint(fg),
+                SeparatorsPaint = new SolidColorPaint(grid) { StrokeThickness = 1 },
+                Labeler = value => FormatBytes((long)Math.Max(0, value))
+            }
+        ];
     }
 
     private void ApplyLoadedPeriodText()

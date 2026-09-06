@@ -80,16 +80,8 @@ public sealed partial class SettingsPage : Page
 
     private async void IpListsConfigure_OnClick(object sender, RoutedEventArgs e)
     {
-        // TODO(parity): port IpListSettingsWindow fully
-        if (XamlRoot is null)
-            return;
-        await new ContentDialog
-        {
-            Title = Loc.T("Settings_IpLists"),
-            Content = "IP list route editor is not yet ported to WinUI.",
-            CloseButtonText = Loc.T("Action_Ok"),
-            XamlRoot = XamlRoot,
-        }.ShowAsync();
+        var wnd = new IpListSettingsWindow();
+        await wnd.ShowAsync();
         ApplyIpListsToggleFromStore();
     }
 

@@ -24,4 +24,8 @@
     <ProjectReference Include="..\DataGateWin.CrashReporting\DataGateWin.CrashReporting.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DataGateWin.Tests" />
+  </ItemGroup>
+
 </Project>

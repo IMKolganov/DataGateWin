@@ -1,7 +1,7 @@
 # Plan: migrate DataGate UI from WPF to WinUI 3
 
-Status: **Phase 1–2 in progress** — unpackaged WinUI shell + Core build green; WPF `DataGateWin.UI` still ships.  
-See `docs/WINUI3_PARITY_CHECKLIST.md` for remaining gaps (charts, IP-list editor, torrent monitor, installer cutover).  
+Status: **Phase 3 cutover wired** — WinUI unpackaged ships as `DataGateWin.exe`; WPF `DataGateWin.UI` remains fallback.  
+See `docs/WINUI3_PARITY_CHECKLIST.md` and `docs/WINUI3_PUBLISH_LAYOUT.md`.  
 Base: `develop` @ 1.0.13.  
 Goal: keep engine / IPC / installer model; replace the WPF shell with WinUI 3 + Windows App SDK.
 
