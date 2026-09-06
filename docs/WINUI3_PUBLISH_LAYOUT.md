@@ -25,6 +25,7 @@ Or use `DataGateWin.UI\Build-Release.ps1` (post-cutover: publishes WinUI, stages
 | Path | Role |
 |------|------|
 | `DataGateWin.exe` | WinUI shell (`AssemblyName=DataGateWin`) |
+| `DataGateWin.pri` | WinUI XAML/resources (must be full EmbeddedData PRI, typically ≥ ~100KB — tiny PRI breaks LoadComponent) |
 | `DataGateWin.Core.dll` + deps | Portable logic |
 | `DataGateWin.CrashReporting.dll` | Crash queue / ingest |
 | Windows App SDK / WinUI / Skia native DLLs | Self-contained runtime (many files) |
