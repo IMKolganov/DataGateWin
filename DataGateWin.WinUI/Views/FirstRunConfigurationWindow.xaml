@@ -1,0 +1,46 @@
+<Window
+    x:Class="DataGateWin.Views.FirstRunConfigurationWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Configuration">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <ScrollViewer Padding="28">
+        <StackPanel MaxWidth="640" Spacing="12">
+            <TextBlock
+                x:Name="TitleText"
+                FontSize="22"
+                FontWeight="SemiBold" />
+            <TextBlock x:Name="SubtitleText" Opacity="0.75" TextWrapping="Wrap" />
+
+            <TextBlock x:Name="ApiLabel" FontWeight="SemiBold" />
+            <TextBox x:Name="ApiBaseUrlBox" />
+
+            <TextBlock x:Name="ClientIdLabel" FontWeight="SemiBold" />
+            <TextBox x:Name="GoogleClientIdBox" />
+
+            <TextBlock x:Name="PortLabel" FontWeight="SemiBold" />
+            <TextBox x:Name="RedirectPortBox" MaxLength="5" />
+
+            <TextBlock
+                x:Name="StatusText"
+                Foreground="Red"
+                TextWrapping="Wrap"
+                Visibility="Collapsed" />
+
+            <Button
+                x:Name="SaveButton"
+                Height="46"
+                HorizontalAlignment="Stretch"
+                Click="Save_OnClick"
+                Style="{StaticResource AccentButtonStyle}" />
+            <Button
+                x:Name="CancelButton"
+                Height="42"
+                HorizontalAlignment="Stretch"
+                Click="Cancel_OnClick" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>

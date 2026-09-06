@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DataGateWin.Pages.Home.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Loaded="HomePage_OnLoaded"
+    Unloaded="HomePage_OnUnloaded">
+
+    <Grid Margin="20" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            x:Name="WelcomeTitle"
+            FontSize="20"
+            FontWeight="SemiBold" />
+
+        <Border
+            Grid.Row="1"
+            Padding="16"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8">
+            <StackPanel Spacing="10">
+                <TextBlock x:Name="ConnectionStatusLabel" FontWeight="SemiBold" />
+                <TextBlock x:Name="StatusText" Opacity="0.8" />
+
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="VpnServerLabel" VerticalAlignment="Center" />
+                    <ComboBox
+                        x:Name="ServerModeCombo"
+                        Grid.Column="1"
+                        SelectionChanged="ServerModeCombo_OnSelectionChanged" />
+                </Grid>
+
+                <Grid
+                    x:Name="ManualServerRow"
+                    ColumnSpacing="8"
+                    Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ServerLabel" VerticalAlignment="Center" />
+                    <ComboBox
+                        x:Name="ManualServerCombo"
+                        Grid.Column="1"
+                        SelectionChanged="ManualServerCombo_OnSelectionChanged" />
+                    <Button
+                        x:Name="RefreshServersButton"
+                        Grid.Column="2"
+                        MinWidth="90"
+                        Click="RefreshServersButton_OnClick" />
+                </Grid>
+
+                <StackPanel x:Name="NetworkInfoPanel" Spacing="4" Visibility="Collapsed">
+                    <TextBlock x:Name="NetworkServerText" TextWrapping="Wrap" />
+                    <TextBlock x:Name="NetworkVpnIpText" FontFamily="Consolas" />
+                    <TextBlock x:Name="NetworkExternalIpText" FontFamily="Consolas" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button
+                        x:Name="ConnectButton"
+                        Width="160"
+                        Click="ConnectButton_OnClick"
+                        Style="{StaticResource AccentButtonStyle}" />
+                    <Button
+                        x:Name="DisconnectButton"
+                        Width="160"
+                        Click="DisconnectButton_OnClick" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border
+            Grid.Row="2"
+            Padding="16"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8">
+            <Grid RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="LogsLabel" FontWeight="SemiBold" />
+                <TextBox
+                    x:Name="LogTextBox"
+                    Grid.Row="1"
+                    AcceptsReturn="True"
+                    FontFamily="Consolas"
+                    FontSize="12"
+                    IsReadOnly="True"
+                    TextWrapping="NoWrap" />
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

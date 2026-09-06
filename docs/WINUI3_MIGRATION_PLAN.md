@@ -1,6 +1,7 @@
 # Plan: migrate DataGate UI from WPF to WinUI 3
 
-Status: **planning only** (no UI rewrite started).  
+Status: **Phase 3 cutover wired** — WinUI unpackaged ships as `DataGateWin.exe`; WPF `DataGateWin.UI` remains fallback.  
+See `docs/WINUI3_PARITY_CHECKLIST.md` and `docs/WINUI3_PUBLISH_LAYOUT.md`.  
 Base: `develop` @ 1.0.13.  
 Goal: keep engine / IPC / installer model; replace the WPF shell with WinUI 3 + Windows App SDK.
 
@@ -180,16 +181,16 @@ Flag emoji: still prefer **image assets by ISO code** even on WinUI (predictable
 
 ## 9. Explicit non-goals (this branch)
 
-- No WinUI project scaffolding yet (plan only).
 - No MSIX Store submission.
 - No Android/MAUI unification.
 - No emoji-font experiments as a migration driver.
+- Do not delete or break WPF `DataGateWin.UI` until Phase 3 cutover.
 
 ---
 
 ## 10. Next concrete actions
 
-1. Approve this plan (or adjust Win10 floor / packaging).
-2. Phase 0 spike PR: empty WinUI unpackaged app + IPC ping.
-3. Decide whether WinUI lives in `DataGateWin.UI` repo (replace) or new submodule.
-4. Keep WPF shipping until Phase 3.
+1. Finish Phase 0 spike: IPC ping + start `engine.exe` from unpackaged WinUI.
+2. Win10 VM smoke + publish size vs WPF folder.
+3. Keep WPF shipping until Phase 3.
+4. Track UI parity in `docs/WINUI3_PARITY_CHECKLIST.md`.

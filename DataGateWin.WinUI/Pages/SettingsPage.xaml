@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DataGateWin.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Loaded="SettingsPage_OnLoaded">
+
+    <ScrollViewer>
+        <StackPanel Margin="20" Spacing="16">
+            <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" />
+
+            <Border Padding="18" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <TextBlock x:Name="LanguageHeader" FontWeight="SemiBold" />
+                    <TextBlock x:Name="LanguageHint" Opacity="0.75" />
+                    <ComboBox x:Name="LanguageCombo" MinWidth="280" SelectionChanged="LanguageCombo_OnSelectionChanged" />
+
+                    <TextBlock x:Name="AppearanceHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <TextBlock x:Name="AppearanceHint" Opacity="0.75" />
+                    <ToggleSwitch x:Name="ThemeToggle" Toggled="ThemeToggle_OnToggled" />
+
+                    <TextBlock x:Name="IpListsHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <ToggleSwitch x:Name="IpListsMainToggle" Toggled="IpListsMainToggle_OnToggled" />
+                    <Button x:Name="IpListsConfigureButton" Click="IpListsConfigure_OnClick" />
+
+                    <TextBlock x:Name="VersionHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <TextBlock x:Name="CurrentVersionText" />
+                    <TextBlock x:Name="LatestVersionText" Opacity="0.75" />
+
+                    <Button x:Name="AboutButton" Click="AboutButton_OnClick" />
+                    <Button x:Name="LogoutButton" Click="LogoutButton_OnClick" Style="{StaticResource AccentButtonStyle}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

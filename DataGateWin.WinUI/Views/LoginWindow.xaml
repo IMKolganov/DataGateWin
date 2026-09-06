@@ -1,0 +1,91 @@
+<Window
+    x:Class="DataGateWin.Views.LoginWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="DataGate">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid Padding="28" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBlock
+                    x:Name="LanguageLabel"
+                    VerticalAlignment="Center"
+                    FontWeight="SemiBold"
+                    Text="Language" />
+                <ComboBox
+                    x:Name="LoginLanguageCombo"
+                    MinWidth="280"
+                    SelectionChanged="LoginLanguageCombo_OnSelectionChanged" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                Click="ReportIssue_OnClick"
+                Content="?"
+                ToolTipService.ToolTip="Report" />
+        </Grid>
+
+        <Border
+            Grid.Row="1"
+            Padding="28"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8">
+            <StackPanel Spacing="14">
+                <TextBlock
+                    x:Name="WelcomeTitle"
+                    FontSize="22"
+                    FontWeight="SemiBold"
+                    Text="Welcome" />
+                <TextBlock x:Name="WelcomeSubtitle" Opacity="0.75" Text="Sign in" />
+                <Button
+                    x:Name="SignInButton"
+                    Height="46"
+                    HorizontalAlignment="Stretch"
+                    Click="SignIn_OnClick"
+                    Style="{StaticResource AccentButtonStyle}" />
+                <Button
+                    x:Name="CancelButton"
+                    Height="42"
+                    HorizontalAlignment="Stretch"
+                    Click="Cancel_OnClick"
+                    Visibility="Collapsed" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ProgressRing
+                        x:Name="BusyRing"
+                        Width="18"
+                        Height="18"
+                        IsActive="False"
+                        Visibility="Collapsed" />
+                    <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Button
+            x:Name="TelegramButton"
+            Grid.Row="2"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Click="TelegramChannel_OnClick" />
+
+        <TextBlock
+            x:Name="FooterHint"
+            Grid.Row="3"
+            Opacity="0.55"
+            TextAlignment="Center"
+            TextWrapping="Wrap" />
+    </Grid>
+</Window>
