@@ -1,215 +1,33 @@
 using System.Net.Http;
-using DataGateWin.Controllers;
-using DataGateWin.CrashReporting;
-using DataGateWin.Localization;
-using DataGateWin.Pages;
-using DataGateWin.Pages.Home;
 using DataGateWin.Services.Auth;
-using DataGateWin.Services.Identity;
-using DataGateWin.Services.Security;
-using DataGateWin.Services.Support;
-using DataGateWin.Services.Ui;
-using DataGateWin.Views;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace DataGateWin;
 
-public sealed partial class MainWindow : Window
+/// <summary>
+/// Code-only smoke window (no XAML LoadComponent) — prove WinUI process can show UI.
+/// </summary>
+public sealed class MainWindow : Window
 {
-    private readonly FreeTierAccessApiClient _freeTierAccessApi;
-    private bool _isOnboardingDialogOpen;
-    private DateTimeOffset _lastOnboardingCheckUtc = DateTimeOffset.MinValue;
-    private readonly AuthStateStore _authState;
-    private readonly HomeController _homeController = new();
-    private readonly HomePage _homePage;
-    private readonly AccessPage _accessPage = new();
-    private readonly StatisticsPage _statisticsPage;
-    private readonly SettingsPage _settingsPage;
-    private readonly TorrentClientMonitor _torrentClientMonitor;
-
     public MainWindow(AuthStateStore authState, HttpClient authedApiHttp)
     {
-        InitializeComponent();
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
-        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
-        try { AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico")); } catch { /* ignore */ }
+        _ = authState;
+        _ = authedApiHttp;
 
-        _authState = authState;
-        _freeTierAccessApi = new FreeTierAccessApiClient(authedApiHttp);
-        _homePage = new HomePage(_homeController);
-        _settingsPage = new SettingsPage(_authState);
-        _statisticsPage = new StatisticsPage(authedApiHttp, App.Session);
-        _torrentClientMonitor = new TorrentClientMonitor(
-            DispatcherQueue,
-            () => Content is FrameworkElement fe ? fe.XamlRoot : null);
-
-        ApplyNavLabels();
-        WinUiLanguageService.LanguageChanged += OnLanguageChanged;
-        Closed += (_, _) =>
+        Title = "DataGate";
+        Content = new Grid
         {
-            WinUiLanguageService.LanguageChanged -= OnLanguageChanged;
-            _torrentClientMonitor.Dispose();
-            _homeController.Dispose();
-        };
-
-        // Navigate after content is ready
-        DispatcherQueue.TryEnqueue(async () =>
-        {
-            _torrentClientMonitor.Start();
-            NavigateTo("home");
-            await ApplyUserPaneFooterAsync();
-            await CheckAndShowFreeTierOnboardingIfNeededAsync(force: true);
-        });
-    }
-
-    private void OnLanguageChanged(object? sender, EventArgs e)
-        => DispatcherQueue.TryEnqueue(ApplyNavLabels);
-
-    private void ApplyNavLabels()
-    {
-        Title = Loc.T("App_Title");
-        AppTitleBar.Title = Loc.T("App_Title");
-        NavHome.Content = Loc.T("Nav_Home");
-        NavAccess.Content = Loc.T("Nav_Access");
-        NavStatistics.Content = Loc.T("Nav_Statistics");
-        NavSettings.Content = Loc.T("Nav_Settings");
-        TelegramChannelButton.Content = Loc.T("Telegram_SubscribeHint");
-        ReportIssueButton.Content = Loc.T("Home_ReportIssue");
-    }
-
-    private async Task ApplyUserPaneFooterAsync()
-    {
-        void ShowUserAvatarFallback()
-        {
-            UserAvatarImage.Source = null;
-            UserAvatarImage.Visibility = Visibility.Collapsed;
-            UserAvatarInitials.Visibility = Visibility.Visible;
-        }
-
-        var token = App.Session.Current?.Token;
-        var displayName = AccountDisplay.TryResolveDisplayName(token) ?? Loc.T("Common_Unknown");
-        UserDisplayName.Text = displayName;
-        UserAvatarInitials.Text = AccountDisplay.GetInitials(displayName);
-        // Taskbar avatar overlay: skipped on WinUI (AppWindow overlay API is not straightforward); pane avatar below.
-
-        var picUrl = JwtClaimReader.GetProfileImageUrlFromBearerToken(token);
-        if (string.IsNullOrWhiteSpace(picUrl))
-        {
-            ShowUserAvatarFallback();
-            return;
-        }
-
-        var userId = JwtClaimReader.GetNumericUserIdFromBearerToken(token);
-
-        try
-        {
-            var path = await UserAvatarCache.TryEnsureCachedPathAsync(picUrl, userId, CancellationToken.None)
-                .ConfigureAwait(false);
-
-            DispatcherQueue.TryEnqueue(() =>
+            Children =
             {
-                try
+                new TextBlock
                 {
-                    if (path is null)
-                    {
-                        ShowUserAvatarFallback();
-                        return;
-                    }
-
-                    UserAvatarImage.Source = UserAvatarCache.CreateBitmapFromFile(path);
-                    UserAvatarImage.Visibility = Visibility.Visible;
-                    UserAvatarInitials.Visibility = Visibility.Collapsed;
+                    Text = "DataGate WinUI OK (code)",
+                    FontSize = 24,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
                 }
-                catch (Exception ex)
-                {
-                    CrashReporter.ReportNonFatal(ex, "MainWindow.ApplyUserPaneFooter.ApplyImage");
-                    ShowUserAvatarFallback();
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            CrashReporter.ReportNonFatal(ex, "MainWindow.ApplyUserPaneFooter");
-            DispatcherQueue.TryEnqueue(ShowUserAvatarFallback);
-        }
-    }
-
-    private void TitleBar_PaneToggleRequested(TitleBar sender, object args)
-        => NavView.IsPaneOpen = !NavView.IsPaneOpen;
-
-    private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
-    {
-        if (args.SelectedItem is NavigationViewItem item)
-            NavigateTo(item.Tag?.ToString());
-    }
-
-    private void NavigateTo(string? tag)
-    {
-        switch (tag)
-        {
-            case "access":
-                NavFrame.Content = _accessPage;
-                break;
-            case "statistics":
-                NavFrame.Content = _statisticsPage;
-                break;
-            case "settings":
-                NavFrame.Content = _settingsPage;
-                break;
-            default:
-                NavFrame.Content = _homePage;
-                tag = "home";
-                break;
-        }
-
-        if (tag is "home" or "access")
-            _ = CheckAndShowFreeTierOnboardingIfNeededAsync(force: false);
-    }
-
-    private async Task CheckAndShowFreeTierOnboardingIfNeededAsync(bool force)
-    {
-        if (_isOnboardingDialogOpen)
-            return;
-
-        if (!force && !FreeTierOnboardingPolicy.ShouldRefreshOnPoll(_lastOnboardingCheckUtc, DateTimeOffset.UtcNow))
-            return;
-
-        _lastOnboardingCheckUtc = DateTimeOffset.UtcNow;
-
-        try
-        {
-            var resp = await _freeTierAccessApi.GetStatusAsync(CancellationToken.None);
-            var status = resp.Data;
-            if (!FreeTierOnboardingPolicy.ShouldShow(status) || status == null)
-                return;
-
-            _isOnboardingDialogOpen = true;
-            if (Content is FrameworkElement fe && fe.XamlRoot is not null)
-            {
-                var wnd = new FreeTierOnboardingWindow(_freeTierAccessApi, status);
-                await wnd.ShowAsync(fe.XamlRoot);
-                App.ScheduleUpdateCheck();
             }
-        }
-        catch (Exception ex)
-        {
-            CrashReporter.ReportNonFatal(ex, "MainWindow.CheckFreeTierOnboarding");
-        }
-        finally
-        {
-            _isOnboardingDialogOpen = false;
-        }
+        };
     }
-
-    private async void ReportIssue_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (Content is FrameworkElement fe)
-            await new ReportIssueDialog().ShowAsync(fe.XamlRoot);
-    }
-
-    private void TelegramChannel_OnClick(object sender, RoutedEventArgs e)
-        => TelegramChannel.OpenPublicChannel();
 }

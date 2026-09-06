@@ -46,15 +46,37 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        CrashReporter.InstallDomainHandlers();
-        UiDispatcher = DispatcherQueue.GetForCurrentThread();
-        WinUiLanguageService.WireLocResolver();
+        try
+        {
+            CrashReporter.InstallDomainHandlers();
+            UiDispatcher = DispatcherQueue.GetForCurrentThread();
+            WinUiLanguageService.WireLocResolver();
 
-        Settings = AppSettingsStore.LoadSafe();
-        WinUiLanguageService.ApplyFromSettings();
-        ApplyThemeFromSettings();
+            Settings = AppSettingsStore.LoadSafe();
+            WinUiLanguageService.ApplyFromSettings();
+            ApplyThemeFromSettings();
 
-        _ = RunStartupAsync();
+            // SMOKE: code-only MainWindow — no XAML LoadComponent.
+            var smoke = new MainWindow(new AuthStateStore(), new HttpClient());
+            CurrentMainWindow = smoke;
+            _startupWindow = smoke;
+            smoke.Activate();
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                var logPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DataGateWin",
+                    "startup-error.log");
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                File.WriteAllText(logPath, ex.ToString());
+            }
+            catch { /* ignore */ }
+
+            throw;
+        }
     }
 
     private void ApplyThemeFromSettings()
@@ -220,6 +242,26 @@ public partial class App : Application
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "StartupFailed");
+            try
+            {
+                var logPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DataGateWin",
+                    "startup-error.log");
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                var detail = ex.ToString();
+                if (ex is Microsoft.UI.Xaml.Markup.XamlParseException xpe)
+                {
+                    detail +=
+                        $"{Environment.NewLine}HResult=0x{xpe.HResult:X8}" +
+                        $"{Environment.NewLine}Message={xpe.Message}" +
+                        $"{Environment.NewLine}Inner={xpe.InnerException}";
+                }
+
+                await File.WriteAllTextAsync(logPath, detail).ConfigureAwait(true);
+            }
+            catch { /* ignore */ }
+
             await ShowMessageAsync(
                 Loc.T("Msg_StartupFailedTitle"),
                 Loc.T("Msg_StartupFailedBodyFmt", ex.Message)).ConfigureAwait(true);
