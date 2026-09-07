@@ -58,18 +58,49 @@
                     FontWeight="SemiBold"
                     Text="Welcome" />
                 <TextBlock x:Name="WelcomeSubtitle" Opacity="0.75" Text="Sign in" />
-                <Button
-                    x:Name="SignInButton"
-                    Height="46"
-                    HorizontalAlignment="Stretch"
-                    Click="SignIn_OnClick"
-                    Style="{StaticResource AccentButtonStyle}" />
-                <Button
-                    x:Name="CancelButton"
-                    Height="42"
-                    HorizontalAlignment="Stretch"
-                    Click="Cancel_OnClick"
-                    Visibility="Collapsed" />
+
+                <StackPanel x:Name="GoogleSignInPanel" Spacing="14">
+                    <Button
+                        x:Name="SignInButton"
+                        Height="46"
+                        HorizontalAlignment="Stretch"
+                        Click="SignIn_OnClick"
+                        Style="{StaticResource AccentButtonStyle}" />
+                    <Button
+                        x:Name="CancelButton"
+                        Height="42"
+                        HorizontalAlignment="Stretch"
+                        Click="Cancel_OnClick"
+                        Visibility="Collapsed" />
+                </StackPanel>
+
+                <StackPanel x:Name="TotpPanel" Spacing="12" Visibility="Collapsed">
+                    <TextBlock
+                        x:Name="TotpTitle"
+                        FontSize="18"
+                        FontWeight="SemiBold" />
+                    <TextBlock
+                        x:Name="TotpLead"
+                        Opacity="0.8"
+                        TextWrapping="Wrap" />
+                    <TextBox
+                        x:Name="TotpCodeBox"
+                        MaxLength="8"
+                        PlaceholderText="000000"
+                        TextChanged="TotpCodeBox_OnTextChanged" />
+                    <Button
+                        x:Name="TotpVerifyButton"
+                        Height="46"
+                        HorizontalAlignment="Stretch"
+                        Click="TotpVerify_OnClick"
+                        Style="{StaticResource AccentButtonStyle}" />
+                    <Button
+                        x:Name="TotpBackButton"
+                        Height="42"
+                        HorizontalAlignment="Stretch"
+                        Click="TotpBack_OnClick" />
+                </StackPanel>
+
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <ProgressRing
                         x:Name="BusyRing"

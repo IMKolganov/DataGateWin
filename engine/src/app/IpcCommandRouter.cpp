@@ -188,47 +188,76 @@ void IpcCommandRouter::Install()
         {
             datagate::session::StartOptions opt;
 
-            if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
+            std::string protocol = "openvpn";
+            TryExtractJsonStringField(cmd.payloadJson, "protocol", protocol);
+            // lowercase
+            for (char& c : protocol)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (protocol.empty())
+                protocol = "openvpn";
+            opt.protocol = protocol;
+
+            if (protocol == "xray")
             {
-                ipc_.ReplyError(cmd.id, "bad_payload", "Missing ovpnContent");
-                return;
+                TryExtractJsonStringField(cmd.payloadJson, "xrayShareLinks", opt.xrayShareLinks);
+                TryExtractJsonStringField(cmd.payloadJson, "xrayConfigJson", opt.xrayConfigJson);
+                if (opt.xrayShareLinks.empty() && opt.xrayConfigJson.empty())
+                {
+                    ipc_.ReplyError(cmd.id, "bad_payload", "Missing xrayShareLinks or xrayConfigJson");
+                    return;
+                }
+
+                std::cerr << "[router] StartSession recv id=" << cmd.id
+                          << " protocol=xray"
+                          << " shareLinksBytes=" << opt.xrayShareLinks.size()
+                          << " configJsonBytes=" << opt.xrayConfigJson.size()
+                          << std::endl;
             }
-
-            TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
-            TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
-            TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
-            TryExtractJsonStringField(cmd.payloadJson, "sni",  opt.bridge.sni);
-
-            TryExtractJsonStringField(cmd.payloadJson, "listenIp", opt.bridge.listenIp);
-            TryExtractJsonUInt16Field(cmd.payloadJson, "listenPort", opt.bridge.listenPort);
-
-            TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
-            TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
-
-            // Default true (catalog / DataGate WSS). Imported .ovpn uses useWssBridge=false.
-            opt.useWssBridge = true;
-            TryExtractJsonBoolField(cmd.payloadJson, "useWssBridge", opt.useWssBridge);
-
-            // Force loopback regardless of IPC payload (defense in depth vs permissive pipe ACL).
-            opt.bridge.listenIp = "127.0.0.1";
-            if (opt.bridge.listenPort == 0)
-                opt.bridge.listenPort = datagate::session::kLocalBridgeDefaultListenPort;
-
-            if (opt.useWssBridge
-                && (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty()))
+            else
             {
-                ipc_.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path");
-                return;
-            }
+                if (!TryExtractJsonStringField(cmd.payloadJson, "ovpnContent", opt.ovpnContentUtf8))
+                {
+                    ipc_.ReplyError(cmd.id, "bad_payload", "Missing ovpnContent");
+                    return;
+                }
 
-            std::cerr << "[router] StartSession recv id=" << cmd.id
-                      << " useWssBridge=" << (opt.useWssBridge ? "true" : "false")
-                      << " host=" << opt.bridge.host
-                      << " port=" << opt.bridge.port
-                      << " path=" << opt.bridge.path
-                      << " listen=" << opt.bridge.listenIp << ":" << opt.bridge.listenPort
-                      << " verifyServerCert=" << (opt.bridge.verifyServerCert ? "true" : "false")
-                      << std::endl;
+                TryExtractJsonStringField(cmd.payloadJson, "host", opt.bridge.host);
+                TryExtractJsonStringField(cmd.payloadJson, "port", opt.bridge.port);
+                TryExtractJsonStringField(cmd.payloadJson, "path", opt.bridge.path);
+                TryExtractJsonStringField(cmd.payloadJson, "sni",  opt.bridge.sni);
+
+                TryExtractJsonStringField(cmd.payloadJson, "listenIp", opt.bridge.listenIp);
+                TryExtractJsonUInt16Field(cmd.payloadJson, "listenPort", opt.bridge.listenPort);
+
+                TryExtractJsonBoolField(cmd.payloadJson, "verifyServerCert", opt.bridge.verifyServerCert);
+                TryExtractJsonStringField(cmd.payloadJson, "authorizationHeader", opt.bridge.authorizationHeader);
+
+                // Default true (catalog / DataGate WSS). Imported .ovpn uses useWssBridge=false.
+                opt.useWssBridge = true;
+                TryExtractJsonBoolField(cmd.payloadJson, "useWssBridge", opt.useWssBridge);
+
+                // Force loopback regardless of IPC payload (defense in depth vs permissive pipe ACL).
+                opt.bridge.listenIp = "127.0.0.1";
+                if (opt.bridge.listenPort == 0)
+                    opt.bridge.listenPort = datagate::session::kLocalBridgeDefaultListenPort;
+
+                if (opt.useWssBridge
+                    && (opt.bridge.host.empty() || opt.bridge.port.empty() || opt.bridge.path.empty()))
+                {
+                    ipc_.ReplyError(cmd.id, "bad_payload", "Missing bridge fields: host/port/path");
+                    return;
+                }
+
+                std::cerr << "[router] StartSession recv id=" << cmd.id
+                          << " protocol=openvpn"
+                          << " useWssBridge=" << (opt.useWssBridge ? "true" : "false")
+                          << " host=" << opt.bridge.host
+                          << " port=" << opt.bridge.port
+                          << " path=" << opt.bridge.path
+                          << " listen=" << opt.bridge.listenIp << ":" << opt.bridge.listenPort
+                          << " verifyServerCert=" << (opt.bridge.verifyServerCert ? "true" : "false")
+                          << std::endl;
+            }
 
             const bool accepted = orchestrator_.StartAsync(std::move(opt));
             if (!accepted)

@@ -157,19 +157,6 @@ internal static class WindowChrome
         {
             SetWindowPos(hwnd, IntPtr.Zero, 0, 0, widthPx, heightPx, flags | SwpNoMove);
         }
-
-        try
-        {
-            GetWindowRect(hwnd, out var rect);
-            var boot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "DataGateWin",
-                "startup-error.log");
-            File.AppendAllText(
-                boot,
-                $"WindowChrome scale={scale:0.###} want={widthPx}x{heightPx} got={(rect.Right - rect.Left)}x{(rect.Bottom - rect.Top)} dpi={GetDpiForWindow(hwnd)}\n");
-        }
-        catch { /* ignore */ }
     }
 
     private static bool TryGetCurrentSize(IntPtr hwnd, out int w, out int h)

@@ -114,6 +114,16 @@
     <x:String x:Key="Login_Status_Cancelled">Вход отменён.</x:String>
     <x:String x:Key="Login_Status_Failed">Не удалось войти.</x:String>
     <x:String x:Key="Login_Status_FailedFmt">Ошибка входа: {0}</x:String>
+    <x:String x:Key="Login_Totp_Title">Код аутентификатора</x:String>
+    <x:String x:Key="Login_Totp_Lead">Введите 6-значный код из приложения-аутентификатора, чтобы завершить вход.</x:String>
+    <x:String x:Key="Login_Totp_LeadNamedFmt">Здравствуйте, {0}. Введите 6-значный код из приложения-аутентификатора.</x:String>
+    <x:String x:Key="Login_Totp_CodePlaceholder">000000</x:String>
+    <x:String x:Key="Login_Totp_Verify">Подтвердить и войти</x:String>
+    <x:String x:Key="Login_Totp_Back">Назад ко входу</x:String>
+    <x:String x:Key="Login_Totp_Status_EnterCode">Требуется двухфакторная аутентификация.</x:String>
+    <x:String x:Key="Login_Totp_Status_Verifying">Проверка кода…</x:String>
+    <x:String x:Key="Login_Totp_Error_CodeRequired">Введите корректный 6-значный код.</x:String>
+    <x:String x:Key="Login_Totp_ChallengeExpired">Сессия подтверждения истекла. Войдите через Google снова.</x:String>
     <x:String x:Key="Login_Status_NotSignedIn">Вы не вошли в аккаунт.</x:String>
     <x:String x:Key="Login_Status_OpeningBrowser">Открытие браузера…</x:String>
     <x:String x:Key="Login_Status_SignedInFmt">Вошли как {0}.</x:String>

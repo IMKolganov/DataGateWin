@@ -35,7 +35,7 @@ Or use `DataGateWin.UI\Build-Release.ps1` (post-cutover: publishes WinUI, stages
 | `Assets\IpLists\*.txt` | Fallback CIDR lists |
 | `Localization\Strings.*.xaml` | UI strings (copied to output) |
 | `engine\engine.exe` | Native VPN engine |
-| `engine\wintun.dll`, OpenSSL/lz4/jsoncpp | Engine runtime |
+| `engine\wintun.dll`, `libXray.dll`, OpenSSL/lz4/jsoncpp | Engine runtime |
 | `Installer\DataGateWin.Installer.exe` | Bundled updater/installer (in release ZIP) |
 
 ## Packaging notes

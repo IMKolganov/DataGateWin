@@ -18,6 +18,14 @@ public sealed class WinUiPublishLayoutContractTests
         Assert.Contains("Images", script, StringComparison.Ordinal);
         Assert.Contains("Remove-Item -Recurse -Force $EngineOut", script, StringComparison.Ordinal);
         Assert.Contains("DataGateWin.Installer.exe", script, StringComparison.Ordinal);
+        Assert.Contains("libXray.dll", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PublishLayoutDoc_ListsLibXrayRuntime()
+    {
+        var doc = File.ReadAllText(FindRepoFile(Path.Combine("docs", "WINUI3_PUBLISH_LAYOUT.md")));
+        Assert.Contains("libXray.dll", doc, StringComparison.Ordinal);
     }
 
     [Fact]

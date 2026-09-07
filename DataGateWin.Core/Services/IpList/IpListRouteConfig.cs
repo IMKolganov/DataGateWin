@@ -9,9 +9,13 @@ public static class IpListRouteConfig
 {
     public const int MaxRoutes = 12_000;
     public const int MaxAndroidExcludedRoutes = 3_000;
-    public const int DefaultAndroid12OvpnRouteLimit = 800;
+    /// <summary>
+    /// Default OVPN-injected bypass routes on Windows. Higher values (800–3000) cause
+    /// multi-second IPHelper storms and UI freezes; keep this low for weak PCs / RDP.
+    /// </summary>
+    public const int DefaultAndroid12OvpnRouteLimit = 200;
     public const int MinAndroid12OvpnRouteLimit = 50;
-    public const int MaxAndroid12OvpnRouteLimit = 3_000;
+    public const int MaxAndroid12OvpnRouteLimit = 400;
     public const int MaxOpenVpnProfileBytes = 240 * 1024;
 
     public static int SanitizeAndroid12OvpnRouteLimit(int value) =>

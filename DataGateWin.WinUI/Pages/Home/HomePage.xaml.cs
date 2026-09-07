@@ -20,6 +20,9 @@ public sealed partial class HomePage : Page
     private bool _suppressServerListFetch;
     private bool _languageHookAttached;
     private readonly List<string> _logLines = new();
+    private readonly object _logUiLock = new();
+    private bool _logFlushScheduled;
+    private bool _logDirty;
 
     public HomePage(HomeController controller)
     {
@@ -59,7 +62,8 @@ public sealed partial class HomePage : Page
         _controller.AttachUi(
             statusTextSetter: s => DispatchUi(() => StatusText.Text = s),
             uiStateApplier: (state, status, network) => DispatchUi(() => ApplyUiState(state, status, network)),
-            logAppender: line => DispatchUi(() => AppendLog(line)));
+            // AppendLog is thread-safe; do not DispatchUi per line (route floods enqueue thousands of UI jobs).
+            logAppender: AppendLog);
 
         _suppressServerListFetch = true;
         try
@@ -132,11 +136,30 @@ public sealed partial class HomePage : Page
         }
 
         SaveVpnHomeSettingsFromUi();
-        await _controller.ConnectAsync(autoPick, manualId);
+        ConnectButton.IsEnabled = false;
+        try
+        {
+            // Keep click-handler off the heavy path; controller uses ConfigureAwait(false).
+            await _controller.ConnectAsync(autoPick, manualId).ConfigureAwait(true);
+        }
+        finally
+        {
+            _controller.ReapplyUiToLastState();
+        }
     }
 
     private async void DisconnectButton_OnClick(object sender, RoutedEventArgs e)
-        => await _controller.DisconnectAsync();
+    {
+        DisconnectButton.IsEnabled = false;
+        try
+        {
+            await _controller.DisconnectAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _controller.ReapplyUiToLastState();
+        }
+    }
 
     private async void ServerModeCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -240,11 +263,49 @@ public sealed partial class HomePage : Page
 
         var ts = DateTime.Now.ToString("HH:mm:ss");
         var chunk = $"[{ts}] {line}";
-        var dropped = CrashReporting.InMemoryLogBudget.AppendLine(_logLines, chunk);
-        if (dropped)
-            LogTextBox.Text = CrashReporting.InMemoryLogBudget.JoinLinesForTextBox(_logLines);
+
+        lock (_logUiLock)
+        {
+            CrashReporting.InMemoryLogBudget.AppendLine(_logLines, chunk);
+            _logDirty = true;
+            if (_logFlushScheduled)
+                return;
+            _logFlushScheduled = true;
+        }
+
+        ScheduleLogFlush();
+    }
+
+    private void ScheduleLogFlush()
+    {
+        // Coalesce floods — rebuilding TextBox.Text per line freezes WinUI ("Not Responding").
+        void StartTimer()
+        {
+            var flushTimer = DispatcherQueue.CreateTimer();
+            flushTimer.Interval = TimeSpan.FromMilliseconds(400);
+            flushTimer.IsRepeating = false;
+            flushTimer.Tick += (_, _) =>
+            {
+                flushTimer.Stop();
+                string text;
+                lock (_logUiLock)
+                {
+                    _logFlushScheduled = false;
+                    if (!_logDirty)
+                        return;
+                    _logDirty = false;
+                    text = CrashReporting.InMemoryLogBudget.JoinLinesForTextBox(_logLines);
+                }
+
+                LogTextBox.Text = text;
+            };
+            flushTimer.Start();
+        }
+
+        if (DispatcherQueue.HasThreadAccess)
+            StartTimer();
         else
-            LogTextBox.Text += chunk + Environment.NewLine;
+            DispatcherQueue.TryEnqueue(StartTimer);
     }
 
     private void DispatchUi(Action action)

@@ -13,7 +13,7 @@ public sealed class VpnConnectionSessionInfoFactoryTests
         var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
 
         Assert.Equal(7, info.ServerId);
-        Assert.Equal("NL-1", info.ServerName);
+        Assert.Equal("🇳🇱 1", info.ServerName);
         Assert.Equal("5.22.212.200", info.ExternalIp);
         Assert.True(info.HasIdentity);
     }
@@ -38,6 +38,14 @@ public sealed class VpnConnectionSessionInfoFactoryTests
     public void FromStatusRow_KeepsExistingLeadingFlagEmoji()
     {
         var row = BuildRow(serverId: 4, serverName: "🇫🇮 Helsinki 3", remoteIp: "1.2.3.4");
+        var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Assert.Equal("🇫🇮 Helsinki 3", info.ServerName);
+    }
+
+    [Fact]
+    public void FromStatusRow_PrefixesCityNameWithFlagEmoji()
+    {
+        var row = BuildRow(serverId: 5, serverName: "Helsinki 3", remoteIp: "1.2.3.4");
         var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
         Assert.Equal("🇫🇮 Helsinki 3", info.ServerName);
     }

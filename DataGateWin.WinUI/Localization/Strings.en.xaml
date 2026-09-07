@@ -178,7 +178,7 @@
     <x:String x:Key="IpList_CoverageFast">Fast (fewer routes)</x:String>
     <x:String x:Key="IpList_CoverageFull">Full (follow list order)</x:String>
     <x:String x:Key="IpList_RouteLimitLabel">Max routes in profile (IPv4-first)</x:String>
-    <x:String x:Key="IpList_RouteLimitHint">Between 50 and 3000. Smaller values keep the profile smaller.</x:String>
+    <x:String x:Key="IpList_RouteLimitHint">Between 50 and 400. Prefer ≤200 on weak PCs — each route is applied via Windows IP Helper and can freeze the UI.</x:String>
     <x:String x:Key="IpList_RouteLimitErrorFmt">Enter a route limit between {0} and {1}.</x:String>
     <x:String x:Key="IpList_Save">Save</x:String>
     <x:String x:Key="IpList_UpdateNow">Update now</x:String>
@@ -240,6 +240,16 @@
     <x:String x:Key="Login_Status_SignedInFmt">Signed in as {0}.</x:String>
     <x:String x:Key="Login_Status_Cancelled">Sign-in cancelled.</x:String>
     <x:String x:Key="Login_Status_FailedFmt">Sign-in failed: {0}</x:String>
+    <x:String x:Key="Login_Totp_Title">Authenticator code</x:String>
+    <x:String x:Key="Login_Totp_Lead">Enter the 6-digit code from your authenticator app to finish signing in.</x:String>
+    <x:String x:Key="Login_Totp_LeadNamedFmt">Hi {0}. Enter the 6-digit code from your authenticator app.</x:String>
+    <x:String x:Key="Login_Totp_CodePlaceholder">000000</x:String>
+    <x:String x:Key="Login_Totp_Verify">Verify and sign in</x:String>
+    <x:String x:Key="Login_Totp_Back">Back to sign in</x:String>
+    <x:String x:Key="Login_Totp_Status_EnterCode">Two-factor authentication required.</x:String>
+    <x:String x:Key="Login_Totp_Status_Verifying">Verifying authenticator code…</x:String>
+    <x:String x:Key="Login_Totp_Error_CodeRequired">Enter a valid 6-digit authenticator code.</x:String>
+    <x:String x:Key="Login_Totp_ChallengeExpired">This sign-in challenge expired. Sign in with Google again.</x:String>
 
     <x:String x:Key="FirstRun_Title">Connection setup</x:String>
     <x:String x:Key="FirstRun_Subtitle">Enter your DataGate API URL and Google OAuth client ID. Values are saved to appsettings.json next to the application.</x:String>

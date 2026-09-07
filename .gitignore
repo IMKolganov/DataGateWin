@@ -17,6 +17,10 @@
 *.dll
 # Shipped third-party runtime (Wintun amd64 from wintun.net; see drivers/wintun/README.md)
 !drivers/wintun/wintun.dll
+# libXray Windows runtime (see docs/BUILD_LIBXRAY_WINDOWS.md)
+!engine/third_party/libxray/libXray.dll
+engine/third_party/libxray/_extract/
+engine/third_party/libxray/*.zip
 
 # Fortran module files
 *.mod

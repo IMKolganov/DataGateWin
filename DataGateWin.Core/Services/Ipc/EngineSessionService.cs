@@ -20,6 +20,7 @@ public sealed class EngineSessionService(
 {
     private EngineIpcClient? _client;
     private bool _handlersAttached;
+    private readonly EngineLogNoiseFilter _logNoise = new();
 
     private const string SessionId = "dev";
 
@@ -218,12 +219,13 @@ public sealed class EngineSessionService(
     }
 
 
-    public async Task StopSessionSafeAsync(CancellationToken ct)
+    /// <returns>True when StopSession replied OK (or there was no client).</returns>
+    public async Task<bool> StopSessionSafeAsync(CancellationToken ct)
     {
         if (_client == null)
         {
             log("[ui][disconnect] StopSession skipped: client is null");
-            return;
+            return true;
         }
 
         log($"[ui][disconnect] StopSession START isConnected={_client.IsConnected}");
@@ -242,22 +244,29 @@ public sealed class EngineSessionService(
             log($"[ui][disconnect] StopSession reply received in {ms:0}ms ok={reply.Ok} code={reply.Code ?? "<null>"} message={reply.Message ?? "<null>"}");
 
             if (!reply.Ok)
+            {
                 log($"[ui][disconnect] StopSession FAILED code={reply.Code ?? "?"} message={reply.Message ?? "?"}");
-            else
-                log("[ui][disconnect] StopSession OK");
+                return false;
+            }
+
+            log("[ui][disconnect] StopSession OK");
+            return true;
         }
         catch (OperationCanceledException oce) when (ct.IsCancellationRequested)
         {
             log($"[ui][disconnect] StopSession CANCELED by outer token: {oce.Message}");
+            return false;
         }
         catch (OperationCanceledException oce)
         {
             log($"[ui][disconnect] StopSession TIMEOUT/CANCELED by internal token: {oce.Message}");
+            return false;
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "EngineSessionService.StopSession");
             log($"[ui][disconnect] StopSession ERROR: {ex}");
+            return false;
         }
         finally
         {
@@ -360,17 +369,13 @@ public sealed class EngineSessionService(
 
         _handlersAttached = true;
 
-        _client.EngineLogReceived += (_, line) =>
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                return;
-            log(line);
-            if (IsDllLoadFailureLine(line))
-                log(Loc.T("Home_Log_DllMissingHint"));
-        };
+        // Engine writes every log to stderr AND as an IPC Log event. Only forward stderr here
+        // so the UI is not hit twice per line (route floods ×2 freeze weak machines).
+        _client.EngineLogReceived += (_, line) => ForwardEngineLog(line);
 
         _client.EngineExited += (_, code) =>
         {
+            FlushNoiseSummary();
             log($"Engine exited with code: {code}");
             if (code != 0)
             {
@@ -395,13 +400,9 @@ public sealed class EngineSessionService(
                 if (mapped == null)
                     return;
 
-                if (mapped.Kind == EngineEventKind.Log && !string.IsNullOrWhiteSpace(mapped.Message))
-                {
-                    var m = mapped.Message!;
-                    log(m);
-                    if (IsDllLoadFailureLine(m))
-                        log(Loc.T("Home_Log_DllMissingHint"));
-                }
+                // Log lines already arrive via EngineLogReceived (stderr). Skip re-logging.
+                if (mapped.Kind == EngineEventKind.Log)
+                    return;
 
                 onEngineEvent(mapped);
             }
@@ -411,6 +412,30 @@ public sealed class EngineSessionService(
                 log($"Event handler error: {ex}");
             }
         };
+    }
+
+    private void ForwardEngineLog(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return;
+
+        var filtered = _logNoise.Filter(line);
+        if (filtered == null)
+            return;
+
+        foreach (var part in filtered.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            log(part);
+            if (IsDllLoadFailureLine(part))
+                log(Loc.T("Home_Log_DllMissingHint"));
+        }
+    }
+
+    private void FlushNoiseSummary()
+    {
+        var summary = _logNoise.Flush();
+        if (!string.IsNullOrWhiteSpace(summary))
+            log(summary);
     }
 
     /// <summary>Detects engine log lines like LoadLibraryExW(wintun.dll) failed: 126 …</summary>

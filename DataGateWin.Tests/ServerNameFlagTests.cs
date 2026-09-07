@@ -21,12 +21,29 @@ public sealed class ServerNameFlagTests
     }
 
     [Theory]
-    [InlineData("Helsinki 3")]
-    [InlineData("NL-1")]
+    [InlineData("Helsinki 3", "🇫🇮", "Helsinki 3")]
+    [InlineData("Helsinki", "🇫🇮", "Helsinki")]
+    [InlineData("helsinki", "🇫🇮", "helsinki")]
+    [InlineData("Norway", "🇳🇴", "Norway")]
+    [InlineData("cyprus", "🇨🇾", "cyprus")]
+    [InlineData("norway-xray", "🇳🇴", "norway-xray")]
+    [InlineData("NL-1", "🇳🇱", "1")]
+    [InlineData("de-1", "🇩🇪", "1")]
+    [InlineData("ru-1", "🇷🇺", "1")]
+    public void TrySplit_InfersFlagFromPlaceOrIsoId(string input, string flag, string rest)
+    {
+        Assert.True(ServerNameFlag.TrySplit(input, out var gotFlag, out var gotRest));
+        Assert.Equal(flag, gotFlag);
+        Assert.Equal(rest, gotRest);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData(null)]
-    [InlineData("fi helsinki")] // lowercase ISO ignored
-    public void TrySplit_HandlesMissingOrPlainNames(string? input)
+    [InlineData("s1-7")]
+    [InlineData("xray-1")]
+    [InlineData("ambiguous")]
+    public void TrySplit_HandlesMissingOrUnknownNames(string? input)
     {
         var ok = ServerNameFlag.TrySplit(input, out var gotFlag, out var gotRest);
         Assert.False(ok);
@@ -43,8 +60,10 @@ public sealed class ServerNameFlagTests
     }
 
     [Fact]
-    public void WithFlagPrefix_AddsEmojiForIsoNames()
+    public void WithFlagPrefix_AddsEmojiForRealApiNames()
     {
+        Assert.Equal("🇫🇮 Helsinki 3", ServerNameFlag.WithFlagPrefix("Helsinki 3"));
+        Assert.Equal("🇳🇱 1", ServerNameFlag.WithFlagPrefix("NL-1"));
         Assert.Equal("🇫🇮 Helsinki 3 tcp", ServerNameFlag.WithFlagPrefix("FI Helsinki 3 tcp"));
         Assert.Equal("🇫🇮 Helsinki 3", ServerNameFlag.WithFlagPrefix("🇫🇮 Helsinki 3"));
     }

@@ -71,6 +71,7 @@ internal static class ServerNameUi
                 FontSize = FlagFontSize,
                 FontFamily = EmojiFont,
             });
+            target.IsColorFontEnabled = true;
             if (!string.IsNullOrEmpty(rest))
                 target.Inlines.Add(new Run { Text = rest });
             return;
@@ -83,6 +84,7 @@ internal static class ServerNameUi
     public static void SetTextEnlargingFlags(TextBlock target, string text)
     {
         target.Inlines.Clear();
+        target.IsColorFontEnabled = true;
         if (string.IsNullOrEmpty(text))
             return;
 
@@ -114,5 +116,6 @@ internal static class ServerNameUi
             FontFamily = EmojiFont,
             VerticalAlignment = VerticalAlignment.Center,
             IsTextSelectionEnabled = false,
+            IsColorFontEnabled = true,
         };
 }

@@ -31,8 +31,11 @@ public static class IpListStore
                 return new IpListStateDocument();
 
             var json = File.ReadAllText(StatePath);
-            var doc = JsonSerializer.Deserialize<IpListStateDocument>(json, JsonOptions);
-            return doc ?? new IpListStateDocument();
+            var doc = JsonSerializer.Deserialize<IpListStateDocument>(json, JsonOptions)
+                      ?? new IpListStateDocument();
+            doc.Settings.OvpnRouteLimit =
+                IpListRouteConfig.SanitizeAndroid12OvpnRouteLimit(doc.Settings.OvpnRouteLimit);
+            return doc;
         }
         catch (Exception ex)
         {

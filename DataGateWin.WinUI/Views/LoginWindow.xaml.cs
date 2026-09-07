@@ -7,7 +7,6 @@ using DataGateWin.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-
 namespace DataGateWin.Views;
 
 public sealed partial class LoginWindow : Window
@@ -19,7 +18,7 @@ public sealed partial class LoginWindow : Window
     public LoginWindow(AuthStateStore authState)
     {
         InitializeComponent();
-        WindowChrome.ApplyDefault(this, width: 520, height: 560);
+        WindowChrome.ApplyDefault(this, width: 520, height: 620);
         _authState = authState ?? throw new ArgumentNullException(nameof(authState));
 
         var googleSettings = App.AppConfiguration.GetSection("GoogleAuth").Get<GoogleAuthSettings>()
@@ -27,10 +26,16 @@ public sealed partial class LoginWindow : Window
         var apiSettings = App.AppConfiguration.GetSection("Api").Get<ApiSettings>()
             ?? throw new InvalidOperationException("Api settings are missing.");
 
-        _vm = new LoginViewModel(App.GoogleAuth, App.Session, googleSettings, apiSettings);
+        _vm = new LoginViewModel(App.GoogleAuth, App.AuthApi, App.Session, googleSettings, apiSettings);
         _vm.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(LoginViewModel.StatusText) or nameof(LoginViewModel.IsBusy) or nameof(LoginViewModel.IsNotBusy))
+            if (e.PropertyName is nameof(LoginViewModel.StatusText)
+                or nameof(LoginViewModel.IsBusy)
+                or nameof(LoginViewModel.IsNotBusy)
+                or nameof(LoginViewModel.IsTotpChallengeVisible)
+                or nameof(LoginViewModel.IsGoogleSignInVisible)
+                or nameof(LoginViewModel.TotpLeadText)
+                or nameof(LoginViewModel.TotpCode))
                 ApplyVmToUi();
         };
         _vm.SignedIn += (_, accessToken) =>
@@ -52,8 +57,18 @@ public sealed partial class LoginWindow : Window
         StatusText.Text = _vm.StatusText;
         BusyRing.IsActive = _vm.IsBusy;
         BusyRing.Visibility = _vm.IsBusy ? Visibility.Visible : Visibility.Collapsed;
-        CancelButton.Visibility = _vm.IsBusy ? Visibility.Visible : Visibility.Collapsed;
-        SignInButton.IsEnabled = _vm.IsNotBusy;
+        CancelButton.Visibility = _vm.IsBusy && _vm.IsGoogleSignInVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SignInButton.IsEnabled = _vm.SignInCommand.CanExecute(null);
+        GoogleSignInPanel.Visibility = _vm.IsGoogleSignInVisible ? Visibility.Visible : Visibility.Collapsed;
+        TotpPanel.Visibility = _vm.IsTotpChallengeVisible ? Visibility.Visible : Visibility.Collapsed;
+        TotpLead.Text = _vm.TotpLeadText;
+        if (TotpCodeBox.Text != _vm.TotpCode)
+            TotpCodeBox.Text = _vm.TotpCode;
+        TotpVerifyButton.IsEnabled = _vm.VerifyTotpCommand.CanExecute(null);
+        TotpBackButton.IsEnabled = _vm.BackFromTotpCommand.CanExecute(null);
+        TotpCodeBox.IsEnabled = _vm.IsNotBusy;
     }
 
     private void ApplyLocalizedChrome()
@@ -64,6 +79,10 @@ public sealed partial class LoginWindow : Window
         WelcomeSubtitle.Text = Loc.T("Login_SignInToContinue");
         SignInButton.Content = Loc.T("Login_SignInGoogle");
         CancelButton.Content = Loc.T("Login_Cancel");
+        TotpTitle.Text = Loc.T("Login_Totp_Title");
+        TotpVerifyButton.Content = Loc.T("Login_Totp_Verify");
+        TotpBackButton.Content = Loc.T("Login_Totp_Back");
+        TotpCodeBox.PlaceholderText = Loc.T("Login_Totp_CodePlaceholder");
         TelegramButton.Content = Loc.T("Telegram_SubscribeHint");
         FooterHint.Text = Loc.T("Login_FooterHint");
         ReportIssueButton.Content = Loc.T("Home_ReportIssue");
@@ -76,6 +95,8 @@ public sealed partial class LoginWindow : Window
         {
             ApplyLocalizedChrome();
             PopulateLoginLanguageCombo();
+            if (_vm.IsTotpChallengeVisible)
+                ApplyVmToUi();
         });
     }
 
@@ -131,6 +152,23 @@ public sealed partial class LoginWindow : Window
     {
         if (_vm.CancelCommand.CanExecute(null))
             _vm.CancelCommand.Execute(null);
+    }
+
+    private void TotpCodeBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        _vm.TotpCode = TotpCodeBox.Text ?? "";
+    }
+
+    private async void TotpVerify_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_vm.VerifyTotpCommand.CanExecute(null))
+            await _vm.VerifyTotpCommand.ExecuteAsync(null);
+    }
+
+    private void TotpBack_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_vm.BackFromTotpCommand.CanExecute(null))
+            _vm.BackFromTotpCommand.Execute(null);
     }
 
     private async void ReportIssue_OnClick(object sender, RoutedEventArgs e)
