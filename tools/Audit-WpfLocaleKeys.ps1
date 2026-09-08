@@ -1,6 +1,9 @@
-# Compare Strings.*.xaml key sets to Strings.en.xaml
+/// Compare Strings.*.xaml key sets. Defaults to WinUI overlays (current app).
+param(
+    [string]$Root = "$PSScriptRoot\..\DataGateWin.WinUI"
+)
 $ErrorActionPreference = 'Stop'
-$loc = Join-Path $PSScriptRoot '..\DataGateWin.UI\Localization'
+$loc = Join-Path $Root 'Localization'
 $enPath = Join-Path $loc 'Strings.en.xaml'
 $enRaw = Get-Content $enPath -Raw -Encoding UTF8
 $enKeys = [regex]::Matches($enRaw, 'x:Key="([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique

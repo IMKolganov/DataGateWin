@@ -71,6 +71,10 @@ add_executable(engine
         src/session/VpnSessionRunner.h
         src/session/OvpnTextUtils.cpp
         src/session/OvpnTextUtils.h
+        src/xray/XrayRuntime.cpp
+        src/xray/XrayRuntime.h
+        src/xray/XrayConfigBuilder.cpp
+        src/xray/XrayConfigBuilder.h
         src/bridge/client/WssBridgeCommon.cpp
         src/bridge/client/WssBridgeCommon.h
         src/bridge/client/TcpWssBridge.cpp
@@ -145,7 +149,7 @@ endif()
 
 target_compile_definitions(ovpn3-core PUBLIC
         _WIN32_WINNT=0x0A00
-        OPENVPN_VERSION=\"3.11.7_datagate_windows_1.0.13\"
+        OPENVPN_VERSION=\"3.11.7_datagate_windows_1.0.14\"
         USE_ASIO
         USE_OPENSSL
         HAVE_LZ4
@@ -206,6 +210,21 @@ target_link_libraries(engine PRIVATE
         Ws2_32
         Boost::boost
 )
+
+# libXray Windows DLL (LoadLibrary at runtime). Fetch via scripts/libxray/fetch-windows.ps1.
+set(LIBXRAY_DIR "${CMAKE_CURRENT_LIST_DIR}/third_party/libxray")
+set(LIBXRAY_DLL "${LIBXRAY_DIR}/libXray.dll")
+if (EXISTS "${LIBXRAY_DLL}")
+    add_custom_command(TARGET engine POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${LIBXRAY_DLL}"
+            "$<TARGET_FILE_DIR:engine>/libXray.dll"
+            COMMENT "Copy libXray.dll next to engine.exe"
+    )
+    message(STATUS "libXray.dll found — will copy next to engine.exe")
+else()
+    message(WARNING "libXray.dll missing at ${LIBXRAY_DLL}. Run: pwsh -File scripts/libxray/fetch-windows.ps1")
+endif()
 
 if (MSVC)
     foreach(_src IN LISTS OPENVPN3_CORE_SOURCES)

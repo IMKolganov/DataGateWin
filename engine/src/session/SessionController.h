@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace datagate::session
 {
@@ -29,11 +30,25 @@ namespace datagate::session
 
     struct StartOptions
     {
+        /// "openvpn" (default) or "xray"
+        std::string protocol = "openvpn";
+
         std::string ovpnContentUtf8;
         std::string guiVersion;
         BridgeOptions bridge;
 
-        bool forceWssBridge = true;
+        // When false, OpenVPN talks to remotes in the .ovpn as-is (imported profiles).
+        // Default true: DataGate catalog path via local WSS bridge.
+        bool useWssBridge = true;
+
+        /// Share-link / subscription text (Xray). Used when xrayConfigJson is empty.
+        std::string xrayShareLinks;
+        /// Prebuilt outbounds JSON or full config fragment (Xray).
+        std::string xrayConfigJson;
+        /// Extra CIDRs routed direct (e.g. active RDP peers) before catch-all proxy.
+        std::vector<std::string> directBypassCidrs;
+        /// Explicit TUN DNS from IPC (issued/import profile); merged with JSON dnsServers.
+        std::vector<std::string> dnsServers;
     };
 
     struct ConnectedInfo
@@ -70,6 +85,8 @@ namespace datagate::session
 
     private:
         void RefreshCallbacksToStore();
+        bool StartOpenVpn(const StartOptions& opt, std::string& outError);
+        bool StartXray(const StartOptions& opt, std::string& outError);
 
     private:
         class Impl;

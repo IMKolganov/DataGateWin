@@ -1,5 +1,8 @@
 # Generates DataGateWin.UI Localization/Strings.{code}.xaml from Android values-*/strings.xml
 # Master keys/English from Strings.en.xaml; Android snake_case keys mapped from WPF Pascal_Snake keys.
+#
+# For WinUI (current app) use Generate-WinUiLocalesFromAndroid.ps1 instead — it emits x:String
+# overlays, converts Android %1$s placeholders, and keeps the hand-translated Russian file.
 
 param(
     [string]$AndroidResRoot = "F:\Android\DataGateAndroid\app\src\main\res",

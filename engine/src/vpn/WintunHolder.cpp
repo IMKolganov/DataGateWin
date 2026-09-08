@@ -110,6 +110,33 @@ namespace datagate::wintun
         return true;
     }
 
+    bool WintunHolder::TryDeleteAdapterByName(const std::wstring& adapterName, std::string& outError)
+    {
+        if (!Load(outError))
+            return false;
+        if (!_open || !_close)
+        {
+            outError = "wintun Open/Close exports missing";
+            return false;
+        }
+
+        // Drop our own handle first if it points at the same name.
+        if (_adapter && _adapterName == adapterName)
+        {
+            _close(_adapter);
+            _adapter = nullptr;
+        }
+
+        auto* existing = _open(adapterName.c_str());
+        if (!existing)
+            return true; // nothing to delete
+
+        if (_delete)
+            _delete(existing, TRUE);
+        _close(existing);
+        return true;
+    }
+
     std::optional<uint32_t> WintunHolder::GetIfIndex() const
     {
         if (!_adapter || !_getLuid)
