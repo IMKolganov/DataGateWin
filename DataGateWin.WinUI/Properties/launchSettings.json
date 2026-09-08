@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "DataGateWin (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "DataGateWin (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

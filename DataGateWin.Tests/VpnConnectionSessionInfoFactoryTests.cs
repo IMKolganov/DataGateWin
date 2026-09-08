@@ -13,7 +13,7 @@ public sealed class VpnConnectionSessionInfoFactoryTests
         var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
 
         Assert.Equal(7, info.ServerId);
-        Assert.Equal("NL-1", info.ServerName);
+        Assert.Equal("🇳🇱 1", info.ServerName);
         Assert.Equal("5.22.212.200", info.ExternalIp);
         Assert.True(info.HasIdentity);
     }
@@ -24,6 +24,30 @@ public sealed class VpnConnectionSessionInfoFactoryTests
         var row = BuildRow(serverId: 1, serverName: "X", remoteIp: "-");
         var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
         Assert.Null(info.ExternalIp);
+    }
+
+    [Fact]
+    public void FromStatusRow_PrefixesIsoCountryCodeWithFlagEmoji()
+    {
+        var row = BuildRow(serverId: 3, serverName: "FI Helsinki 3 tcp", remoteIp: "1.2.3.4");
+        var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Assert.Equal("🇫🇮 Helsinki 3 tcp", info.ServerName);
+    }
+
+    [Fact]
+    public void FromStatusRow_KeepsExistingLeadingFlagEmoji()
+    {
+        var row = BuildRow(serverId: 4, serverName: "🇫🇮 Helsinki 3", remoteIp: "1.2.3.4");
+        var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Assert.Equal("🇫🇮 Helsinki 3", info.ServerName);
+    }
+
+    [Fact]
+    public void FromStatusRow_PrefixesCityNameWithFlagEmoji()
+    {
+        var row = BuildRow(serverId: 5, serverName: "Helsinki 3", remoteIp: "1.2.3.4");
+        var info = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Assert.Equal("🇫🇮 Helsinki 3", info.ServerName);
     }
 
     private static VpnServerWithStatusV2Dto BuildRow(int serverId, string serverName, string? remoteIp)

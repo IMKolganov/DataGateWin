@@ -1,0 +1,160 @@
+<Window
+    x:Class="DataGateWin.Views.LoginWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="DataGate">
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid Padding="28" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Image
+                Width="28"
+                Height="28"
+                Source="ms-appx:///Images/favicon.png"
+                Stretch="Uniform"
+                VerticalAlignment="Center" />
+            <ComboBox
+                x:Name="LoginLanguageCombo"
+                Grid.Column="1"
+                MinWidth="180"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectionChanged="LoginLanguageCombo_OnSelectionChanged" />
+            <Button
+                x:Name="ReportIssueButton"
+                Grid.Column="2"
+                Click="ReportIssue_OnClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8BD;" FontSize="14" />
+                    <TextBlock x:Name="ReportIssueButtonText" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Border
+            Grid.Row="1"
+            Padding="28"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="8">
+            <StackPanel Spacing="14">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <FontIcon Glyph="&#xE716;" FontSize="20" VerticalAlignment="Center" />
+                    <TextBlock
+                        x:Name="WelcomeTitle"
+                        FontSize="22"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                        Text="Welcome" />
+                </StackPanel>
+                <TextBlock x:Name="WelcomeSubtitle" Opacity="0.75" Text="Sign in" />
+
+                <StackPanel x:Name="GoogleSignInPanel" Spacing="14">
+                    <Button
+                        x:Name="SignInButton"
+                        Height="46"
+                        HorizontalAlignment="Stretch"
+                        Click="SignIn_OnClick"
+                        Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE716;" FontSize="16" />
+                            <TextBlock x:Name="SignInButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        x:Name="CancelButton"
+                        Height="42"
+                        HorizontalAlignment="Stretch"
+                        Click="Cancel_OnClick"
+                        Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE711;" FontSize="14" />
+                            <TextBlock x:Name="CancelButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel x:Name="TotpPanel" Spacing="12" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE72E;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock
+                            x:Name="TotpTitle"
+                            FontSize="18"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock
+                        x:Name="TotpLead"
+                        Opacity="0.8"
+                        TextWrapping="Wrap" />
+                    <TextBox
+                        x:Name="TotpCodeBox"
+                        MaxLength="8"
+                        PlaceholderText="000000"
+                        TextChanged="TotpCodeBox_OnTextChanged" />
+                    <Button
+                        x:Name="TotpVerifyButton"
+                        Height="46"
+                        HorizontalAlignment="Stretch"
+                        Click="TotpVerify_OnClick"
+                        Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE73E;" FontSize="14" />
+                            <TextBlock x:Name="TotpVerifyButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        x:Name="TotpBackButton"
+                        Height="42"
+                        HorizontalAlignment="Stretch"
+                        Click="TotpBack_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                            <TextBlock x:Name="TotpBackButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <ProgressRing
+                        x:Name="BusyRing"
+                        Width="18"
+                        Height="18"
+                        IsActive="False"
+                        Visibility="Collapsed" />
+                    <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="3" Spacing="8">
+            <Button
+                x:Name="TelegramButton"
+                HorizontalAlignment="Left"
+                Click="TelegramChannel_OnClick">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE715;" FontSize="14" />
+                    <TextBlock x:Name="TelegramButtonText" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </StackPanel>
+            </Button>
+            <TextBlock
+                x:Name="FooterHint"
+                Opacity="0.55"
+                TextAlignment="Center"
+                TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -67,15 +67,18 @@ public sealed class HomeSessionUiPolicyTests
 public sealed class WssServerSelectorEligibleTests
 {
     [Fact]
-    public void FilterEligible_RequiresQuotaAccess_AndOpenVpnWss()
+    public void FilterEligible_RequiresQuotaAccess_AndWindowsSupported()
     {
         var ok = MakeRow(1, "A", VpnServerType.OpenVpn, wss: true, accessible: true);
         var noQuota = MakeRow(2, "B", VpnServerType.OpenVpn, wss: true, accessible: false);
         var xray = MakeRow(3, "C", VpnServerType.Xray, wss: true, accessible: true);
+        var openVpnNoWss = MakeRow(4, "D", VpnServerType.OpenVpn, wss: false, accessible: true);
 
-        var eligible = WssServerSelector.FilterEligible([ok, noQuota, xray]);
-        Assert.Single(eligible);
-        Assert.Equal(1, eligible[0].VpnServerResponses!.VpnServer.Id);
+        var eligible = WssServerSelector.FilterEligible([ok, noQuota, xray, openVpnNoWss]);
+        Assert.Equal(3, eligible.Count);
+        Assert.Contains(eligible, r => r.VpnServerResponses!.VpnServer.Id == 1);
+        Assert.Contains(eligible, r => r.VpnServerResponses!.VpnServer.Id == 3);
+        Assert.Contains(eligible, r => r.VpnServerResponses!.VpnServer.Id == 4);
     }
 
     private static DataGateMonitor.SharedModels.DataGateMonitor.VpnServers.Dto.VpnServerWithStatusV2Dto MakeRow(

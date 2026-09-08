@@ -200,12 +200,20 @@ namespace datagate::session
         return r;
     }
 
+    OvpnBuildResult OvpnConfigProcessor::BuildDirect(const std::string& ovpnContentUtf8)
+    {
+        OvpnBuildResult r{};
+        r.config = PrependWindowsDriverWintun(ovpnContentUtf8);
+        r.diag = BuildDiagnostics(r.config);
+        return r;
+    }
+
     bool OvpnConfigProcessor::ValidateSingleRemote(const std::string& ovpn, std::string& outError)
     {
         const int n = CountRemoteLines(ovpn);
         if (n != 1)
         {
-            outError = "WSS mode requires exactly one remote (127.0.0.1).";
+            outError = "OpenVPN config must contain exactly one remote line.";
             return false;
         }
         return true;

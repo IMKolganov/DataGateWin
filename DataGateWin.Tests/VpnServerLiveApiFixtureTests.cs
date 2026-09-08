@@ -44,12 +44,9 @@ public sealed class VpnServerLiveApiFixtureTests
         Assert.Equal(5, deduped.Count);
 
         var wss = WssServerSelector.FilterWssEnabled(deduped);
-        Assert.Equal(3, wss.Count);
-        Assert.All(wss, x => Assert.Equal(
-            DataGateMonitor.SharedModels.Enums.VpnServerType.OpenVpn,
-            x.VpnServerResponses!.VpnServer.ServerType));
-        Assert.DoesNotContain(wss, x => x.VpnServerResponses!.VpnServer.Id == 76); // Norway xray
-        Assert.Equal(3, wss.Select(x => x.VpnServerResponses!.VpnServer.Id).Distinct().Count());
+        Assert.Equal(5, wss.Count);
+        Assert.Contains(wss, x => x.VpnServerResponses!.VpnServer.Id == 76); // Norway xray
+        Assert.Equal(5, wss.Select(x => x.VpnServerResponses!.VpnServer.Id).Distinct().Count());
     }
 
     [Fact]

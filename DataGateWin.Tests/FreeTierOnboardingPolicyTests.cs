@@ -85,6 +85,28 @@ public sealed class FreeTierOnboardingPolicyTests
     }
 
     [Fact]
+    public void ShouldSkipClientChecks_AdminOrPaidPlan()
+    {
+        Assert.True(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: true, knownPlanName: null));
+        Assert.True(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: true, knownPlanName: "Free"));
+        Assert.True(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: false, knownPlanName: "Pro"));
+        Assert.True(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: false, knownPlanName: "Unlimited"));
+        Assert.False(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: false, knownPlanName: null));
+        Assert.False(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: false, knownPlanName: "Free"));
+        Assert.False(FreeTierOnboardingPolicy.ShouldSkipClientChecks(isAdmin: false, knownPlanName: "Default"));
+    }
+
+    [Fact]
+    public void IsFreeOrDefaultPlan_Cases()
+    {
+        Assert.True(FreeTierOnboardingPolicy.IsFreeOrDefaultPlan("Free"));
+        Assert.True(FreeTierOnboardingPolicy.IsFreeOrDefaultPlan("default"));
+        Assert.False(FreeTierOnboardingPolicy.IsFreeOrDefaultPlan("Pro"));
+        Assert.False(FreeTierOnboardingPolicy.IsFreeOrDefaultPlan(null));
+        Assert.False(FreeTierOnboardingPolicy.IsFreeOrDefaultPlan(""));
+    }
+
+    [Fact]
     public void FormatCountdown_FormatsMinutesAndSeconds()
     {
         Assert.Equal("5:09", FreeTierOnboardingPolicy.FormatCountdown(309));
