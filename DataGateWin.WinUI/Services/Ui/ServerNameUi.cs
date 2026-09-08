@@ -17,6 +17,7 @@ internal static class ServerNameUi
     private const double FlagWidth = 22;
     private const double FlagHeight = 16.5;
     private static readonly Dictionary<string, BitmapImage?> FlagCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object FlagCacheLock = new();
 
     public static FrameworkElement CreateRow(string? serverName, double nameFontSize = 14, bool muted = false)
     {
@@ -134,20 +135,34 @@ internal static class ServerNameUi
         if (!ServerNameFlag.TryGetIso2(serverNameOrFlagEmoji, out var iso))
             return null;
 
-        if (FlagCache.TryGetValue(iso, out var cached))
-            return cached;
-
-        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", iso.ToLowerInvariant() + ".png");
-        if (!File.Exists(path))
+        lock (FlagCacheLock)
         {
-            FlagCache[iso] = null;
-            return null;
+            if (FlagCache.TryGetValue(iso, out var cached))
+                return cached;
         }
 
-        var bmp = new BitmapImage();
-        bmp.UriSource = new Uri(Path.GetFullPath(path), UriKind.Absolute);
-        bmp.DecodePixelWidth = 48;
-        FlagCache[iso] = bmp;
-        return bmp;
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", iso.ToLowerInvariant() + ".png");
+            if (!File.Exists(path))
+            {
+                lock (FlagCacheLock)
+                    FlagCache[iso] = null;
+                return null;
+            }
+
+            var bmp = new BitmapImage { DecodePixelWidth = 48 };
+            var fullPath = Path.GetFullPath(path);
+            bmp.UriSource = new Uri(fullPath, UriKind.Absolute);
+            lock (FlagCacheLock)
+                FlagCache[iso] = bmp;
+            return bmp;
+        }
+        catch
+        {
+            lock (FlagCacheLock)
+                FlagCache[iso] = null;
+            return null;
+        }
     }
 }

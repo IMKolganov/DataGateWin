@@ -60,3 +60,7 @@ publish-win*/
 _local_deploy*
 _local_install/
 _local_install_stage/
+
+# Unsupported Win7 client build trees
+/build-win7/
+/win7/dist/

@@ -81,6 +81,7 @@ public sealed partial class LoginViewModel : ObservableObject
 
     public bool IsNotBusy => !IsBusy;
     public bool IsGoogleSignInVisible => !IsTotpChallengeVisible;
+    public bool HasFailure => _lastError != null;
 
     private bool CanSignIn => IsNotBusy && !IsTotpChallengeVisible;
     private bool CanVerifyTotp => IsNotBusy && IsTotpChallengeVisible && TotpCode.Trim().Length >= 6;
@@ -116,7 +117,7 @@ public sealed partial class LoginViewModel : ObservableObject
 
             await CompleteLoginAsync(apiResponse.Data, _cts.Token).ConfigureAwait(true);
         }
-        catch (OperationCanceledException) when (_cts?.IsCancellationRequested == true)
+        catch (OperationCanceledException)
         {
             _lastError = null;
             StatusText = Loc.T("Login_Status_Cancelled");
@@ -172,7 +173,7 @@ public sealed partial class LoginViewModel : ObservableObject
 
             await CompleteLoginAsync(apiResponse.Data, _cts.Token).ConfigureAwait(true);
         }
-        catch (OperationCanceledException) when (_cts?.IsCancellationRequested == true)
+        catch (OperationCanceledException)
         {
             _lastError = null;
             StatusText = Loc.T("Login_Status_Cancelled");

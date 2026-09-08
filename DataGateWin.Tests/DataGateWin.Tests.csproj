@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataGateWin.CrashReporting\DataGateWin.CrashReporting.csproj" />
+    <ProjectReference Include="..\DataGateWin.Core\DataGateWin.Core.csproj" />
     <ProjectReference Include="..\DataGateWin.Installer\DataGateWin.Installer.csproj" />
     <ProjectReference Include="..\DataGateWin.UI\DataGateWin.csproj" />
   </ItemGroup>

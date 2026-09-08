@@ -194,33 +194,41 @@ public sealed partial class MainWindow : Window
 
     private void NavigateTo(string? tag)
     {
-        switch (tag)
+        try
         {
-            case "access":
-                _accessPage ??= new AccessPage();
-                NavFrame.Content = _accessPage;
-                _accessPage.RefreshOnShown();
-                break;
-            case "import":
-                _importPage ??= new ImportPage(_homeController);
-                NavFrame.Content = _importPage;
-                _importPage.ApplyOnShown();
-                break;
-            case "statistics":
-                _statisticsPage ??= new StatisticsPage(_authedApiHttp, App.Session);
-                NavFrame.Content = _statisticsPage;
-                _statisticsPage.ApplyOnShown();
-                break;
-            case "settings":
-                _settingsPage ??= new SettingsPage(_authState);
-                NavFrame.Content = _settingsPage;
-                break;
-            default:
-                _homePage ??= new HomePage(_homeController);
-                NavFrame.Content = _homePage;
-                tag = "home";
-                _ = _homePage.RefreshOnShownAsync();
-                break;
+            switch (tag)
+            {
+                case "access":
+                    _accessPage ??= new AccessPage();
+                    NavFrame.Content = _accessPage;
+                    _accessPage.RefreshOnShown();
+                    break;
+                case "import":
+                    _importPage ??= new ImportPage(_homeController);
+                    NavFrame.Content = _importPage;
+                    _importPage.ApplyOnShown();
+                    break;
+                case "statistics":
+                    _statisticsPage ??= new StatisticsPage(_authedApiHttp, App.Session);
+                    NavFrame.Content = _statisticsPage;
+                    _statisticsPage.ApplyOnShown();
+                    break;
+                case "settings":
+                    _settingsPage ??= new SettingsPage(_authState);
+                    NavFrame.Content = _settingsPage;
+                    break;
+                default:
+                    _homePage ??= new HomePage(_homeController);
+                    NavFrame.Content = _homePage;
+                    tag = "home";
+                    _ = _homePage.RefreshOnShownAsync();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "MainWindow.NavigateTo");
+            return;
         }
 
         if (tag is "home" or "access")

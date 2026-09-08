@@ -1,7 +1,9 @@
 using System.Net.Http;
+using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Statistics;
+using DataGateWin.Services.Ui;
 using DataGateWin.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,7 +18,8 @@ public sealed partial class StatisticsPage : Page
     {
         Vm = new StatisticsViewModel(new StatisticsApiClient(authedApiHttp), session);
         InitializeComponent();
-        Vm.PropertyChanged += (_, _) => ApplyVmChrome();
+        Vm.PropertyChanged += (_, _) =>
+            UiDispatch.Run(DispatcherQueue, ApplyVmChrome, "StatisticsPage.ApplyVm");
         ActualThemeChanged += (_, _) =>
             Vm.SetChartTheme(ActualTheme == ElementTheme.Dark);
         ApplyLocalizedChrome();
@@ -54,15 +57,31 @@ public sealed partial class StatisticsPage : Page
         TotalUploadedText.Text = Vm.TotalUploadedText;
         ErrorText.Text = Vm.ErrorText ?? "";
         LoadingRing.IsActive = Vm.IsLoading;
-        if (Vm.FromLocalDate is { } from)
-            FromPicker.Date = from;
-        if (Vm.ToLocalDate is { } to)
-            ToPicker.Date = to;
+        try
+        {
+            if (Vm.FromLocalDate is { } from)
+                FromPicker.Date = from;
+            if (Vm.ToLocalDate is { } to)
+                ToPicker.Date = to;
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "StatisticsPage.ApplyVmChrome.Dates");
+        }
         Bindings.Update();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
-        => await Vm.LoadAsync(CancellationToken.None);
+    {
+        try
+        {
+            await Vm.LoadAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "StatisticsPage.OnLoaded");
+        }
+    }
 
     private void FromPicker_OnDateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
     {

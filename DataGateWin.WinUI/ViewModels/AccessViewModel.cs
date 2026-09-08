@@ -23,6 +23,8 @@ public sealed partial class AccessViewModel : ObservableObject
     private int _lastTotalClients;
     private bool _clientsLoaded;
     private Exception? _lastLoadError;
+    private CancellationTokenSource? _loadCts;
+    private int _loadGeneration;
 
     public AccessViewModel(OpenVpnServersApiClient serversApi, UserVpnAccessClient quotaApi, AuthSession session)
     {
@@ -35,6 +37,9 @@ public sealed partial class AccessViewModel : ObservableObject
         RefreshCommand = LoadCommand;
         // Do not Load in ctor — AccessPage wires PropertyChanged first, then OnShown.
     }
+
+    /// <summary>Starts a load even if <see cref="RefreshCommand"/> is already running.</summary>
+    public void RequestReload() => _ = LoadCoreAsync();
 
     private void OnUiLanguageChanged(object? sender, EventArgs e)
     {
@@ -100,17 +105,29 @@ public sealed partial class AccessViewModel : ObservableObject
     private string validityFooterText = Loc.T("Access_Dash");
 
     [RelayCommand]
-    private async Task LoadAsync()
+    private Task LoadAsync() => LoadCoreAsync();
+
+    private async Task LoadCoreAsync()
     {
+        var cts = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _loadCts, cts);
+        try { previous?.Cancel(); } catch { /* ignore */ }
+        previous?.Dispose();
+        var tokenSource = cts;
+        var generation = Interlocked.Increment(ref _loadGeneration);
+
         try
         {
             IsLoading = true;
             ErrorText = null;
             _lastLoadError = null;
 
-            var token = await _session.GetValidAccessTokenAsync(CancellationToken.None).ConfigureAwait(true);
+            var token = await _session.GetValidAccessTokenAsync(tokenSource.Token).ConfigureAwait(false);
 
-            var resp = await _serversApi.GetAllWithStatusAsync(CancellationToken.None).ConfigureAwait(true);
+            var resp = await _serversApi.GetAllWithStatusAsync(tokenSource.Token).ConfigureAwait(false);
+            if (generation != Volatile.Read(ref _loadGeneration))
+                return;
+
             Servers = WssServerSelector.FilterWssEnabled(resp.Data?.VpnServerWithStatuses);
 
             var totalClients = Servers.Sum(s => s.CountConnectedClients);
@@ -118,21 +135,31 @@ public sealed partial class AccessViewModel : ObservableObject
             _clientsLoaded = true;
             TotalClientsLineText = Loc.T("Access_TotalClientsFmt", totalClients);
 
-            var quota = await _quotaApi.FetchAsync(token, CancellationToken.None).ConfigureAwait(true);
+            var quota = await _quotaApi.FetchAsync(token, tokenSource.Token).ConfigureAwait(false);
+            if (generation != Volatile.Read(ref _loadGeneration))
+                return;
+
             var v3PlanName = resp.Data?.UserQuotaPlan?.QuotaPlanName?.Trim();
             _lastQuota = quota;
             _lastV3PlanName = v3PlanName;
             ApplyQuotaUi(quota, v3PlanName);
         }
+        catch (OperationCanceledException) when (tokenSource.IsCancellationRequested)
+        {
+            return;
+        }
         catch (Exception ex)
         {
+            if (generation != Volatile.Read(ref _loadGeneration))
+                return;
             CrashReporter.ReportNonFatal(ex, "AccessViewModel.Load");
             _lastLoadError = ex;
             ErrorText = VpnUserFacingError.FromException(ex);
         }
         finally
         {
-            IsLoading = false;
+            if (generation == Volatile.Read(ref _loadGeneration))
+                IsLoading = false;
         }
     }
 
@@ -140,16 +167,21 @@ public sealed partial class AccessViewModel : ObservableObject
 
     private void ApplyQuotaUi(UserVpnAccessInfo i, string? v3PlanName = null)
     {
-        if (!string.IsNullOrEmpty(i.QuotaApiError))
+        var bar = AccessQuotaBarMath.From(i);
+        QuotaBarVisible = bar.BarVisible;
+        QuotaBarValue = bar.BarValue;
+        QuotaBarIsOver = bar.IsOver;
+
+        if (bar.Kind == AccessQuotaBarKind.ApiError)
         {
             PlanLineText = Loc.T("Access_QuotaErrorFmt", VpnUserFacingError.FromMessage(i.QuotaApiError));
             ShowTrafficQuotaTitle = false;
             QuotaMetaVisible = false;
-            QuotaBarVisible = false;
             QuotaUsageCaptionsVisible = false;
             QuotaUsedCaption = "";
             QuotaRemainingCaption = "";
             QuotaDetailsVisible = false;
+            QuotaDetailsText = "";
             ValidityFooterText = Loc.T("Access_Dash");
             return;
         }
@@ -171,59 +203,47 @@ public sealed partial class AccessViewModel : ObservableObject
         QuotaMetaText = string.Join(" · ", metaParts);
         QuotaMetaVisible = metaParts.Count > 0;
 
-        if (i.TrafficUsageNeedsExternalId)
+        switch (bar.Kind)
         {
-            QuotaBarVisible = false;
-            QuotaUsageCaptionsVisible = false;
-            QuotaUsedCaption = "";
-            QuotaRemainingCaption = "";
-            QuotaDetailsVisible = true;
-            QuotaDetailsText = Loc.T("Access_ExternalIdNote");
-            QuotaBarIsOver = false;
-            QuotaBarValue = 0;
-        }
-        else if (i.QuotaLimitBytes <= 0)
-        {
-            QuotaBarVisible = false;
-            QuotaUsageCaptionsVisible = false;
-            QuotaUsedCaption = "";
-            QuotaRemainingCaption = "";
-            QuotaDetailsVisible = true;
-            QuotaDetailsText = Loc.T("Access_NoTrafficLimitNote");
-            QuotaBarIsOver = false;
-            QuotaBarValue = 0;
-        }
-        else if (i.TrafficUsedBytesForPeriod < 0)
-        {
-            var limUnknown = FormatDataSizeBytes(i.QuotaLimitBytes);
-            QuotaBarVisible = true;
-            QuotaUsageCaptionsVisible = true;
-            QuotaUsedCaption = Loc.T("Access_UsedLineFmt", "—", limUnknown, "0");
-            QuotaRemainingCaption = Loc.T("Access_RemainingFmt", limUnknown);
-            QuotaDetailsVisible = true;
-            QuotaDetailsText = Loc.T("Access_UsageUnavailable");
-            QuotaBarIsOver = false;
-            QuotaBarValue = 0;
-        }
-        else
-        {
-            var used = i.TrafficUsedBytesForPeriod;
-            var lim = i.QuotaLimitBytes;
-            var pct = lim > 0 ? Math.Min(100.0, 100.0 * used / (double)lim) : 0;
-            var over = used > lim;
-            QuotaBarVisible = true;
-            QuotaUsageCaptionsVisible = true;
-            QuotaDetailsVisible = true;
-            QuotaBarValue = Math.Round(pct, MidpointRounding.AwayFromZero);
-            QuotaBarIsOver = over;
-            var uStr = FormatDataSizeBytes(used);
-            var lStr = FormatDataSizeBytes(lim);
-            QuotaUsedCaption = Loc.T("Access_UsedLineFmt", uStr, lStr, pct.ToString("F1", CultureInfo.CurrentCulture));
-            QuotaRemainingCaption = over
-                ? Loc.T("Access_OverByFmt", FormatDataSizeBytes(used - lim))
-                : Loc.T("Access_RemainingFmt", FormatDataSizeBytes(lim - used));
-            QuotaDetailsText = "";
-            QuotaDetailsVisible = false;
+            case AccessQuotaBarKind.NeedsExternalId:
+                QuotaUsageCaptionsVisible = false;
+                QuotaUsedCaption = "";
+                QuotaRemainingCaption = "";
+                QuotaDetailsVisible = true;
+                QuotaDetailsText = Loc.T("Access_ExternalIdNote");
+                break;
+            case AccessQuotaBarKind.Unlimited:
+                QuotaUsageCaptionsVisible = false;
+                QuotaUsedCaption = "";
+                QuotaRemainingCaption = "";
+                QuotaDetailsVisible = true;
+                QuotaDetailsText = Loc.T("Access_NoTrafficLimitNote");
+                break;
+            case AccessQuotaBarKind.UsageUnknown:
+                var limUnknown = FormatDataSizeBytes(i.QuotaLimitBytes);
+                QuotaUsageCaptionsVisible = true;
+                QuotaUsedCaption = Loc.T("Access_UsedLineFmt", "—", limUnknown, "0");
+                QuotaRemainingCaption = Loc.T("Access_RemainingFmt", limUnknown);
+                QuotaDetailsVisible = true;
+                QuotaDetailsText = Loc.T("Access_UsageUnavailable");
+                break;
+            default:
+                var used = i.TrafficUsedBytesForPeriod;
+                var lim = i.QuotaLimitBytes;
+                QuotaUsageCaptionsVisible = true;
+                QuotaDetailsVisible = false;
+                QuotaDetailsText = "";
+                var uStr = FormatDataSizeBytes(used);
+                var lStr = FormatDataSizeBytes(lim);
+                QuotaUsedCaption = Loc.T(
+                    "Access_UsedLineFmt",
+                    uStr,
+                    lStr,
+                    AccessQuotaBarMath.PercentUsed(used, lim).ToString("F1", CultureInfo.CurrentCulture));
+                QuotaRemainingCaption = bar.IsOver
+                    ? Loc.T("Access_OverByFmt", FormatDataSizeBytes(used - lim))
+                    : Loc.T("Access_RemainingFmt", FormatDataSizeBytes(Math.Max(0, lim - used)));
+                break;
         }
 
         var validityParts = new List<string>();

@@ -35,7 +35,7 @@ public static class VpnUserFacingError
             if (cur is OperationCanceledException)
                 return Loc.T("Home_Error_Canceled");
 
-            if (cur is UnauthorizedAccessException)
+            if (cur is HttpListenerException or UnauthorizedAccessException)
                 return Loc.T("Home_Error_Permission");
 
             if (cur is SocketException)
@@ -142,7 +142,10 @@ public static class VpnUserFacingError
                 "no_wss"))
             return Loc.T("Home_Log_NoWss");
 
-        if (ContainsAny(m, "canceled", "cancelled") && m.Length < 48)
+        if (ContainsAny(m, "Cannot start Google sign-in listener", "Could not open the browser"))
+            return Loc.T("Home_Error_Permission");
+
+        if (ContainsAny(m, "access_denied", "access-denied"))
             return Loc.T("Home_Error_Canceled");
 
         if (ContainsAny(m, "timeout", "timed out"))

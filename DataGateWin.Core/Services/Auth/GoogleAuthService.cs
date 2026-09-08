@@ -40,8 +40,11 @@ public sealed class GoogleAuthService(HttpClient http)
         var query = await GetQueryAsync(authorizationUrl, port, state, ct);
 
         var error = query["error"];
+        if (IsUserCancelledError(error))
+            throw new OperationCanceledException(ct);
+
         if (!string.IsNullOrWhiteSpace(error))
-            throw new InvalidOperationException($"Authorization error: {error}. {query["error_description"]}");
+            throw new InvalidOperationException($"Google sign-in was not completed ({error}).");
 
         if (!string.Equals(state, query["state"], StringComparison.Ordinal))
             throw new InvalidOperationException("State validation failed.");
@@ -104,18 +107,33 @@ public sealed class GoogleAuthService(HttpClient http)
 
         using var listener = new HttpListener();
         listener.Prefixes.Add(prefix);
-        listener.Start();
+        try
+        {
+            listener.Start();
+        }
+        catch (HttpListenerException ex)
+        {
+            throw new InvalidOperationException(
+                "Cannot start Google sign-in listener on " + prefix + ". " + ex.Message, ex);
+        }
 
         using var reg = ct.Register(() =>
         {
             try { listener.Stop(); } catch { }
         });
 
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        try
         {
-            FileName = authorizationUrl,
-            UseShellExecute = true
-        });
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = authorizationUrl,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Could not open the browser for Google sign-in.", ex);
+        }
 
         while (true)
         {
@@ -124,7 +142,10 @@ public sealed class GoogleAuthService(HttpClient http)
             {
                 context = await listener.GetContextAsync().ConfigureAwait(false);
             }
-            catch (Exception ex) when (ct.IsCancellationRequested && (ex is HttpListenerException || ex is ObjectDisposedException))
+            catch (Exception ex) when (
+                ct.IsCancellationRequested
+                || ex is HttpListenerException
+                || ex is ObjectDisposedException)
             {
                 throw new OperationCanceledException(ct);
             }
@@ -136,7 +157,7 @@ public sealed class GoogleAuthService(HttpClient http)
             // Same as DataGateLinux GoogleAuthHelper: ignore favicon / probes without OAuth params.
             if (string.IsNullOrEmpty(code) && string.IsNullOrEmpty(error))
             {
-                await WriteLoopbackNoContentAsync(context.Response, ct).ConfigureAwait(false);
+                await WriteLoopbackNoContentAsync(context.Response).ConfigureAwait(false);
                 continue;
             }
 
@@ -163,28 +184,49 @@ public sealed class GoogleAuthService(HttpClient http)
                 html = OAuthLoopbackHtml.SuccessDocument();
             }
 
-            await WriteLoopbackHtmlAsync(context.Response, status, html, ct).ConfigureAwait(false);
+            await WriteLoopbackHtmlAsync(context.Response, status, html).ConfigureAwait(false);
             return query;
         }
     }
 
-    private static async Task WriteLoopbackNoContentAsync(HttpListenerResponse response, CancellationToken ct)
+    internal static bool IsUserCancelledError(string? error) =>
+        string.Equals(error, "access_denied", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(error, "access-denied", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(error, "cancelled", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(error, "canceled", StringComparison.OrdinalIgnoreCase);
+
+    private static Task WriteLoopbackNoContentAsync(HttpListenerResponse response)
     {
-        response.StatusCode = 204;
-        response.ContentLength64 = 0;
-        response.Close();
-        await Task.CompletedTask.ConfigureAwait(false);
+        try
+        {
+            response.StatusCode = 204;
+            response.ContentLength64 = 0;
+            response.Close();
+        }
+        catch
+        {
+            // Listener may already be stopped after Cancel.
+        }
+
+        return Task.CompletedTask;
     }
 
-    private static async Task WriteLoopbackHtmlAsync(HttpListenerResponse response, int statusCode, string html, CancellationToken ct)
+    private static async Task WriteLoopbackHtmlAsync(HttpListenerResponse response, int statusCode, string html)
     {
-        response.StatusCode = statusCode;
-        response.ContentType = "text/html; charset=utf-8";
-        var buffer = Encoding.UTF8.GetBytes(html);
-        response.ContentLength64 = buffer.Length;
-        await response.OutputStream.WriteAsync(buffer, ct).ConfigureAwait(false);
-        await response.OutputStream.FlushAsync(ct).ConfigureAwait(false);
-        response.Close();
+        try
+        {
+            response.StatusCode = statusCode;
+            response.ContentType = "text/html; charset=utf-8";
+            var buffer = Encoding.UTF8.GetBytes(html);
+            response.ContentLength64 = buffer.Length;
+            await response.OutputStream.WriteAsync(buffer).ConfigureAwait(false);
+            await response.OutputStream.FlushAsync().ConfigureAwait(false);
+            response.Close();
+        }
+        catch
+        {
+            try { response.Close(); } catch { }
+        }
     }
 
     private static string GenerateState()

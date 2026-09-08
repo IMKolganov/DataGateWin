@@ -1,0 +1,25 @@
+🔄 DataGate for Windows — version 1.0.15
+
+A stability patch: Access no longer crashes after connect, Home can scroll to the engine log, and the connected server shows a flag.
+
+What's fixed:
+• Access tab no longer kills the app after a successful connect
+• Crash reports still upload when the process dies
+• Home: flag on the connected server, scrollable page, engine log without maximize
+• Google sign-in cancel / permission errors are readable
+
+Download:
+https://github.com/IMKolganov/DataGateWin/releases/tag/1.0.15
+
+Installer:
+https://github.com/IMKolganov/DataGateWin/releases/download/1.0.15/DataGateWin.Installer.exe
+
+Update: run the installer as administrator, or extract the ZIP over your current folder.
+
+—
+
+If something does not work after updating, message me: @KolganovIvan
+
+---
+
+Or launch your existing app — it should offer to update to 1.0.15.
