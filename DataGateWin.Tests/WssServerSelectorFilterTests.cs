@@ -8,7 +8,7 @@ namespace DataGateWin.Tests;
 public sealed class WssServerSelectorFilterTests
 {
     [Fact]
-    public void FilterWssEnabled_keeps_openvpn_wss_only()
+    public void FilterWssEnabled_keeps_openvpn_with_or_without_wss_and_xray()
     {
         var openVpnWss = MakeRow(1, "Helsinki", VpnServerType.OpenVpn, wss: true);
         var xray = MakeRow(2, "Norway xray", VpnServerType.Xray, wss: false);
@@ -18,18 +18,25 @@ public sealed class WssServerSelectorFilterTests
         var filtered = WssServerSelector.FilterWssEnabled(
             [openVpnWss, xray, xrayWithWssFlag, openVpnNoWss]);
 
-        Assert.Single(filtered);
-        Assert.Equal(1, filtered[0].VpnServerResponses!.VpnServer.Id);
-        Assert.Equal(VpnServerType.OpenVpn, filtered[0].VpnServerResponses!.VpnServer.ServerType);
+        Assert.Equal(4, filtered.Count);
+        Assert.Contains(filtered, r => r.VpnServerResponses!.VpnServer.Id == 1);
+        Assert.Contains(filtered, r => r.VpnServerResponses!.VpnServer.Id == 2);
+        Assert.Contains(filtered, r => r.VpnServerResponses!.VpnServer.Id == 3);
+        Assert.Contains(filtered, r => r.VpnServerResponses!.VpnServer.Id == 4);
     }
 
     [Fact]
-    public void IsWindowsSupported_rejects_xray()
+    public void IsWindowsSupported_accepts_xray_and_all_openvpn()
     {
         var xray = MakeServer(VpnServerType.Xray, wss: true);
         var openVpn = MakeServer(VpnServerType.OpenVpn, wss: true);
-        Assert.False(WssServerSelector.IsWindowsSupported(xray));
+        var openVpnNoWss = MakeServer(VpnServerType.OpenVpn, wss: false);
+        Assert.True(WssServerSelector.IsWindowsSupported(xray));
+        Assert.True(WssServerSelector.IsXrayWindowsSupported(xray));
         Assert.True(WssServerSelector.IsWindowsSupported(openVpn));
+        Assert.True(WssServerSelector.IsWindowsSupported(openVpnNoWss));
+        Assert.True(WssServerSelector.IsOpenVpnDirect(openVpnNoWss));
+        Assert.False(WssServerSelector.IsOpenVpnDirect(openVpn));
     }
 
     private static VpnServerWithStatusV2Dto MakeRow(

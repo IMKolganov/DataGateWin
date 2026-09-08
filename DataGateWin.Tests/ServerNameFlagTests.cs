@@ -59,6 +59,18 @@ public sealed class ServerNameFlagTests
         Assert.Equal("", rest);
     }
 
+    [Theory]
+    [InlineData("Helsinki 3", "FI")]
+    [InlineData("FI Helsinki 3 tcp", "FI")]
+    [InlineData("🇫🇮 Helsinki 3", "FI")]
+    [InlineData("NL-1", "NL")]
+    [InlineData("norway-xray", "NO")]
+    public void TryGetIso2_FromPlaceIsoOrEmoji(string input, string iso)
+    {
+        Assert.True(ServerNameFlag.TryGetIso2(input, out var got));
+        Assert.Equal(iso, got);
+    }
+
     [Fact]
     public void WithFlagPrefix_AddsEmojiForRealApiNames()
     {

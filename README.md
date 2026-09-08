@@ -17,7 +17,7 @@
 
 **DataGate** is a native Windows desktop app that connects to your VPN backend and establishes an **OpenVPN** tunnel. Traffic can be carried over **WebSocket Secure (WSS)** from the machine to your server, which forwards it to the real OpenVPN server — so you can run OpenVPN behind HTTPS/WSS (e.g. nginx) and avoid direct UDP/TCP to the VPN port.
 
-- **UI (WPF)** handles Connect/Disconnect, status, settings, and logs; starts the Engine and attaches via IPC.
+- **UI (WinUI 3)** handles Connect/Disconnect, status, settings, and logs; starts the Engine and attaches via IPC.
 - **Engine (native)** is the single source of truth for VPN state: tunnel (Wintun), routes, DNS, OpenVPN3 core.
 
 Details: [Architecture (UI ↔ Engine IPC)](ARCHITECTURE.md). DNS incident history and Android connect inventory: [docs/DNS_AND_CONNECT_HISTORY.md](docs/DNS_AND_CONNECT_HISTORY.md).
@@ -27,7 +27,7 @@ Details: [Architecture (UI ↔ Engine IPC)](ARCHITECTURE.md). DNS incident histo
 | Feature | Description |
 |--------|-------------|
 | **OpenVPN over WSS** | Tunnel traffic over WebSocket Secure; no direct VPN port exposure. |
-| **WPF UI** | System tray, Connect/Disconnect, status, logs, and settings. |
+| **WinUI 3 UI** | System tray, Connect/Disconnect, status, logs, and settings. |
 | **Engine process** | Separate native process; UI and tunnel lifecycle are independent (restart-safe). |
 | **Wintun** | Uses Wintun driver for the VPN interface. |
 
@@ -69,7 +69,8 @@ Build the solution (e.g. in Visual Studio) or use the project’s build scripts.
 
 | Path | Description |
 |------|-------------|
-| **DataGateWin.UI/** | WPF application (UI, IPC client). |
+| **DataGateWin.WinUI/** | WinUI 3 application (shipping UI, IPC client). |
+| **DataGateWin.UI/** | Legacy WPF application (kept for reference). |
 | **engine/** | Native Engine process (OpenVPN3, WSS bridge, Wintun). |
 | **docs/** | Architecture notes (e.g. DNS incident history). |
 | **openvpn3/** | OpenVPN3 core (submodule or vendored). |

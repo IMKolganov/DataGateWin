@@ -32,6 +32,12 @@ public sealed partial class AccessPage : Page
         ApplyVm();
     });
 
+    public void ApplyLanguage()
+    {
+        ApplyLocalizedChrome();
+        ApplyVm();
+    }
+
     private void ApplyLocalizedChrome()
     {
         TitleText.Text = Loc.T("Access_Title");
@@ -51,19 +57,29 @@ public sealed partial class AccessPage : Page
         PlanLineText.Text = _vm.PlanLineText;
         QuotaMetaText.Text = _vm.QuotaMetaText;
         QuotaMetaText.Visibility = _vm.QuotaMetaVisible ? Visibility.Visible : Visibility.Collapsed;
-        TrafficQuotaLabel.Visibility = _vm.ShowTrafficQuotaTitle ? Visibility.Visible : Visibility.Collapsed;
+        TrafficQuotaHeader.Visibility = _vm.ShowTrafficQuotaTitle ? Visibility.Visible : Visibility.Collapsed;
+        QuotaUsedCaptionText.Text = _vm.QuotaUsedCaption;
+        QuotaUsedCaptionText.Visibility = _vm.QuotaUsageCaptionsVisible ? Visibility.Visible : Visibility.Collapsed;
+        QuotaRemainingCaptionText.Text = _vm.QuotaRemainingCaption;
+        QuotaRemainingCaptionText.Visibility = _vm.QuotaUsageCaptionsVisible ? Visibility.Visible : Visibility.Collapsed;
         QuotaBar.Visibility = _vm.QuotaBarVisible ? Visibility.Visible : Visibility.Collapsed;
         QuotaBar.Value = _vm.QuotaBarValue;
+        QuotaBar.ShowError = _vm.QuotaBarIsOver;
         QuotaDetailsText.Text = _vm.QuotaDetailsText;
         QuotaDetailsText.Visibility = _vm.QuotaDetailsVisible ? Visibility.Visible : Visibility.Collapsed;
         ValidityFooterText.Text = _vm.ValidityFooterText;
         LoadingRing.IsActive = _vm.IsLoading;
+        LoadingRing.Visibility = _vm.IsLoading ? Visibility.Visible : Visibility.Collapsed;
         ErrorText.Text = _vm.ErrorText ?? "";
         TotalClientsLineText.Text = _vm.TotalClientsLineText;
 
-        ServersList.Items.Clear();
+        ServersHost.Children.Clear();
         foreach (var s in _vm.Servers)
-            ServersList.Items.Add(BuildServerRow(s));
+            ServersHost.Children.Add(BuildServerRow(s));
+        EmptyServersText.Text = Loc.T("Access_Dash");
+        EmptyServersText.Visibility = _vm.Servers.Count == 0 && !_vm.IsLoading
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private static Grid BuildServerRow(VpnServerWithStatusV2Dto s)
@@ -76,12 +92,12 @@ public sealed partial class AccessPage : Page
             : Loc.T("PlanAccess_No");
 
         var grid = new Grid { Padding = new Thickness(12, 8, 12, 8), ColumnSpacing = 8 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 160 });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
 
         void Add(int col, string text, bool muted = false)
         {
@@ -96,8 +112,39 @@ public sealed partial class AccessPage : Page
         }
 
         var nameUi = ServerNameUi.CreateRow(name);
-        Grid.SetColumn(nameUi, 0);
-        grid.Children.Add(nameUi);
+        if (server is not null && WssServerSelector.IsXrayWindowsSupported(server))
+        {
+            var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            stack.Children.Add(nameUi);
+            stack.Children.Add(new TextBlock
+            {
+                Text = Loc.T("Import_Protocol_Xray"),
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12,
+            });
+            Grid.SetColumn(stack, 0);
+            grid.Children.Add(stack);
+        }
+        else if (server is not null && WssServerSelector.IsOpenVpnDirect(server))
+        {
+            var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            stack.Children.Add(nameUi);
+            stack.Children.Add(new TextBlock
+            {
+                Text = Loc.T("Import_Protocol_OpenVpn"),
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12,
+            });
+            Grid.SetColumn(stack, 0);
+            grid.Children.Add(stack);
+        }
+        else
+        {
+            Grid.SetColumn(nameUi, 0);
+            grid.Children.Add(nameUi);
+        }
         Add(1, s.CountConnectedClients.ToString(CultureInfo.InvariantCulture));
         Add(2, FormatBytes(s.TotalBytesIn), muted: true);
         Add(3, FormatBytes(s.TotalBytesOut), muted: true);
@@ -119,9 +166,18 @@ public sealed partial class AccessPage : Page
         return $"{gb:F2} GB";
     }
 
-    private void Refresh_OnClick(object sender, RoutedEventArgs e)
+    private void AccessPage_OnLoaded(object sender, RoutedEventArgs e)
+        => RefreshOnShown();
+
+    /// <summary>Called when nav switches to Access (Loaded may not re-fire for a cached page).</summary>
+    public void RefreshOnShown()
     {
+        ApplyLocalizedChrome();
+        ApplyVm();
         if (_vm.RefreshCommand.CanExecute(null))
             _vm.RefreshCommand.Execute(null);
     }
+
+    private void Refresh_OnClick(object sender, RoutedEventArgs e)
+        => RefreshOnShown();
 }

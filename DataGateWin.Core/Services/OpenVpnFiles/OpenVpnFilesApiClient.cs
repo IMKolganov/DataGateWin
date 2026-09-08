@@ -30,8 +30,7 @@ public sealed class OpenVpnFilesApiClient(HttpClient http)
         if (second != null)
             return second;
 
-        throw new InvalidOperationException(
-            $"OVPN file not found after create. vpnServerId={vpnServerId}, cn={commonName}");
+        throw new InvalidOperationException("profile_download_failed");
     }
 
     private async Task<DownloadFileResponse?> TryDownloadAsync(
@@ -64,7 +63,7 @@ public sealed class OpenVpnFilesApiClient(HttpClient http)
             if (IsNotFoundApiMessage(raw))
                 return null;
 
-            throw new InvalidOperationException(raw);
+            throw new InvalidOperationException("profile_download_failed");
         }
 
         var api = JsonConvert.DeserializeObject<ApiResponse<DownloadFileResponse>>(raw);
@@ -99,8 +98,7 @@ public sealed class OpenVpnFilesApiClient(HttpClient http)
 
         var resp = await _http.SendAsync(req, ct);
         if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException(
-                await resp.Content.ReadAsStringAsync(ct));
+            throw new InvalidOperationException("profile_download_failed");
     }
 
     private static bool IsNotFoundApiMessage(string body)

@@ -106,7 +106,7 @@ public sealed class XrayClientLinksApiClientTests
         var sut = new XrayClientLinksApiClient(http);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureAndDownloadDeviceFileAsync(1, "cn", "ext", "me", CancellationToken.None));
-        Assert.Contains("boom", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("profile_download_failed", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -121,8 +121,7 @@ public sealed class XrayClientLinksApiClientTests
         var sut = new XrayClientLinksApiClient(http);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureAndDownloadDeviceFileAsync(7, "cn", "ext", "me", CancellationToken.None));
-        Assert.Contains("not found after create", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("7", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("profile_download_failed", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -135,7 +134,7 @@ public sealed class XrayClientLinksApiClientTests
         var sut = new XrayClientLinksApiClient(http);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sut.EnsureAndDownloadDeviceFileAsync(1, "cn", "ext", "me", CancellationToken.None));
-        Assert.Contains("quota exceeded", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("profile_download_failed", ex.Message, StringComparison.Ordinal);
         Assert.Single(handler.Requests);
     }
 

@@ -1,6 +1,7 @@
 using DataGateWin.Controllers;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
+using DataGateWin.Services.Ui;
 using DataGateWin.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -32,6 +33,15 @@ public sealed partial class ImportPage : Page
 
         WinUiLanguageService.LanguageChanged += OnLang;
         Unloaded += (_, _) => WinUiLanguageService.LanguageChanged -= OnLang;
+        Loaded += (_, _) => ApplyOnShown();
+    }
+
+    public void ApplyOnShown()
+    {
+        ApplyLocalizedChrome();
+        FillProtocolCombo();
+        RebuildProfileList();
+        ApplyVmChrome();
     }
 
     private void OnLang(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(() =>
@@ -48,7 +58,7 @@ public sealed partial class ImportPage : Page
         TitleText.Text = Loc.T("Import_Title");
         SubtitleText.Text = Loc.T("Import_Subtitle");
         ProtocolLabel.Text = Loc.T("Import_Protocol");
-        XrayHintText.Text = Loc.T("Import_XrayComingSoon");
+        XrayHintText.Text = Loc.T("Import_Hint_Xray");
         ImportSectionLabel.Text = Loc.T("Import_AddSection");
         BrowseButtonText.Text = Loc.T("Import_Browse");
         PasteButtonText.Text = Loc.T("Import_Paste");
@@ -78,11 +88,12 @@ public sealed partial class ImportPage : Page
     private void ApplyVmChrome()
     {
         StatusText.Text = _vm.StatusText;
-        XrayHintText.Visibility = _vm.IsXraySelected ? Visibility.Visible : Visibility.Collapsed;
-        var openVpn = _vm.IsOpenVpnSelected;
-        BrowseButton.IsEnabled = openVpn && !_vm.IsBusy;
-        PasteButton.IsEnabled = openVpn && !_vm.IsBusy;
-        ImportHintText.Text = openVpn ? Loc.T("Import_Hint_OpenVpn") : Loc.T("Import_XrayComingSoon");
+        XrayHintText.Visibility = Visibility.Collapsed;
+        BrowseButton.IsEnabled = !_vm.IsBusy;
+        PasteButton.IsEnabled = !_vm.IsBusy;
+        ImportHintText.Text = _vm.IsOpenVpnSelected
+            ? Loc.T("Import_Hint_OpenVpn")
+            : Loc.T("Import_Hint_Xray");
     }
 
     private void RebuildProfileList()
@@ -110,11 +121,11 @@ public sealed partial class ImportPage : Page
 
         var connect = new Button
         {
-            Content = Loc.T("Home_Connect"),
             MinWidth = 100,
             Tag = item.Id,
             IsEnabled = item.CanConnect && !_vm.IsBusy,
         };
+        IconButtonContent.Apply(connect, IconButtonContent.Connect, Loc.T("Home_Connect"));
         if (Application.Current.Resources.TryGetValue("AccentButtonStyle", out var accent) && accent is Style accentStyle)
             connect.Style = accentStyle;
         connect.Click += ConnectProfile_OnClick;
@@ -123,11 +134,10 @@ public sealed partial class ImportPage : Page
 
         var delete = new Button
         {
-            Content = Loc.T("Import_Delete"),
-            MinWidth = 88,
             Tag = item.Id,
             IsEnabled = !_vm.IsBusy,
         };
+        IconButtonContent.Apply(delete, IconButtonContent.Delete, Loc.T("Import_Delete"));
         delete.Click += DeleteProfile_OnClick;
         Grid.SetColumn(delete, 2);
         grid.Children.Add(delete);
@@ -145,41 +155,44 @@ public sealed partial class ImportPage : Page
 
     private async void BrowseButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (!_vm.IsOpenVpnSelected)
-            return;
-
         try
         {
             var picker = new FileOpenPicker();
             var window = App.CurrentMainWindow ?? throw new InvalidOperationException("No main window");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(window));
             picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-            picker.FileTypeFilter.Add(".ovpn");
-            picker.FileTypeFilter.Add(".conf");
-            picker.FileTypeFilter.Add(".txt");
+            if (_vm.IsXraySelected)
+            {
+                picker.FileTypeFilter.Add(".txt");
+                picker.FileTypeFilter.Add(".json");
+                picker.FileTypeFilter.Add(".conf");
+            }
+            else
+            {
+                picker.FileTypeFilter.Add(".ovpn");
+                picker.FileTypeFilter.Add(".conf");
+                picker.FileTypeFilter.Add(".txt");
+            }
 
             var file = await picker.PickSingleFileAsync();
             if (file is null)
                 return;
 
             var text = await Windows.Storage.FileIO.ReadTextAsync(file);
-            _vm.ImportOpenVpnText(text, file.Name);
+            _vm.ImportText(text, file.Name);
             RebuildProfileList();
             ApplyVmChrome();
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "ImportPage.Browse");
-            _vm.StatusText = Loc.T("Home_Log_ErrorFmt", ex.Message);
+            _vm.StatusText = Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex));
             ApplyVmChrome();
         }
     }
 
     private async void PasteButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (!_vm.IsOpenVpnSelected)
-            return;
-
         var box = new TextBox
         {
             AcceptsReturn = true,
@@ -187,12 +200,14 @@ public sealed partial class ImportPage : Page
             FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
             FontSize = 12,
             MinHeight = 220,
-            PlaceholderText = Loc.T("Import_PastePlaceholder"),
+            PlaceholderText = _vm.IsXraySelected
+                ? Loc.T("Import_PastePlaceholder_Xray")
+                : Loc.T("Import_PastePlaceholder"),
         };
 
         var dialog = new ContentDialog
         {
-            Title = Loc.T("Import_PasteTitle"),
+            Title = IconButtonContent.Heading(IconButtonContent.Paste, Loc.T("Import_PasteTitle")),
             PrimaryButtonText = Loc.T("Import_Save"),
             CloseButtonText = Loc.T("Login_Cancel"),
             DefaultButton = ContentDialogButton.Primary,
@@ -204,7 +219,7 @@ public sealed partial class ImportPage : Page
         if (result != ContentDialogResult.Primary)
             return;
 
-        _vm.ImportOpenVpnText(box.Text ?? "", null);
+        _vm.ImportText(box.Text ?? "", null);
         RebuildProfileList();
         ApplyVmChrome();
     }

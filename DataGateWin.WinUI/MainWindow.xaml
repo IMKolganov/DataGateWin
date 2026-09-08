@@ -18,6 +18,7 @@
         <TitleBar
             x:Name="AppTitleBar"
             Title="DataGate"
+            Background="Transparent"
             IsPaneToggleButtonVisible="False">
             <TitleBar.LeftHeader>
                 <Image
@@ -75,12 +76,22 @@
                         x:Name="TelegramChannelButton"
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
-                        Click="TelegramChannel_OnClick" />
+                        Click="TelegramChannel_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE715;" FontSize="14" />
+                            <TextBlock x:Name="TelegramChannelButtonText" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Button>
                     <Button
                         x:Name="ReportIssueButton"
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
-                        Click="ReportIssue_OnClick" />
+                        Click="ReportIssue_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8BD;" FontSize="14" />
+                            <TextBlock x:Name="ReportIssueButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
 
                     <!-- Compact: icon-only (visible when pane collapsed) -->
                     <Button

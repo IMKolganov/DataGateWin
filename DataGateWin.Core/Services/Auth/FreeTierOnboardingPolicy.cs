@@ -19,6 +19,28 @@ public static class FreeTierOnboardingPolicy
     public static bool ShouldShow(FreeTierAccessStatusResponse? status) =>
         status is { IsApplicable: true, IsCompliant: false };
 
+    /// <summary>
+    /// Mirrors Android / backend QuotaPlanNames.IsFreeOrDefault: only Free/Default
+    /// are subject to Telegram channel / link onboarding.
+    /// </summary>
+    public static bool IsFreeOrDefaultPlan(string? planName) =>
+        !string.IsNullOrWhiteSpace(planName)
+        && (planName.Equals("Free", StringComparison.OrdinalIgnoreCase)
+            || planName.Equals("Default", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Android parity: skip free-tier Telegram UX for admins and known paid plans.
+    /// Unknown plan (<c>null</c>) still allows a status poll.
+    /// </summary>
+    public static bool ShouldSkipClientChecks(bool isAdmin, string? knownPlanName)
+    {
+        if (isAdmin)
+            return true;
+        if (string.IsNullOrWhiteSpace(knownPlanName))
+            return false;
+        return !IsFreeOrDefaultPlan(knownPlanName);
+    }
+
     public static bool ShouldRefreshOnPoll(DateTimeOffset lastFetchUtc, DateTimeOffset nowUtc) =>
         lastFetchUtc == default ||
         (nowUtc - lastFetchUtc).TotalSeconds >= ResumeRefreshMinIntervalSeconds;

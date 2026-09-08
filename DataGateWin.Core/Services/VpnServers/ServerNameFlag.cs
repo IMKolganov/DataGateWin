@@ -155,6 +155,28 @@ public static class ServerNameFlag
     public static bool IsFlagGrapheme(string textElement)
         => IsFlagEmoji(textElement);
 
+    /// <summary>ISO 3166-1 alpha-2 inferred from a server name (or a flag emoji).</summary>
+    public static bool TryGetIso2(string? serverName, out string iso2)
+    {
+        iso2 = "";
+        if (!TrySplit(serverName, out var flag, out _))
+            return false;
+        iso2 = IsoFromFlagEmoji(flag);
+        return iso2.Length == 2;
+    }
+
+    public static string IsoFromFlagEmoji(string flagEmoji)
+    {
+        if (string.IsNullOrEmpty(flagEmoji))
+            return "";
+        var runes = flagEmoji.EnumerateRunes().ToArray();
+        if (runes.Length != 2 || !IsRegionalIndicator(runes[0]) || !IsRegionalIndicator(runes[1]))
+            return "";
+        var a = (char)('A' + (runes[0].Value - RegionalIndicatorBase));
+        var b = (char)('A' + (runes[1].Value - RegionalIndicatorBase));
+        return $"{a}{b}";
+    }
+
     private static bool TrySplitLeadingEmoji(string trimmed, out string flagEmoji, out string remainder)
     {
         flagEmoji = "";

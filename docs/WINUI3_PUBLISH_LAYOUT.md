@@ -32,6 +32,7 @@ Or use `DataGateWin.UI\Build-Release.ps1` (post-cutover: publishes WinUI, stages
 | `appsettings.json` | API + GoogleAuth (+ CrashReporting optional) |
 | `appsettings.example.json` | Template |
 | `Images\favicon.ico`, `Images\favicon.png` | Icons |
+| `Assets\Flags\*.png` | Server country flags |
 | `Assets\IpLists\*.txt` | Fallback CIDR lists |
 | `Localization\Strings.*.xaml` | UI strings (copied to output) |
 | `engine\engine.exe` | Native VPN engine |

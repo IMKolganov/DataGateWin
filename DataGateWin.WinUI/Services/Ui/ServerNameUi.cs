@@ -4,14 +4,19 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace DataGateWin.Services.Ui;
 
-/// <summary>Renders server names with the leading flag emoji as a larger “icon”.</summary>
+/// <summary>
+/// Renders server names with a country flag image.
+/// Windows Segoe UI Emoji has no national-flag glyphs, so emoji text shows as letters (FI/DE).
+/// </summary>
 internal static class ServerNameUi
 {
-    private const double FlagFontSize = 20;
-    private static readonly FontFamily EmojiFont = new("Segoe UI Emoji");
+    private const double FlagWidth = 22;
+    private const double FlagHeight = 16.5;
+    private static readonly Dictionary<string, BitmapImage?> FlagCache = new(StringComparer.OrdinalIgnoreCase);
 
     public static FrameworkElement CreateRow(string? serverName, double nameFontSize = 14, bool muted = false)
     {
@@ -24,7 +29,9 @@ internal static class ServerNameUi
 
         if (ServerNameFlag.TrySplit(serverName, out var flag, out var rest))
         {
-            panel.Children.Add(CreateFlagText(flag));
+            var flagImage = CreateFlagImage(flag);
+            if (flagImage is not null)
+                panel.Children.Add(flagImage);
             if (!string.IsNullOrEmpty(rest))
             {
                 panel.Children.Add(new TextBlock
@@ -65,13 +72,7 @@ internal static class ServerNameUi
 
         if (ServerNameFlag.TrySplit(serverName, out var flag, out var rest))
         {
-            target.Inlines.Add(new Run
-            {
-                Text = flag + (string.IsNullOrEmpty(rest) ? "" : " "),
-                FontSize = FlagFontSize,
-                FontFamily = EmojiFont,
-            });
-            target.IsColorFontEnabled = true;
+            AppendFlagInline(target, flag);
             if (!string.IsNullOrEmpty(rest))
                 target.Inlines.Add(new Run { Text = rest });
             return;
@@ -80,11 +81,10 @@ internal static class ServerNameUi
         target.Inlines.Add(new Run { Text = serverName.Trim() });
     }
 
-    /// <summary>Any flag emoji in the string is drawn larger (status lines, etc.).</summary>
+    /// <summary>Any flag emoji in the string is replaced with a flag image.</summary>
     public static void SetTextEnlargingFlags(TextBlock target, string text)
     {
         target.Inlines.Clear();
-        target.IsColorFontEnabled = true;
         if (string.IsNullOrEmpty(text))
             return;
 
@@ -93,29 +93,61 @@ internal static class ServerNameUi
         {
             var element = enumerator.GetTextElement();
             if (ServerNameFlag.IsFlagGrapheme(element))
-            {
-                target.Inlines.Add(new Run
-                {
-                    Text = element,
-                    FontSize = FlagFontSize,
-                    FontFamily = EmojiFont,
-                });
-            }
+                AppendFlagInline(target, element);
             else
-            {
                 target.Inlines.Add(new Run { Text = element });
-            }
         }
     }
 
-    private static TextBlock CreateFlagText(string flagEmoji)
-        => new()
+    public static ImageSource? TryGetFlagImage(string? serverNameOrFlagEmoji)
+        => TryLoadFlagBitmap(serverNameOrFlagEmoji);
+
+    private static void AppendFlagInline(TextBlock target, string flagEmoji)
+    {
+        var image = CreateFlagImage(flagEmoji);
+        if (image is null)
+            return;
+        target.Inlines.Add(new InlineUIContainer
         {
-            Text = flagEmoji,
-            FontSize = FlagFontSize,
-            FontFamily = EmojiFont,
+            Child = image,
+        });
+        target.Inlines.Add(new Run { Text = " " });
+    }
+
+    private static Image? CreateFlagImage(string? serverNameOrFlagEmoji)
+    {
+        var bmp = TryLoadFlagBitmap(serverNameOrFlagEmoji);
+        if (bmp is null)
+            return null;
+        return new Image
+        {
+            Source = bmp,
+            Width = FlagWidth,
+            Height = FlagHeight,
+            Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center,
-            IsTextSelectionEnabled = false,
-            IsColorFontEnabled = true,
         };
+    }
+
+    private static BitmapImage? TryLoadFlagBitmap(string? serverNameOrFlagEmoji)
+    {
+        if (!ServerNameFlag.TryGetIso2(serverNameOrFlagEmoji, out var iso))
+            return null;
+
+        if (FlagCache.TryGetValue(iso, out var cached))
+            return cached;
+
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", iso.ToLowerInvariant() + ".png");
+        if (!File.Exists(path))
+        {
+            FlagCache[iso] = null;
+            return null;
+        }
+
+        var bmp = new BitmapImage();
+        bmp.UriSource = new Uri(Path.GetFullPath(path), UriKind.Absolute);
+        bmp.DecodePixelWidth = 48;
+        FlagCache[iso] = bmp;
+        return bmp;
+    }
 }

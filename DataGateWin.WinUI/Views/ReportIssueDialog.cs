@@ -2,6 +2,7 @@ using System.Diagnostics;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Support;
+using DataGateWin.Services.Ui;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -20,16 +21,16 @@ public sealed class ReportIssueDialog
             Margin = new Thickness(0, 0, 0, 8),
         });
 
-        var telegram = new Button { Content = Loc.T("Home_ReportTelegram"), HorizontalAlignment = HorizontalAlignment.Stretch };
-        var email = new Button { Content = Loc.T("Home_ReportEmail"), HorizontalAlignment = HorizontalAlignment.Stretch };
-        var github = new Button { Content = Loc.T("Home_ReportGithub"), HorizontalAlignment = HorizontalAlignment.Stretch };
+        var telegram = CreateAction(IconButtonContent.Mail, Loc.T("Home_ReportTelegram"));
+        var email = CreateAction(IconButtonContent.Send, Loc.T("Home_ReportEmail"));
+        var github = CreateAction(IconButtonContent.Code, Loc.T("Home_ReportGithub"));
         panel.Children.Add(telegram);
         panel.Children.Add(email);
         panel.Children.Add(github);
 
         var dlg = new ContentDialog
         {
-            Title = Loc.T("Home_ReportIssueTitle"),
+            Title = IconButtonContent.Heading(IconButtonContent.Contact, Loc.T("Home_ReportIssueTitle")),
             Content = panel,
             CloseButtonText = Loc.T("Action_Ok"),
             XamlRoot = xamlRoot,
@@ -45,6 +46,17 @@ public sealed class ReportIssueDialog
         github.Click += (_, _) => { OpenUrl(SupportLinks.GitHubIssuesUrl); dlg.Hide(); };
 
         await dlg.ShowAsync();
+    }
+
+    private static Button CreateAction(string glyph, string text)
+    {
+        var button = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+        };
+        IconButtonContent.Apply(button, glyph, text);
+        return button;
     }
 
     private static void OpenUrl(string url)

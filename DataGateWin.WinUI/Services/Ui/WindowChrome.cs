@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Windows.UI;
 using WinRT.Interop;
 
 namespace DataGateWin.Services.Ui;
@@ -12,6 +13,8 @@ internal static class WindowChrome
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoMove = 0x0002;
     private const uint MonitorDefaultToNearest = 2;
+    private const int DwmwaUseImmersiveDarkMode = 20;
+    private const int DwmwaUseImmersiveDarkModeLegacy = 19;
 
     public static void ApplyDefault(
         Window window,
@@ -38,6 +41,7 @@ internal static class WindowChrome
             }
 
             ApplyIcon(window, hwnd, appWindow);
+            ApplyTheme(window);
 
             var guardUntil = DateTime.UtcNow.AddSeconds(6);
             var reentry = false;
@@ -89,6 +93,7 @@ internal static class WindowChrome
                     return;
 
                 window.Activated -= OnActivated;
+                ApplyTheme(window);
                 ScheduleRetries(window, () => Reapply(center: false), 0, 100, 300, 800, 1600, 3000, 5000);
             }
 
@@ -202,6 +207,63 @@ internal static class WindowChrome
         window.Activated += OnActivated;
     }
 
+    /// <summary>
+    /// Native caption chrome defaults to <see cref="TitleBarTheme.Legacy"/> (Windows light/dark),
+    /// not the app ElementTheme — so a dark window keeps a white title bar until this is set.
+    /// </summary>
+    public static void ApplyTheme(Window window, ElementTheme? theme = null)
+    {
+        try
+        {
+            var dark = IsDark(window, theme);
+            var titleBar = window.AppWindow.TitleBar;
+            titleBar.PreferredTheme = dark ? TitleBarTheme.Dark : TitleBarTheme.Light;
+
+            if (window.ExtendsContentIntoTitleBar)
+            {
+                titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+                titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+                titleBar.ButtonForegroundColor = dark
+                    ? Color.FromArgb(255, 202, 202, 202)
+                    : Color.FromArgb(255, 68, 68, 68);
+                titleBar.ButtonInactiveForegroundColor = dark
+                    ? Color.FromArgb(255, 102, 102, 102)
+                    : Color.FromArgb(255, 153, 153, 153);
+                titleBar.ButtonHoverForegroundColor = dark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
+                titleBar.ButtonPressedForegroundColor = dark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
+                titleBar.ButtonHoverBackgroundColor = dark
+                    ? Color.FromArgb(0x19, 255, 255, 255)
+                    : Color.FromArgb(0x19, 0, 0, 0);
+                titleBar.ButtonPressedBackgroundColor = dark
+                    ? Color.FromArgb(0x33, 255, 255, 255)
+                    : Color.FromArgb(0x33, 0, 0, 0);
+            }
+
+            var hwnd = WindowNative.GetWindowHandle(window);
+            var useDark = dark ? 1 : 0;
+            _ = DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref useDark, sizeof(int));
+            _ = DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkModeLegacy, ref useDark, sizeof(int));
+        }
+        catch
+        {
+            /* chrome is best-effort */
+        }
+    }
+
+    private static bool IsDark(Window window, ElementTheme? theme)
+    {
+        var resolved = theme
+            ?? (window.Content as FrameworkElement)?.RequestedTheme
+            ?? ElementTheme.Default;
+        return resolved switch
+        {
+            ElementTheme.Light => false,
+            ElementTheme.Dark => true,
+            // Application.RequestedTheme is frozen after launch; settings/ElementTheme can still change.
+            _ => App.ResolveElementTheme() == ElementTheme.Dark,
+        };
+    }
+
     private static double GetScale(IntPtr hwnd)
     {
         try
@@ -237,6 +299,9 @@ internal static class WindowChrome
         public RECT rcWork;
         public uint dwFlags;
     }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);

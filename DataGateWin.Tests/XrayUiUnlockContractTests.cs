@@ -8,52 +8,53 @@ using Xunit;
 namespace DataGateWin.Tests;
 
 /// <summary>
-/// Locks starter behavior: Xray stays hidden / Import locked / payload OpenVPN-only until Phase C.
+/// Catalog / Import / payload must expose Xray after Phase C unlock.
 /// </summary>
-public sealed class XrayUiLockContractTests
+public sealed class XrayUiUnlockContractTests
 {
     [Fact]
-    public void ImportViewModel_XrayProtocol_CannotImport()
+    public void ImportViewModel_AllowsXrayImportAndConnect()
     {
         var src = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "ViewModels", "ImportViewModel.cs")));
-        Assert.Contains("Import_XrayComingSoon", src, StringComparison.Ordinal);
-        Assert.Contains("ProtocolIndex != 0", src, StringComparison.Ordinal);
-        Assert.Contains("ImportedVpnProtocol.OpenVpn", src, StringComparison.Ordinal);
-        Assert.Contains("CanConnect = p.Protocol == ImportedVpnProtocol.OpenVpn", src, StringComparison.Ordinal);
+        Assert.Contains("ImportXrayText", src, StringComparison.Ordinal);
+        Assert.Contains("ImportedVpnProtocol.Xray", src, StringComparison.Ordinal);
+        Assert.Contains("CanConnect = true", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("Import_XrayComingSoon", src, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ImportPage_ShowsComingSoonForXray()
+    public void ImportPage_EnablesXrayBrowseAndPaste()
     {
         var cs = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Pages", "ImportPage.xaml.cs")));
-        Assert.Contains("Import_XrayComingSoon", cs, StringComparison.Ordinal);
-        Assert.Contains("XrayHintText", cs, StringComparison.Ordinal);
-
-        var xaml = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Pages", "ImportPage.xaml")));
-        Assert.Contains("XrayHintText", xaml, StringComparison.Ordinal);
+        Assert.Contains("Import_Hint_Xray", cs, StringComparison.Ordinal);
+        Assert.Contains("ImportText", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!_vm.IsOpenVpnSelected)", cs, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void HomeController_RejectsImportedXrayConnect()
+    public void HomeController_StartsImportedXray()
     {
         var src = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Controllers", "HomeController.cs")));
-        Assert.Contains("Import_Log_XrayNotReady", src, StringComparison.Ordinal);
-        Assert.Contains("ImportedVpnProtocol.OpenVpn", src, StringComparison.Ordinal);
+        Assert.Contains("ImportedXrayPayloadBuilder", src, StringComparison.Ordinal);
+        Assert.Contains("XrayClientLinksApiClient", src, StringComparison.Ordinal);
+        Assert.DoesNotContain("Import_Log_XrayNotReady", src, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void StartSessionPayloadBuilder_HasNoXrayProtocolBranchYet()
+    public void StartSessionPayloadBuilder_HasXrayProtocolBranch()
     {
         var src = File.ReadAllText(FindRepoFile(Path.Combine(
             "DataGateWin.Core", "Services", "Ipc", "StartSessionPayloadBuilder.cs")));
-        Assert.DoesNotContain("xrayShareLinks", src, StringComparison.Ordinal);
-        Assert.DoesNotContain("XrayClientLinksApiClient", src, StringComparison.Ordinal);
+        Assert.Contains("xrayShareLinks", src, StringComparison.Ordinal);
+        Assert.Contains("XrayClientLinksApiClient", src, StringComparison.Ordinal);
+        Assert.Contains("VpnServerType.Xray", src, StringComparison.Ordinal);
         Assert.Contains("OpenVpnFilesApiClient", src, StringComparison.Ordinal);
-        Assert.Contains("ovpnContent", src, StringComparison.Ordinal);
+        Assert.Contains("useWssBridge", src, StringComparison.Ordinal);
+        Assert.Contains("IsEnableWss", src, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void WssServerSelector_HidesAllXrayRows()
+    public void WssServerSelector_KeepsOpenVpnWssAndXray()
     {
         var openVpnWss = MakeRow(1, "Helsinki", VpnServerType.OpenVpn, wss: true, accessible: true);
         var xray = MakeRow(2, "Norway xray", VpnServerType.Xray, wss: false, accessible: true);
@@ -61,44 +62,37 @@ public sealed class XrayUiLockContractTests
         var openVpnNoWss = MakeRow(4, "Cyprus", VpnServerType.OpenVpn, wss: false, accessible: true);
         var openVpnNoQuota = MakeRow(5, "Tallinn", VpnServerType.OpenVpn, wss: true, accessible: false);
 
-        Assert.False(WssServerSelector.IsWindowsSupported(xray.VpnServerResponses!.VpnServer));
-        Assert.False(WssServerSelector.IsWindowsSupported(xrayWss.VpnServerResponses!.VpnServer));
+        Assert.True(WssServerSelector.IsWindowsSupported(xray.VpnServerResponses!.VpnServer));
+        Assert.True(WssServerSelector.IsXrayWindowsSupported(xray.VpnServerResponses!.VpnServer));
+        Assert.True(WssServerSelector.IsWindowsSupported(openVpnNoWss.VpnServerResponses!.VpnServer));
+        Assert.True(WssServerSelector.IsOpenVpnDirect(openVpnNoWss.VpnServerResponses!.VpnServer));
 
-        var wss = WssServerSelector.FilterWssEnabled([openVpnWss, xray, xrayWss, openVpnNoWss, openVpnNoQuota]);
-        Assert.Equal(2, wss.Count);
-        Assert.All(wss, r => Assert.Equal(VpnServerType.OpenVpn, r.VpnServerResponses!.VpnServer.ServerType));
+        var listed = WssServerSelector.FilterWssEnabled([openVpnWss, xray, xrayWss, openVpnNoWss, openVpnNoQuota]);
+        Assert.Equal(5, listed.Count);
+        Assert.Contains(listed, r => r.VpnServerResponses!.VpnServer.Id == 1);
+        Assert.Contains(listed, r => r.VpnServerResponses!.VpnServer.Id == 2);
+        Assert.Contains(listed, r => r.VpnServerResponses!.VpnServer.Id == 3);
+        Assert.Contains(listed, r => r.VpnServerResponses!.VpnServer.Id == 4);
+        Assert.Contains(listed, r => r.VpnServerResponses!.VpnServer.Id == 5);
 
         var eligible = WssServerSelector.FilterEligible([openVpnWss, xray, xrayWss, openVpnNoWss, openVpnNoQuota]);
-        Assert.Single(eligible);
-        Assert.Equal(1, eligible[0].VpnServerResponses!.VpnServer.Id);
+        Assert.Equal(4, eligible.Count);
+        Assert.Contains(eligible, r => r.VpnServerResponses!.VpnServer.Id == 4);
+        Assert.DoesNotContain(eligible, r => r.VpnServerResponses!.VpnServer.Id == 5);
     }
 
     [Fact]
-    public void RemainingPlan_DocumentsP0AndUiLock()
+    public void RemainingPlan_DocumentsUnlock()
     {
         var doc = File.ReadAllText(FindRepoFile(Path.Combine("docs", "XRAY_WINDOWS_REMAINING.md")));
-        Assert.Contains("Do not unlock Access / Import Xray UI", doc, StringComparison.Ordinal);
-        Assert.Contains("direct bypass", doc, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("S4", doc, StringComparison.Ordinal);
-        Assert.Contains("XrayWindowsConfigBuilderTests", doc, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PrepareShare_FromIssuedProfile_YieldsShareLinkForConvert()
-    {
-        var issued =
-            """{"vless":"vless://uuid@host:443?encryption=none#n","dnsServers":["172.20.0.1"],"mux":{"enabled":true}}""";
-        var prepared = XrayWindowsConfigBuilder.PrepareShareOrOutboundsInput(issued);
-        Assert.Equal("vless://uuid@host:443?encryption=none#n", prepared);
-        Assert.Equal(
-            ["172.20.0.1"],
-            XrayWindowsConfigBuilder.ExtractExplicitDnsServers(issued));
+        Assert.Contains("unlocked", doc, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("XrayUiUnlockContractTests", doc, StringComparison.Ordinal);
+        Assert.Contains("rdp-vpn-safety-kill", doc, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ExpectedIpcXrayPayload_ShapeForLabSmoke()
     {
-        // Documents the engine IPC contract used by S4 — UI must not emit this until unlock.
         var payload = new JObject
         {
             ["protocol"] = "xray",

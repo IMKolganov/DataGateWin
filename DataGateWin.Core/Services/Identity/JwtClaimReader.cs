@@ -95,4 +95,83 @@ public static class JwtClaimReader
 
         return GetPictureUrlFromBearerToken(bearerToken)?.Trim();
     }
+
+    /// <summary>ASP.NET role claim may be a string or JSON array. Prefer "Admin" when present.</summary>
+    public static string? GetRoleFromBearerToken(string? bearerToken)
+    {
+        var obj = TryParsePayload(bearerToken);
+        if (obj is null)
+            return null;
+
+        return ReadRoleClaim(obj, "role")
+            ?? ReadRoleClaim(obj, "http://schemas.microsoft.com/ws/2008/06/identity/claims/role");
+    }
+
+    /// <summary>Android parity: JWT role equals Admin (case-insensitive).</summary>
+    public static bool IsAdmin(string? bearerToken)
+    {
+        var role = GetRoleFromBearerToken(bearerToken);
+        return !string.IsNullOrWhiteSpace(role)
+            && role.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static JObject? TryParsePayload(string? bearerToken)
+    {
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            return null;
+
+        var parts = bearerToken.Split('.');
+        if (parts.Length < 2)
+            return null;
+
+        var payload = parts[1]
+            .Replace('-', '+')
+            .Replace('_', '/');
+
+        switch (payload.Length % 4)
+        {
+            case 2: payload += "=="; break;
+            case 3: payload += "="; break;
+        }
+
+        try
+        {
+            var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+            return JObject.Parse(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ReadRoleClaim(JObject obj, string claimName)
+    {
+        var token = obj[claimName];
+        if (token is null || token.Type == JTokenType.Null)
+            return null;
+
+        if (token.Type == JTokenType.String)
+        {
+            var s = token.Value<string>()?.Trim();
+            return string.IsNullOrEmpty(s) ? null : s;
+        }
+
+        if (token is JArray arr)
+        {
+            string? fallback = null;
+            foreach (var item in arr)
+            {
+                var s = item.Type == JTokenType.String ? item.Value<string>()?.Trim() : item.ToString()?.Trim();
+                if (string.IsNullOrEmpty(s))
+                    continue;
+                if (s.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+                    return s;
+                fallback ??= s;
+            }
+            return fallback;
+        }
+
+        return null;
+    }
 }

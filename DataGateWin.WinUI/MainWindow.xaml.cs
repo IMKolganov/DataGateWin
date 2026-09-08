@@ -8,6 +8,7 @@ using DataGateWin.Services.Auth;
 using DataGateWin.Services.Identity;
 using DataGateWin.Services.Security;
 using DataGateWin.Services.Support;
+using DataGateWin.Services.Tray;
 using DataGateWin.Services.Ui;
 using DataGateWin.Views;
 using Microsoft.UI.Windowing;
@@ -36,6 +37,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(AuthStateStore authState, HttpClient authedApiHttp)
     {
         InitializeComponent();
+        WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
@@ -73,7 +75,28 @@ public sealed partial class MainWindow : Window
         {
             ApplyNavLabels();
             UpdatePaneFooterLayout();
+            WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
+            RefreshVisiblePageLanguage();
         });
+
+    private void RefreshVisiblePageLanguage()
+    {
+        switch (NavFrame.Content)
+        {
+            case SettingsPage settings:
+                settings.ApplyOnShown();
+                break;
+            case AccessPage access:
+                access.ApplyLanguage();
+                break;
+            case ImportPage import:
+                import.ApplyOnShown();
+                break;
+            case StatisticsPage stats:
+                stats.ApplyOnShown();
+                break;
+        }
+    }
 
     private void ApplyNavLabels()
     {
@@ -84,8 +107,8 @@ public sealed partial class MainWindow : Window
         NavImport.Content = Loc.T("Nav_Import");
         NavStatistics.Content = Loc.T("Nav_Statistics");
         NavSettings.Content = Loc.T("Nav_Settings");
-        TelegramChannelButton.Content = Loc.T("Telegram_SubscribeHint");
-        ReportIssueButton.Content = Loc.T("Home_ReportIssue");
+        TelegramChannelButtonText.Text = Loc.T("Telegram_SubscribeHint");
+        ReportIssueButtonText.Text = Loc.T("Home_ReportIssue");
         ToolTipService.SetToolTip(TelegramChannelCompactButton, Loc.T("Telegram_SubscribeHint"));
         ToolTipService.SetToolTip(ReportIssueCompactButton, Loc.T("Home_ReportIssue"));
     }
@@ -176,14 +199,17 @@ public sealed partial class MainWindow : Window
             case "access":
                 _accessPage ??= new AccessPage();
                 NavFrame.Content = _accessPage;
+                _accessPage.RefreshOnShown();
                 break;
             case "import":
                 _importPage ??= new ImportPage(_homeController);
                 NavFrame.Content = _importPage;
+                _importPage.ApplyOnShown();
                 break;
             case "statistics":
                 _statisticsPage ??= new StatisticsPage(_authedApiHttp, App.Session);
                 NavFrame.Content = _statisticsPage;
+                _statisticsPage.ApplyOnShown();
                 break;
             case "settings":
                 _settingsPage ??= new SettingsPage(_authState);
@@ -193,6 +219,7 @@ public sealed partial class MainWindow : Window
                 _homePage ??= new HomePage(_homeController);
                 NavFrame.Content = _homePage;
                 tag = "home";
+                _ = _homePage.RefreshOnShownAsync();
                 break;
         }
 
@@ -203,6 +230,13 @@ public sealed partial class MainWindow : Window
     private async Task CheckAndShowFreeTierOnboardingIfNeededAsync(bool force)
     {
         if (_isOnboardingDialogOpen)
+            return;
+
+        // Android parity: Admin / paid plans never see Telegram compliance UX.
+        var token = App.Session.Current?.Token;
+        if (FreeTierOnboardingPolicy.ShouldSkipClientChecks(
+                isAdmin: JwtClaimReader.IsAdmin(token),
+                knownPlanName: null))
             return;
 
         if (!force && !FreeTierOnboardingPolicy.ShouldRefreshOnPoll(_lastOnboardingCheckUtc, DateTimeOffset.UtcNow))
@@ -243,4 +277,65 @@ public sealed partial class MainWindow : Window
 
     private void TelegramChannel_OnClick(object sender, RoutedEventArgs e)
         => TelegramChannel.OpenPublicChannel();
+
+    /// <summary>Tray: balloons + enable/disable Connect/Disconnect.</summary>
+    public void BindTray(TrayService tray)
+    {
+        _homeController.UiStateChanged += tray.OnVpnUiState;
+        tray.OnVpnUiState(_homeController.LastUiState, _homeController.LastStatusText);
+    }
+
+    /// <summary>Tray menu: connect using last Home auto/manual preference.</summary>
+    public void RequestConnectFromTray()
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                var auto = App.Settings.HomeVpnAutoPickServer;
+                int? manualId = auto ? null : App.Settings.HomeVpnManualServerId;
+                if (!auto && (manualId is null or <= 0))
+                {
+                    AppWindow.Show();
+                    Activate();
+                    NavigateTo("home");
+                    return;
+                }
+
+                var ok = await _homeController.ConnectAsync(auto, manualId).ConfigureAwait(true);
+                if (!ok)
+                {
+                    AppWindow.Show();
+                    Activate();
+                    NavigateTo("home");
+                }
+            }
+            catch (Exception ex)
+            {
+                CrashReporter.ReportNonFatal(ex, "MainWindow.RequestConnectFromTray");
+                AppWindow.Show();
+                Activate();
+                NavigateTo("home");
+            }
+        });
+    }
+
+    /// <summary>Tray menu: disconnect active session.</summary>
+    public void RequestDisconnectFromTray()
+    {
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                await _homeController.DisconnectAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                CrashReporter.ReportNonFatal(ex, "MainWindow.RequestDisconnectFromTray");
+                AppWindow.Show();
+                Activate();
+                NavigateTo("home");
+            }
+        });
+    }
 }

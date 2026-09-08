@@ -6,6 +6,7 @@ using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Access;
 using DataGateWin.Services.Auth;
+using DataGateWin.Services.Ui;
 using DataGateWin.Services.VpnServers;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServers.Dto;
 
@@ -21,6 +22,7 @@ public sealed partial class AccessViewModel : ObservableObject
     private string? _lastV3PlanName;
     private int _lastTotalClients;
     private bool _clientsLoaded;
+    private Exception? _lastLoadError;
 
     public AccessViewModel(OpenVpnServersApiClient serversApi, UserVpnAccessClient quotaApi, AuthSession session)
     {
@@ -31,7 +33,7 @@ public sealed partial class AccessViewModel : ObservableObject
         WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
 
         RefreshCommand = LoadCommand;
-        LoadCommand.Execute(null);
+        // Do not Load in ctor — AccessPage wires PropertyChanged first, then OnShown.
     }
 
     private void OnUiLanguageChanged(object? sender, EventArgs e)
@@ -41,6 +43,8 @@ public sealed partial class AccessViewModel : ObservableObject
             : Loc.T("Access_TotalClientsFmt", _lastTotalClients);
         if (_lastQuota is not null)
             ApplyQuotaUi(_lastQuota, _lastV3PlanName);
+        if (_lastLoadError is not null)
+            ErrorText = VpnUserFacingError.FromException(_lastLoadError);
     }
 
     [ObservableProperty]
@@ -78,6 +82,15 @@ public sealed partial class AccessViewModel : ObservableObject
     private bool quotaBarIsOver;
 
     [ObservableProperty]
+    private string quotaUsedCaption = "";
+
+    [ObservableProperty]
+    private string quotaRemainingCaption = "";
+
+    [ObservableProperty]
+    private bool quotaUsageCaptionsVisible;
+
+    [ObservableProperty]
     private string quotaDetailsText = "";
 
     [ObservableProperty]
@@ -93,6 +106,7 @@ public sealed partial class AccessViewModel : ObservableObject
         {
             IsLoading = true;
             ErrorText = null;
+            _lastLoadError = null;
 
             var token = await _session.GetValidAccessTokenAsync(CancellationToken.None).ConfigureAwait(true);
 
@@ -113,7 +127,8 @@ public sealed partial class AccessViewModel : ObservableObject
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "AccessViewModel.Load");
-            ErrorText = ex.Message;
+            _lastLoadError = ex;
+            ErrorText = VpnUserFacingError.FromException(ex);
         }
         finally
         {
@@ -127,10 +142,13 @@ public sealed partial class AccessViewModel : ObservableObject
     {
         if (!string.IsNullOrEmpty(i.QuotaApiError))
         {
-            PlanLineText = Loc.T("Access_QuotaErrorFmt", i.QuotaApiError);
+            PlanLineText = Loc.T("Access_QuotaErrorFmt", VpnUserFacingError.FromMessage(i.QuotaApiError));
             ShowTrafficQuotaTitle = false;
             QuotaMetaVisible = false;
             QuotaBarVisible = false;
+            QuotaUsageCaptionsVisible = false;
+            QuotaUsedCaption = "";
+            QuotaRemainingCaption = "";
             QuotaDetailsVisible = false;
             ValidityFooterText = Loc.T("Access_Dash");
             return;
@@ -156,6 +174,9 @@ public sealed partial class AccessViewModel : ObservableObject
         if (i.TrafficUsageNeedsExternalId)
         {
             QuotaBarVisible = false;
+            QuotaUsageCaptionsVisible = false;
+            QuotaUsedCaption = "";
+            QuotaRemainingCaption = "";
             QuotaDetailsVisible = true;
             QuotaDetailsText = Loc.T("Access_ExternalIdNote");
             QuotaBarIsOver = false;
@@ -164,6 +185,9 @@ public sealed partial class AccessViewModel : ObservableObject
         else if (i.QuotaLimitBytes <= 0)
         {
             QuotaBarVisible = false;
+            QuotaUsageCaptionsVisible = false;
+            QuotaUsedCaption = "";
+            QuotaRemainingCaption = "";
             QuotaDetailsVisible = true;
             QuotaDetailsText = Loc.T("Access_NoTrafficLimitNote");
             QuotaBarIsOver = false;
@@ -171,7 +195,11 @@ public sealed partial class AccessViewModel : ObservableObject
         }
         else if (i.TrafficUsedBytesForPeriod < 0)
         {
-            QuotaBarVisible = false;
+            var limUnknown = FormatDataSizeBytes(i.QuotaLimitBytes);
+            QuotaBarVisible = true;
+            QuotaUsageCaptionsVisible = true;
+            QuotaUsedCaption = Loc.T("Access_UsedLineFmt", "—", limUnknown, "0");
+            QuotaRemainingCaption = Loc.T("Access_RemainingFmt", limUnknown);
             QuotaDetailsVisible = true;
             QuotaDetailsText = Loc.T("Access_UsageUnavailable");
             QuotaBarIsOver = false;
@@ -184,17 +212,18 @@ public sealed partial class AccessViewModel : ObservableObject
             var pct = lim > 0 ? Math.Min(100.0, 100.0 * used / (double)lim) : 0;
             var over = used > lim;
             QuotaBarVisible = true;
+            QuotaUsageCaptionsVisible = true;
             QuotaDetailsVisible = true;
             QuotaBarValue = Math.Round(pct, MidpointRounding.AwayFromZero);
             QuotaBarIsOver = over;
             var uStr = FormatDataSizeBytes(used);
             var lStr = FormatDataSizeBytes(lim);
-            var stats = Loc.T("Access_UsedLineFmt", uStr, lStr, pct.ToString("F1", CultureInfo.CurrentCulture))
-                          + Environment.NewLine;
-            stats += over
+            QuotaUsedCaption = Loc.T("Access_UsedLineFmt", uStr, lStr, pct.ToString("F1", CultureInfo.CurrentCulture));
+            QuotaRemainingCaption = over
                 ? Loc.T("Access_OverByFmt", FormatDataSizeBytes(used - lim))
                 : Loc.T("Access_RemainingFmt", FormatDataSizeBytes(lim - used));
-            QuotaDetailsText = stats;
+            QuotaDetailsText = "";
+            QuotaDetailsVisible = false;
         }
 
         var validityParts = new List<string>();

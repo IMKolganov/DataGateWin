@@ -7,24 +7,23 @@ public sealed class XrayLocalizationContractTests
     [Theory]
     [InlineData("Strings.en.xaml")]
     [InlineData("Strings.ru.xaml")]
-    public void PrimaryLocales_ContainXrayLockKeys(string fileName)
+    public void PrimaryLocales_ContainXrayUnlockKeys(string fileName)
     {
         var path = FindRepoFile(Path.Combine("DataGateWin.WinUI", "Localization", fileName));
         var text = File.ReadAllText(path);
-        Assert.Contains("x:Key=\"Import_XrayComingSoon\"", text, StringComparison.Ordinal);
-        Assert.Contains("x:Key=\"Import_Log_XrayNotReady\"", text, StringComparison.Ordinal);
+        Assert.Contains("x:Key=\"Import_Hint_Xray\"", text, StringComparison.Ordinal);
+        Assert.Contains("x:Key=\"Import_PastePlaceholder_Xray\"", text, StringComparison.Ordinal);
+        Assert.Contains("x:Key=\"Import_Validate_no_xray_share\"", text, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void EnglishAndRussian_XrayKeys_AreNonEmpty()
+    public void EnglishAndRussian_XrayHints_AreNonEmpty()
     {
         var en = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Localization", "Strings.en.xaml")));
         var ru = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Localization", "Strings.ru.xaml")));
 
-        Assert.Contains("not available on Windows yet", en, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("недоступны", ru, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("not supported yet", en, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("не поддерживается", ru, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("share link", en, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("share-link", ru, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FindRepoRoot()

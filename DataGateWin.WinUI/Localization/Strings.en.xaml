@@ -5,7 +5,14 @@
     <x:String x:Key="App_Title">DataGate</x:String>
     <x:String x:Key="Tray_Tooltip">DataGate</x:String>
     <x:String x:Key="Tray_Open">Open</x:String>
+    <x:String x:Key="Tray_Connect">Connect</x:String>
+    <x:String x:Key="Tray_Disconnect">Disconnect</x:String>
     <x:String x:Key="Tray_Exit">Exit</x:String>
+    <x:String x:Key="Tray_Tooltip_Connected">DataGate — connected</x:String>
+    <x:String x:Key="Tray_Notify_ConnectedTitle">Connected</x:String>
+    <x:String x:Key="Tray_Notify_ConnectedBody">VPN is connected.</x:String>
+    <x:String x:Key="Tray_Notify_DisconnectedTitle">Disconnected</x:String>
+    <x:String x:Key="Tray_Notify_DisconnectedBody">VPN is disconnected.</x:String>
     <x:String x:Key="Telegram_ChannelUrl">https://t.me/datagateapp</x:String>
     <x:String x:Key="Telegram_SubscribeHint">Subscribe to our Telegram channel</x:String>
     <x:String x:Key="Action_Ok">OK</x:String>
@@ -43,6 +50,15 @@
     <x:String x:Key="Home_Connect">Connect</x:String>
     <x:String x:Key="Home_Disconnect">Disconnect</x:String>
     <x:String x:Key="Home_EngineLogs">Engine logs</x:String>
+    <x:String x:Key="Home_ShowEngineLogs">Show engine logs</x:String>
+    <x:String x:Key="Home_Traffic_Title">Traffic</x:String>
+    <x:String x:Key="Home_Traffic_In">In</x:String>
+    <x:String x:Key="Home_Traffic_Out">Out</x:String>
+    <x:String x:Key="Home_Traffic_InFmt">In {0}</x:String>
+    <x:String x:Key="Home_Traffic_OutFmt">Out {0}</x:String>
+    <x:String x:Key="Home_Traffic_Error">Could not read live traffic</x:String>
+    <x:String x:Key="Home_Traffic_Error_Access">No permission to read VPN adapter traffic</x:String>
+    <x:String x:Key="Home_Traffic_Error_Unavailable">VPN adapter traffic is temporarily unavailable</x:String>
     <x:String x:Key="Msg_ChooseServerTitle">DataGate</x:String>
     <x:String x:Key="Msg_ChooseServerBody">Choose a VPN server or press Refresh to load the list.</x:String>
     <x:String x:Key="Home_ServerRowFmt">{0}  ·  {1} clients  ·  {2}</x:String>
@@ -52,7 +68,7 @@
     <x:String x:Key="Common_Unknown">Unknown</x:String>
     <x:String x:Key="Home_Log_EngineAttachFmt">Engine attach: {0}</x:String>
     <x:String x:Key="Home_Log_VpnListFmt">VPN server list: {0}</x:String>
-    <x:String x:Key="Home_Log_NoWss">No WSS-enabled VPN servers available for your plan.</x:String>
+    <x:String x:Key="Home_Log_NoWss">No VPN servers available for your plan.</x:String>
     <x:String x:Key="Home_Log_UiAttached">UI attached.</x:String>
     <x:String x:Key="Home_Log_ErrorFmt">ERROR: {0}</x:String>
     <x:String x:Key="Err_EngineExit_HeadFmt">Engine stopped immediately. ExitCode={0}. LastOut={1}. LastErr={2}</x:String>
@@ -68,6 +84,19 @@
     <x:String x:Key="Home_Status_IdleStartFailed">Idle (start failed)</x:String>
     <x:String x:Key="Home_Status_ConnectingWaiting">Connecting (waiting for events)…</x:String>
     <x:String x:Key="Home_Status_IdleErrorFmt">Idle (error: {0})</x:String>
+    <x:String x:Key="Home_Error_TunBusy">VPN adapter busy — disconnect or restart DataGate, then try again</x:String>
+    <x:String x:Key="Home_Error_EngineAttach">Could not connect to the VPN engine. Restart DataGate as Administrator.</x:String>
+    <x:String x:Key="Home_Error_EngineExit">VPN engine stopped unexpectedly. Try connecting again.</x:String>
+    <x:String x:Key="Home_Error_Auth">Sign-in expired. Sign out and sign in again.</x:String>
+    <x:String x:Key="Home_Error_ProfileDownload">Could not download the VPN profile. Try another server or try again later.</x:String>
+    <x:String x:Key="Home_Error_XrayConvert">Invalid Xray profile or share link.</x:String>
+    <x:String x:Key="Home_Error_XrayStart">Could not start Xray. Check the profile and try again.</x:String>
+    <x:String x:Key="Home_Error_ServerRequest">Server request failed. Try again later.</x:String>
+    <x:String x:Key="Home_Error_Canceled">Canceled.</x:String>
+    <x:String x:Key="Home_Error_Timeout">Timed out. Try again.</x:String>
+    <x:String x:Key="Home_Error_Generic">Something went wrong. Try again.</x:String>
+    <x:String x:Key="Home_Error_Network">Cannot reach the server. Check your internet connection and try again.</x:String>
+    <x:String x:Key="Home_Error_Permission">Access denied. Try running DataGate as administrator.</x:String>
     <x:String x:Key="Home_Status_Disconnecting">Disconnecting…</x:String>
     <x:String x:Key="Home_Status_Idle">Idle</x:String>
     <x:String x:Key="Home_Status_IdleDisconnected">Idle (disconnected)</x:String>
@@ -80,6 +109,7 @@
     <x:String x:Key="Home_Network_Unavailable">—</x:String>
     <x:String x:Key="Home_Network_ExternalIp">External IP (server)</x:String>
     <x:String x:Key="Home_Network_VpnIp">VPN IP</x:String>
+    <x:String x:Key="Home_Network_Dns">DNS</x:String>
     <x:String x:Key="Home_Network_Server">Server</x:String>
     <x:String x:Key="Home_Status_IdleDisconnectedReasonFmt">Idle (disconnected: {0})</x:String>
 
@@ -250,6 +280,7 @@
     <x:String x:Key="Login_Totp_Status_Verifying">Verifying authenticator code…</x:String>
     <x:String x:Key="Login_Totp_Error_CodeRequired">Enter a valid 6-digit authenticator code.</x:String>
     <x:String x:Key="Login_Totp_ChallengeExpired">This sign-in challenge expired. Sign in with Google again.</x:String>
+    <x:String x:Key="Login_Totp_Error_Invalid">Invalid authenticator code. Try again.</x:String>
 
     <x:String x:Key="FirstRun_Title">Connection setup</x:String>
     <x:String x:Key="FirstRun_Subtitle">Enter your DataGate API URL and Google OAuth client ID. Values are saved to appsettings.json next to the application.</x:String>
@@ -279,7 +310,8 @@
     <x:String x:Key="Import_Protocol">Protocol</x:String>
     <x:String x:Key="Import_Protocol_OpenVpn">OpenVPN</x:String>
     <x:String x:Key="Import_Protocol_Xray">Xray</x:String>
-    <x:String x:Key="Import_XrayComingSoon">Xray import and connect are not available on Windows yet.</x:String>
+    <x:String x:Key="Import_XrayComingSoon">Xray import and connect are available — paste a share link or issued JSON profile.</x:String>
+    <x:String x:Key="Import_Hint_Xray">Paste a vless/vmess/trojan/ss share link, or an issued JSON profile with a vless field / outbounds.</x:String>
     <x:String x:Key="Import_AddSection">Add profile</x:String>
     <x:String x:Key="Import_Browse">Browse file…</x:String>
     <x:String x:Key="Import_Paste">Paste config…</x:String>
@@ -289,6 +321,7 @@
     <x:String x:Key="Import_Delete">Delete</x:String>
     <x:String x:Key="Import_PasteTitle">Paste OpenVPN config</x:String>
     <x:String x:Key="Import_PastePlaceholder">client&#x0a;dev tun&#x0a;remote example.com 1194&#x0a;…</x:String>
+    <x:String x:Key="Import_PastePlaceholder_Xray">vless://uuid@host:443?encryption=none#name</x:String>
     <x:String x:Key="Import_Save">Save</x:String>
     <x:String x:Key="Import_ProfileMetaFmt">{0} · updated {1}</x:String>
     <x:String x:Key="Import_Status_ImportedFmt">Imported “{0}”.</x:String>
@@ -299,7 +332,9 @@
     <x:String x:Key="Import_Validate_empty">Config is empty.</x:String>
     <x:String x:Key="Import_Validate_no_remote">Config must contain a remote line.</x:String>
     <x:String x:Key="Import_Validate_multiple_remote">Config must contain exactly one remote line.</x:String>
+    <x:String x:Key="Import_Validate_no_xray_share">Paste a share link (vless://…) or Xray outbounds / issued JSON profile.</x:String>
+    <x:String x:Key="Import_Validate_not_xray">This looks like OpenVPN — switch protocol to OpenVPN.</x:String>
     <x:String x:Key="Import_Log_ProfileMissing">Imported profile not found.</x:String>
-    <x:String x:Key="Import_Log_XrayNotReady">Xray is not supported yet.</x:String>
-    <x:String x:Key="Import_Log_ConnectingFmt">Starting imported OpenVPN profile: {0}</x:String>
+    <x:String x:Key="Import_Log_XrayNotReady">Xray profile could not be started.</x:String>
+    <x:String x:Key="Import_Log_ConnectingFmt">Starting imported profile: {0}</x:String>
 </ResourceDictionary>

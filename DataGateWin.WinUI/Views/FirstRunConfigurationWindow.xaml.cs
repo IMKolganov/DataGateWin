@@ -16,6 +16,7 @@ public sealed partial class FirstRunConfigurationWindow : Window
     public FirstRunConfigurationWindow(ApiSettings? existingApi, GoogleAuthSettings? existingGoogle)
     {
         InitializeComponent();
+        WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         WindowChrome.ApplyDefault(this, width: 560, height: 480);
 
         Title = Loc.T("FirstRun_Title");
@@ -26,8 +27,8 @@ public sealed partial class FirstRunConfigurationWindow : Window
         PortLabel.Text = Loc.T("FirstRun_RedirectPort");
         ApiBaseUrlBox.PlaceholderText = Loc.T("FirstRun_Placeholder_ApiBaseUrl");
         GoogleClientIdBox.PlaceholderText = Loc.T("FirstRun_Placeholder_GoogleClientId");
-        SaveButton.Content = Loc.T("FirstRun_SaveContinue");
-        CancelButton.Content = Loc.T("FirstRun_CancelExit");
+        SaveButtonText.Text = Loc.T("FirstRun_SaveContinue");
+        CancelButtonText.Text = Loc.T("FirstRun_CancelExit");
 
         ApiBaseUrlBox.Text = string.IsNullOrWhiteSpace(existingApi?.BaseUrl)
             ? DataGatePublicDefaults.ApiBaseUrl
@@ -91,7 +92,7 @@ public sealed partial class FirstRunConfigurationWindow : Window
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "FirstRunConfigurationWindow.Save");
-            ShowError(Loc.T("FirstRun_Err_SaveFailedFmt", ex.Message));
+            ShowError(Loc.T("FirstRun_Err_SaveFailedFmt", VpnUserFacingError.FromException(ex)));
             return;
         }
 

@@ -7,6 +7,7 @@ using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Identity;
 using DataGateWin.Services.Statistics;
+using DataGateWin.Services.Ui;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServerClients.Requests;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServerClients.Responses;
 using DataGateMonitor.SharedModels.Enums;
@@ -134,6 +135,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     private DateTimeOffset? _loadedFromUtc;
     private DateTimeOffset? _loadedToUtc;
     private bool _darkTheme = true;
+    private Exception? _lastError;
 
     public StatisticsViewModel(StatisticsApiClient api, AuthSession session)
     {
@@ -159,6 +161,8 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     private void OnUiLanguageChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(nameof(GroupingText));
+        if (_lastError is not null)
+            ErrorText = VpnUserFacingError.FromException(_lastError);
         if (_loadedFromUtc is not null && _loadedToUtc is not null)
             ApplyLoadedPeriodText();
         else
@@ -177,6 +181,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     private async Task ApplyAsync(CancellationToken ct)
     {
         ErrorText = null;
+        _lastError = null;
         var from = GetFromDateUtc();
         var to = GetToDateUtc();
         if (to <= from)
@@ -223,10 +228,15 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
             ApplyLoadedPeriodText();
             RefreshChart();
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "StatisticsViewModel.Apply");
-            ErrorText = ex.Message;
+            _lastError = ex;
+            ErrorText = VpnUserFacingError.FromException(ex);
         }
         finally
         {

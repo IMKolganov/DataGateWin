@@ -50,8 +50,8 @@ public static class EngineMissingUi
                 {
                     Title = Loc.T("Msg_EngineMissingTitle"),
                     Content = Loc.T("Msg_EngineMissingBodyWithInstaller", AppInstallerLocator.DownloadPageUrl),
-                    PrimaryButtonText = "Yes",
-                    SecondaryButtonText = "No",
+                    PrimaryButtonText = Loc.T("Action_Yes"),
+                    SecondaryButtonText = Loc.T("Action_No"),
                     CloseButtonText = Loc.T("Login_Cancel"),
                     DefaultButton = ContentDialogButton.Primary,
                     XamlRoot = xamlRoot,
@@ -73,8 +73,8 @@ public static class EngineMissingUi
                 {
                     Title = Loc.T("Msg_EngineMissingTitle"),
                     Content = Loc.T("Msg_EngineMissingBodyNoInstaller", AppInstallerLocator.DownloadPageUrl),
-                    PrimaryButtonText = "Yes",
-                    CloseButtonText = "No",
+                    PrimaryButtonText = Loc.T("Action_Yes"),
+                    CloseButtonText = Loc.T("Action_No"),
                     DefaultButton = ContentDialogButton.Primary,
                     XamlRoot = xamlRoot,
                 };

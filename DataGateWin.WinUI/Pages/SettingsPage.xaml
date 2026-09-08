@@ -7,19 +7,40 @@
 
     <ScrollViewer>
         <StackPanel Margin="20" Spacing="16">
-            <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <FontIcon Glyph="&#xE713;" FontSize="18" VerticalAlignment="Center" />
+                <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
 
             <Border Padding="18" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
-                <StackPanel Spacing="12">
-                    <TextBlock x:Name="LanguageHeader" FontWeight="SemiBold" />
-                    <TextBlock x:Name="LanguageHint" Opacity="0.75" />
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8C1;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock x:Name="LanguageHeader" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="LanguageHint" Opacity="0.75" TextWrapping="Wrap" />
                     <ComboBox x:Name="LanguageCombo" MinWidth="280" SelectionChanged="LanguageCombo_OnSelectionChanged" />
+                </StackPanel>
+            </Border>
 
-                    <TextBlock x:Name="AppearanceHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
-                    <TextBlock x:Name="AppearanceHint" Opacity="0.75" />
+            <Border Padding="18" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE790;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock x:Name="AppearanceHeader" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="AppearanceHint" Opacity="0.75" TextWrapping="Wrap" />
                     <ToggleSwitch x:Name="ThemeToggle" Toggled="ThemeToggle_OnToggled" />
+                </StackPanel>
+            </Border>
 
-                    <TextBlock x:Name="IpListsHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <Border Padding="18" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE968;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock x:Name="IpListsHeader" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="IpListsHint" Opacity="0.75" TextWrapping="Wrap" />
                     <ToggleSwitch x:Name="IpListsMainToggle" Toggled="IpListsMainToggle_OnToggled" />
                     <Button x:Name="IpListsConfigureButton" Click="IpListsConfigure_OnClick">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -27,18 +48,34 @@
                             <TextBlock x:Name="IpListsConfigureButtonText" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                </StackPanel>
+            </Border>
 
-                    <TextBlock x:Name="VersionHeader" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <Border Padding="18" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE946;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock x:Name="VersionHeader" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock x:Name="CurrentVersionText" />
                     <TextBlock x:Name="LatestVersionText" Opacity="0.75" />
-
                     <Button x:Name="AboutButton" Click="AboutButton_OnClick">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE946;" FontSize="14" />
                             <TextBlock x:Name="AboutButtonText" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="LogoutButton" Click="LogoutButton_OnClick" Style="{StaticResource AccentButtonStyle}">
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE77B;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock x:Name="AccountHeader" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="AccountHint" Opacity="0.75" TextWrapping="Wrap" />
+                    <Button x:Name="LogoutButton" Click="LogoutButton_OnClick">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE7E8;" FontSize="14" />
                             <TextBlock x:Name="LogoutButtonText" VerticalAlignment="Center" />

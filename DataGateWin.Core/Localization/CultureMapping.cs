@@ -4,7 +4,11 @@ namespace DataGateWin.Localization;
 
 public static class CultureMapping
 {
-    /// <summary>Maps a Windows/UI culture to the closest supported app language code.</summary>
+    /// <summary>
+    /// Maps a Windows/OS UI culture to the closest supported app language code.
+    /// For the in-app “system” preference pass <see cref="CultureInfo.InstalledUICulture"/>,
+    /// not <see cref="CultureInfo.CurrentUICulture"/> (the latter is overwritten when the user picks a language).
+    /// </summary>
     public static string MapCultureToSupportedCode(CultureInfo culture)
     {
         var chain = new List<CultureInfo>();

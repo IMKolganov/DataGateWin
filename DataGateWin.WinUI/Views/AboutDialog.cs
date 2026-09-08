@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using DataGateWin.Localization;
+using DataGateWin.Services.Ui;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -39,7 +40,7 @@ public sealed class AboutDialog
 
         var dlg = new ContentDialog
         {
-            Title = Loc.T("About_Title"),
+            Title = IconButtonContent.Heading(IconButtonContent.Info, Loc.T("About_Title")),
             Content = panel,
             CloseButtonText = Loc.T("About_Close"),
             XamlRoot = xamlRoot,

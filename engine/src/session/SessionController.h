@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace datagate::session
 {
@@ -44,6 +45,10 @@ namespace datagate::session
         std::string xrayShareLinks;
         /// Prebuilt outbounds JSON or full config fragment (Xray).
         std::string xrayConfigJson;
+        /// Extra CIDRs routed direct (e.g. active RDP peers) before catch-all proxy.
+        std::vector<std::string> directBypassCidrs;
+        /// Explicit TUN DNS from IPC (issued/import profile); merged with JSON dnsServers.
+        std::vector<std::string> dnsServers;
     };
 
     struct ConnectedInfo

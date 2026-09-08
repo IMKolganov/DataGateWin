@@ -224,8 +224,20 @@ public static class XrayWindowsConfigBuilder
             });
         }
 
+        var dnsForTun = (tunnelDnsServers != null && tunnelDnsServers.Count > 0)
+            ? tunnelDnsServers.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList()
+            : new List<string> { "1.1.1.1", "8.8.8.8" };
+
         var rules = new JArray();
-        AppendProxyDnsRules(rules, proxyTag, tunnelDnsServers ?? Array.Empty<string>());
+        // Drop local NetBIOS/SMB discovery that APIPA floods into TUN on Windows.
+        rules.Add(new JObject
+        {
+            ["type"] = "field",
+            ["outboundTag"] = "block",
+            ["port"] = "137,138,139",
+            ["network"] = "udp"
+        });
+        AppendProxyDnsRules(rules, proxyTag, dnsForTun);
         rules.Add(new JObject
         {
             ["type"] = "field",
@@ -248,7 +260,11 @@ public static class XrayWindowsConfigBuilder
 
         var root = new JObject
         {
-            ["log"] = new JObject { ["loglevel"] = "warning" },
+            ["log"] = new JObject
+            {
+                ["loglevel"] = "warning",
+                ["access"] = "none",
+            },
             ["inbounds"] = new JArray
             {
                 new JObject
@@ -259,7 +275,12 @@ public static class XrayWindowsConfigBuilder
                     {
                         ["mtu"] = mtu,
                         ["name"] = "xray0",
-                        ["stack"] = "system"
+                        ["stack"] = "system",
+                        // Windows: steer default route into TUN (Android VpnService does this itself).
+                        ["gateway"] = new JArray("172.19.0.1/30"),
+                        ["dns"] = new JArray(dnsForTun),
+                        ["autoSystemRoutingTable"] = new JArray("0.0.0.0/0"),
+                        ["autoOutboundsInterface"] = "auto",
                     },
                     ["sniffing"] = new JObject
                     {
@@ -297,6 +318,26 @@ public static class XrayWindowsConfigBuilder
                     SanitizeOutboundsForRuntime(outbounds);
                     var wrap = new JObject { ["outbounds"] = outbounds };
                     var mux = NormalizeMux(trimmed);
+                    if (mux != null)
+                        wrap["mux"] = mux;
+                    var dnsFromOutbounds = ExtractExplicitDnsServers(trimmed);
+                    if (dnsFromOutbounds.Count > 0)
+                        wrap["dnsServers"] = new JArray(dnsFromOutbounds);
+                    return wrap.ToString(Newtonsoft.Json.Formatting.None);
+                }
+
+                // Issued API: keep dnsServers + mux with the share link so the engine TUN DNS path works.
+                var share = ExtractShareLink(trimmed);
+                if (!string.IsNullOrEmpty(share))
+                {
+                    var dns = ExtractExplicitDnsServers(trimmed);
+                    var mux = NormalizeMux(trimmed);
+                    if (dns.Count == 0 && mux == null)
+                        return share;
+
+                    var wrap = new JObject { ["vless"] = share };
+                    if (dns.Count > 0)
+                        wrap["dnsServers"] = new JArray(dns);
                     if (mux != null)
                         wrap["mux"] = mux;
                     return wrap.ToString(Newtonsoft.Json.Formatting.None);

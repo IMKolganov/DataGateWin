@@ -63,6 +63,15 @@ public sealed class EngineLogNoiseFilterTests
         Assert.Contains("attempted=2", summary, StringComparison.Ordinal);
         Assert.Null(f.Flush());
     }
+
+    [Fact]
+    public void Drops_Xray_NetBios_Access_Spam()
+    {
+        var f = new EngineLogNoiseFilter();
+        Assert.Null(f.Filter(
+            "2026/09/07 15:10:21.592694 from udp:169.254.57.70:65187 accepted udp:169.254.255.255:137 [tun-in -> direct]"));
+        Assert.Equal("keep", f.Filter("keep"));
+    }
 }
 
 public sealed class IpListRouteConfigWindowsLimitTests

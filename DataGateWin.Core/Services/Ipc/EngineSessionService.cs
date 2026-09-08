@@ -6,6 +6,7 @@ using DataGateWin.CrashReporting;
 using DataGateWin.Ipc;
 using DataGateWin.Localization;
 using DataGateWin.Models.Ipc;
+using DataGateWin.Services.Ui;
 using DataGateWin.Services.VpnServers;
 using Newtonsoft.Json.Linq;
 
@@ -26,6 +27,33 @@ public sealed class EngineSessionService(
 
     /// <summary>Last <see cref="StartSessionAsync"/> failed because no WSS server matched filters.</summary>
     public bool LastStartFailedNoEligibleServers { get; private set; }
+
+    private Exception? _lastStartException;
+    private string? _lastStartRaw;
+
+    /// <summary>Short human message from the last failed start (payload/API/engine reply).</summary>
+    public string? LastStartErrorHuman =>
+        _lastStartException != null ? VpnUserFacingError.FromException(_lastStartException)
+        : _lastStartRaw != null ? VpnUserFacingError.FromMessage(_lastStartRaw)
+        : null;
+
+    public void RememberStartError(Exception ex)
+    {
+        _lastStartException = ex;
+        _lastStartRaw = null;
+    }
+
+    public void RememberStartErrorHuman(string? message)
+    {
+        _lastStartException = null;
+        _lastStartRaw = string.IsNullOrWhiteSpace(message) ? null : message.Trim();
+    }
+
+    private void ClearLastStartError()
+    {
+        _lastStartException = null;
+        _lastStartRaw = null;
+    }
 
     /// <summary>Server row remembered from the last successful payload build (Home network footer).</summary>
     public VpnConnectionSessionInfo? LastSelection => payloadBuilder.LastSelection;
@@ -156,6 +184,7 @@ public sealed class EngineSessionService(
     {
         EnsureClientCreated();
         LastStartFailedNoEligibleServers = false;
+        ClearLastStartError();
 
         JObject? payload;
         try
@@ -167,11 +196,13 @@ public sealed class EngineSessionService(
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             log("StartSession skipped: canceled.");
+            RememberStartErrorHuman("canceled");
             return false;
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "EngineSessionService.StartSessionPayload");
+            RememberStartError(ex);
             log($"BuildAsync failed: {ex.Message}");
             return false;
         }
@@ -180,6 +211,7 @@ public sealed class EngineSessionService(
         {
             log("No eligible WSS VPN servers.");
             LastStartFailedNoEligibleServers = true;
+            RememberStartErrorHuman("No eligible");
             return false;
         }
 
@@ -191,31 +223,97 @@ public sealed class EngineSessionService(
         ArgumentNullException.ThrowIfNull(payload);
         EnsureClientCreated();
         LastStartFailedNoEligibleServers = false;
+        ClearLastStartError();
         return SendStartSessionAsync(payload, ct);
     }
 
     private async Task<bool> SendStartSessionAsync(JObject payload, CancellationToken ct)
     {
-        using var startCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        startCts.CancelAfter(TimeSpan.FromSeconds(20));
-
-        var reply = await _client!.SendCommandAsync(
-            "StartSession",
-            payload.ToString(Newtonsoft.Json.Formatting.None),
-            startCts.Token).ConfigureAwait(false);
-
-        if (!reply.Ok)
+        // Catalog Xray already appends in the payload builder; imported Xray hits this path only.
+        try
         {
-            var code = reply.Code ?? "?";
-            var message = reply.Message ?? "?";
-            CrashReporter.ReportNonFatal(
-                new InvalidOperationException($"StartSession failed: {code} - {message}"),
-                "EngineSessionService.StartSessionReply");
-            log($"StartSession failed: {code} - {message}");
+            await payloadBuilder.AppendXrayIpListBypassAsync(payload, ct).ConfigureAwait(false);
+            InjectRdpPeerBypass(payload);
+
+            using var startCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            startCts.CancelAfter(TimeSpan.FromSeconds(20));
+
+            var reply = await _client!.SendCommandAsync(
+                "StartSession",
+                payload.ToString(Newtonsoft.Json.Formatting.None),
+                startCts.Token).ConfigureAwait(false);
+
+            if (!reply.Ok)
+            {
+                var code = reply.Code ?? "?";
+                var message = reply.Message ?? "?";
+                CrashReporter.ReportNonFatal(
+                    new InvalidOperationException($"StartSession failed: {code} - {message}"),
+                    "EngineSessionService.StartSessionReply");
+                RememberStartErrorHuman($"{code}: {message}");
+                log($"StartSession failed: {code} - {message}");
+                return false;
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            RememberStartErrorHuman("canceled");
+            log("StartSession canceled.");
             return false;
         }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "EngineSessionService.StartSessionSend");
+            RememberStartError(ex);
+            log($"StartSession send failed: {ex.Message}");
+            return false;
+        }
+    }
 
-        return true;
+    /// <summary>
+    /// Keep active RDP clients on the physical NIC so full-tunnel VPN does not drop the session.
+    /// </summary>
+    private void InjectRdpPeerBypass(JObject payload)
+    {
+        var peers = RdpPeerCidrs.CollectEstablishedPeerCidrs();
+        if (peers.Count == 0)
+            return;
+
+        log($"[ui] RDP peer bypass: {string.Join(", ", peers)}");
+
+        var protocol = payload.Value<string>("protocol")?.Trim().ToLowerInvariant();
+        if (protocol == "xray")
+        {
+            var arr = payload["directBypassCidrs"] as JArray ?? new JArray();
+            foreach (var cidr in peers)
+            {
+                if (!arr.Any(t => string.Equals(t.Value<string>(), cidr, StringComparison.OrdinalIgnoreCase)))
+                    arr.Add(cidr);
+            }
+            payload["directBypassCidrs"] = arr;
+            return;
+        }
+
+        var ovpn = payload.Value<string>("ovpnContent");
+        if (string.IsNullOrEmpty(ovpn))
+            return;
+
+        var sb = new System.Text.StringBuilder(ovpn);
+        if (!ovpn.EndsWith('\n'))
+            sb.Append('\n');
+        sb.AppendLine("# DataGate RDP peer bypass (keep remote desktop alive)");
+        foreach (var cidr in peers)
+        {
+            var slash = cidr.LastIndexOf('/');
+            var ip = slash > 0 ? cidr[..slash] : cidr;
+            if (ip.Contains(':', StringComparison.Ordinal))
+                sb.Append("route-ipv6 ").Append(cidr).AppendLine(" net_gateway");
+            else
+                sb.Append("route ").Append(ip).AppendLine(" 255.255.255.255 net_gateway");
+        }
+        payload["ovpnContent"] = sb.ToString();
     }
 
 

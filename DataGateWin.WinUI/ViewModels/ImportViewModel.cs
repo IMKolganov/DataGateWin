@@ -5,6 +5,7 @@ using DataGateWin.Controllers;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Profiles;
+using DataGateWin.Services.Ui;
 
 namespace DataGateWin.ViewModels;
 
@@ -37,7 +38,7 @@ public sealed partial class ImportViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsOpenVpnSelected));
         OnPropertyChanged(nameof(IsXraySelected));
-        StatusText = value == 1 ? Loc.T("Import_XrayComingSoon") : "";
+        StatusText = "";
     }
 
     public void Reload()
@@ -56,19 +57,20 @@ public sealed partial class ImportViewModel : ObservableObject
                     "Import_ProfileMetaFmt",
                     p.SourceFileName ?? "—",
                     p.UpdatedUtc.ToLocalTime().ToString("g")),
-                CanConnect = p.Protocol == ImportedVpnProtocol.OpenVpn,
+                CanConnect = true,
             });
         }
     }
 
+    public ImportedVpnProfile? ImportText(string configText, string? fileName)
+    {
+        if (IsXraySelected)
+            return ImportXrayText(configText, fileName);
+        return ImportOpenVpnText(configText, fileName);
+    }
+
     public ImportedVpnProfile? ImportOpenVpnText(string configText, string? fileName)
     {
-        if (ProtocolIndex != 0)
-        {
-            StatusText = Loc.T("Import_XrayComingSoon");
-            return null;
-        }
-
         if (!ImportedOpenVpnValidator.TryValidate(configText, out var err))
         {
             StatusText = Loc.T("Import_Validate_" + err);
@@ -79,6 +81,27 @@ public sealed partial class ImportViewModel : ObservableObject
         {
             Name = ImportedOpenVpnValidator.SuggestName(fileName, configText),
             Protocol = ImportedVpnProtocol.OpenVpn,
+            ConfigText = configText,
+            SourceFileName = string.IsNullOrWhiteSpace(fileName) ? null : Path.GetFileName(fileName),
+        };
+        _store.Upsert(profile);
+        Reload();
+        StatusText = Loc.T("Import_Status_ImportedFmt", profile.Name);
+        return profile;
+    }
+
+    public ImportedVpnProfile? ImportXrayText(string configText, string? fileName)
+    {
+        if (!ImportedXrayValidator.TryValidate(configText, out var err))
+        {
+            StatusText = Loc.T("Import_Validate_" + err);
+            return null;
+        }
+
+        var profile = new ImportedVpnProfile
+        {
+            Name = ImportedXrayValidator.SuggestName(fileName, configText),
+            Protocol = ImportedVpnProtocol.Xray,
             ConfigText = configText,
             SourceFileName = string.IsNullOrWhiteSpace(fileName) ? null : Path.GetFileName(fileName),
         };
@@ -113,25 +136,27 @@ public sealed partial class ImportViewModel : ObservableObject
             return;
         }
 
-        if (profile.Protocol != ImportedVpnProtocol.OpenVpn)
-        {
-            StatusText = Loc.T("Import_XrayComingSoon");
-            return;
-        }
-
         IsBusy = true;
         try
         {
             StatusText = Loc.T("Import_Status_ConnectingFmt", profile.Name);
             var started = await _home.ConnectImportedProfileAsync(profile.Id);
-            StatusText = started
-                ? Loc.T("Import_Status_ConnectStartedFmt", profile.Name)
-                : Loc.T("Import_Status_ConnectFailedFmt", profile.Name);
+            if (started)
+            {
+                StatusText = Loc.T("Import_Status_ConnectStartedFmt", profile.Name);
+            }
+            else
+            {
+                var human = _home.LastConnectErrorHuman;
+                StatusText = !string.IsNullOrWhiteSpace(human)
+                    ? Loc.T("Home_Status_IdleErrorFmt", human!)
+                    : Loc.T("Import_Status_ConnectFailedFmt", profile.Name);
+            }
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "ImportViewModel.ConnectProfile");
-            StatusText = Loc.T("Home_Log_ErrorFmt", ex.Message);
+            StatusText = Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex));
         }
         finally
         {

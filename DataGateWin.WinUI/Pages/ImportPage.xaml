@@ -14,10 +14,14 @@
         </Grid.RowDefinitions>
 
         <StackPanel Spacing="4">
-            <TextBlock
-                x:Name="TitleText"
-                FontSize="20"
-                FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <FontIcon Glyph="&#xE8B7;" FontSize="18" VerticalAlignment="Center" />
+                <TextBlock
+                    x:Name="TitleText"
+                    FontSize="20"
+                    FontWeight="SemiBold"
+                    VerticalAlignment="Center" />
+            </StackPanel>
             <TextBlock
                 x:Name="SubtitleText"
                 Opacity="0.75"
@@ -30,7 +34,10 @@
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
             <StackPanel Spacing="10">
-                <TextBlock x:Name="ProtocolLabel" FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE774;" FontSize="14" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ProtocolLabel" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
                 <ComboBox
                     x:Name="ProtocolCombo"
                     MinWidth="280"
@@ -49,7 +56,10 @@
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
             <StackPanel Spacing="10">
-                <TextBlock x:Name="ImportSectionLabel" FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8E5;" FontSize="14" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ImportSectionLabel" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <Button
                         x:Name="BrowseButton"
@@ -89,10 +99,13 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <TextBlock
-                    x:Name="ProfilesLabel"
-                    Margin="16,12,16,8"
-                    FontWeight="SemiBold" />
+                <StackPanel Margin="16,12,16,8" Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE8F1;" FontSize="14" VerticalAlignment="Center" />
+                    <TextBlock
+                        x:Name="ProfilesLabel"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center" />
+                </StackPanel>
                 <ListView
                     x:Name="ProfilesList"
                     Grid.Row="1"

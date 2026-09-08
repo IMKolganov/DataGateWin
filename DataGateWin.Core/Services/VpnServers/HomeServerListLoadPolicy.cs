@@ -6,7 +6,10 @@ namespace DataGateWin.Services.VpnServers;
 /// </summary>
 public static class HomeServerListLoadPolicy
 {
-    /// <summary>User switched to Manual: fetch only if we have nothing cached yet.</summary>
+    /// <summary>
+    /// User switched to Manual: fetch only if we have nothing cached yet.
+    /// Caller must still re-apply UI so the manual combo becomes enabled when cache is warm.
+    /// </summary>
     public static bool ShouldFetchOnManualModeSelected(
         bool suppressFetch,
         bool isLoaded,

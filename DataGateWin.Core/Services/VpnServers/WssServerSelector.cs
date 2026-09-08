@@ -11,27 +11,33 @@ public sealed class WssServerSelector(OpenVpnServersApiClient apiClient)
     public Task<VpnServerV2Dto?> GetBestWssAsync(CancellationToken ct) =>
         GetServerAsync(autoPick: true, manualServerId: null, ct);
 
-    /// <summary>
-    /// Windows supports OpenVPN+WSS only (not Xray). Also requires quota plan access
-    /// (Linux <c>parseWssServersFromStatusJson</c> parity).
-    /// </summary>
-    public static List<VpnServerWithStatusV2Dto> FilterEligible(
-        IEnumerable<VpnServerWithStatusV2Dto>? source) =>
-        FilterWindowsSupported(source)
-            .Where(x => x.VpnServerResponses.VpnServer.IsAccessibleForUserQuotaPlanOrDefault())
-            .OrderBy(x => x.VpnServerResponses.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+/// <summary>
+/// Windows-connectable servers with quota access (OpenVPN±WSS or Xray).
+/// </summary>
+public static List<VpnServerWithStatusV2Dto> FilterEligible(
+    IEnumerable<VpnServerWithStatusV2Dto>? source) =>
+    FilterWindowsSupported(source)
+        .Where(x => x.VpnServerResponses.VpnServer.IsAccessibleForUserQuotaPlanOrDefault())
+        .OrderBy(x => x.VpnServerResponses.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
-    /// <summary>Access / lists: OpenVPN + WSS only (Xray rows are never shown on Windows).</summary>
-    public static List<VpnServerWithStatusV2Dto> FilterWssEnabled(
-        IEnumerable<VpnServerWithStatusV2Dto>? source) =>
-        FilterWindowsSupported(source)
-            .OrderBy(x => x.VpnServerResponses.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+/// <summary>Access / lists: OpenVPN (WSS or direct) and Xray catalog rows.</summary>
+public static List<VpnServerWithStatusV2Dto> FilterWssEnabled(
+    IEnumerable<VpnServerWithStatusV2Dto>? source) =>
+    FilterWindowsSupported(source)
+        .OrderBy(x => x.VpnServerResponses.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
-    /// <summary>OpenVPN with WSS bridge — the only engine Windows can connect.</summary>
-    public static bool IsWindowsSupported(VpnServerV2Dto? server) =>
-        server is { ServerType: VpnServerType.OpenVpn, IsEnableWss: true };
+/// <summary>OpenVPN (with or without WSS bridge), or any Xray catalog server.</summary>
+public static bool IsWindowsSupported(VpnServerV2Dto? server) =>
+    server is { ServerType: VpnServerType.OpenVpn }
+    || server is { ServerType: VpnServerType.Xray };
+
+public static bool IsXrayWindowsSupported(VpnServerV2Dto? server) =>
+    server is { ServerType: VpnServerType.Xray };
+
+public static bool IsOpenVpnDirect(VpnServerV2Dto? server) =>
+    server is { ServerType: VpnServerType.OpenVpn, IsEnableWss: false };
 
     private static IEnumerable<VpnServerWithStatusV2Dto> FilterWindowsSupported(
         IEnumerable<VpnServerWithStatusV2Dto>? source) =>
@@ -41,7 +47,7 @@ public sealed class WssServerSelector(OpenVpnServersApiClient apiClient)
         ?? Enumerable.Empty<VpnServerWithStatusV2Dto>();
 
     /// <summary>
-    /// Linux parity: WSS + quota filter; auto = online first, then least <see cref="VpnServerWithStatusV2Dto.CountConnectedClients"/>, with rotation.
+    /// Auto = online first, then least <see cref="VpnServerWithStatusV2Dto.CountConnectedClients"/>, with rotation.
     /// Manual = server by id if present in filtered list.
     /// </summary>
     public async Task<VpnServerWithStatusV2Dto?> GetServerRowAsync(bool autoPick, int? manualServerId, CancellationToken ct)

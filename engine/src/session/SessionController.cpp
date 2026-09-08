@@ -13,11 +13,16 @@
 
 #include <json/json.h>
 
+#include "vpn/WintunHolder.h"
+
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -58,6 +63,8 @@ namespace datagate::session
         VpnSessionRunner vpn;
         datagate::xray::XrayRuntime xray;
         bool xrayActive = false;
+        std::atomic<bool> xrayWatchStop{false};
+        std::thread xrayWatchThread;
 
         std::mutex cbMtx;
 
@@ -149,8 +156,78 @@ namespace datagate::session
             store.SetCallbacks(c.OnStateChanged, c.OnLog, c.OnError, c.OnConnected, c.OnDisconnected);
         }
 
-        void StopAllNoCallbacks()
+        void StopXrayWatch()
         {
+            xrayWatchStop.store(true);
+            if (xrayWatchThread.joinable()
+                && xrayWatchThread.get_id() != std::this_thread::get_id())
+            {
+                xrayWatchThread.join();
+            }
+        }
+
+        void StartXrayWatch()
+        {
+            StopXrayWatch();
+            xrayWatchStop.store(false);
+            xrayWatchThread = std::thread([this]()
+            {
+                while (!xrayWatchStop.load())
+                {
+                    for (int i = 0; i < 20 && !xrayWatchStop.load(); ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (xrayWatchStop.load())
+                        break;
+                    if (!xrayActive)
+                        continue;
+
+                    std::string stateErr;
+                    if (xray.IsRunning(stateErr))
+                        continue;
+
+                    store.PublishLogLine(std::string("[xray] watchdog: libXray not running — ")
+                                         + (stateErr.empty() ? "unexpected exit" : stateErr));
+
+                    const auto before = store.GetState();
+                    const bool wasRunning =
+                        before.phase == SessionPhase::Connected ||
+                        before.phase == SessionPhase::Connecting ||
+                        before.phase == SessionPhase::Starting;
+                    if (!wasRunning)
+                        break;
+
+                    const bool shouldEmitDisconnected = store.MarkDisconnectedOnce();
+                    store.SetPhase(SessionPhase::Stopping);
+                    store.PublishStateSnapshot();
+                    // Do not join this thread from itself.
+                    xrayWatchStop.store(true);
+                    StopAllNoCallbacks(/*joinWatch=*/false);
+                    store.SetPhase(SessionPhase::Idle);
+                    store.PublishStateSnapshot();
+                    if (shouldEmitDisconnected)
+                        store.PublishDisconnected("xray_exit");
+                    break;
+                }
+            });
+        }
+
+        void CleanupXray0Adapter()
+        {
+            std::string delErr;
+            datagate::wintun::WintunHolder cleaner;
+            if (!cleaner.TryDeleteAdapterByName(L"xray0", delErr) && !delErr.empty())
+                store.PublishLogLine(std::string("[xray] xray0 cleanup warn: ") + delErr);
+            else
+                store.PublishLogLine("[xray] xray0 cleanup ok");
+        }
+
+        void StopAllNoCallbacks(bool joinWatch = true)
+        {
+            if (joinWatch)
+                StopXrayWatch();
+            else
+                xrayWatchStop.store(true);
+
             if (xrayActive || xray.IsLoaded())
             {
                 store.PublishLogLine("[session] StopAllNoCallbacks: xray.Stop()...");
@@ -159,6 +236,7 @@ namespace datagate::session
                 if (!xerr.empty())
                     store.PublishLogLine("[session] xray.Stop note: " + xerr);
                 xrayActive = false;
+                CleanupXray0Adapter();
                 store.PublishLogLine("[session] StopAllNoCallbacks: xray.Stop() done");
             }
 
@@ -181,6 +259,7 @@ namespace datagate::session
     SessionController::~SessionController()
     {
         Stop();
+        _impl->StopXrayWatch();
         _impl->bridge.Stop();
         delete _impl;
         _impl = nullptr;
@@ -347,7 +426,20 @@ namespace datagate::session
             }
         }
 
+        for (const auto& d : opt.dnsServers)
+        {
+            if (d.empty())
+                continue;
+            if (std::find(tunnelDns.begin(), tunnelDns.end(), d) == tunnelDns.end())
+                tunnelDns.push_back(d);
+        }
+
         auto bypass = datagate::xray::XrayConfigBuilder::CollectProxyEndpointCidrs(outboundsJson);
+        for (const auto& cidr : opt.directBypassCidrs)
+        {
+            if (!cidr.empty())
+                bypass.push_back(cidr);
+        }
 
         std::string fullConfig;
         std::string buildErr;
@@ -358,9 +450,26 @@ namespace datagate::session
         _impl->store.PublishLogLine("[xray] runXrayFromJson configBytes=" + std::to_string(fullConfig.size())
                                     + " bypassCidrs=" + std::to_string(bypass.size())
                                     + " tunnelDns=" + std::to_string(tunnelDns.size()));
+
+        // Stale "xray0" from a previous crashed session causes:
+        // "Cannot create a file when that file already exists."
+        {
+            std::string stopErr;
+            (void)_impl->xray.Stop(stopErr);
+            _impl->CleanupXray0Adapter();
+        }
+
         std::string runErr;
         if (!_impl->xray.RunFromJson(fullConfig, runErr))
-            return failIdle("xray_start_failed", runErr.empty() ? "runXrayFromJson failed" : runErr);
+        {
+            // One retry after forced cleanup — common after UI crash left engine/TUN half-alive.
+            std::string stopErr2;
+            (void)_impl->xray.Stop(stopErr2);
+            _impl->CleanupXray0Adapter();
+            runErr.clear();
+            if (!_impl->xray.RunFromJson(fullConfig, runErr))
+                return failIdle("xray_start_failed", runErr.empty() ? "runXrayFromJson failed" : runErr);
+        }
 
         {
             std::string stateErr;
@@ -374,6 +483,7 @@ namespace datagate::session
         }
 
         _impl->xrayActive = true;
+        _impl->StartXrayWatch();
 
         _impl->store.ResetDisconnectDedup();
         _impl->store.SetPhase(SessionPhase::Connected);
@@ -547,7 +657,7 @@ namespace datagate::session
 
             std::string guiVer = opt.guiVersion;
             if (guiVer.empty())
-                guiVer = "3.11.7_datagate_windows_1.0.13";
+                guiVer = "3.11.7_datagate_windows_1.0.14";
 
             if (!_impl->vpn.Start(built.config, guiVer, vpnErr))
             {

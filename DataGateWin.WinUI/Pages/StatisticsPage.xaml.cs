@@ -22,18 +22,29 @@ public sealed partial class StatisticsPage : Page
         ApplyLocalizedChrome();
         ApplyVmChrome();
         Vm.SetChartTheme(ActualTheme == ElementTheme.Dark);
+        WinUiLanguageService.LanguageChanged += OnLang;
+        Unloaded += (_, _) => WinUiLanguageService.LanguageChanged -= OnLang;
     }
+
+    public void ApplyOnShown()
+    {
+        ApplyLocalizedChrome();
+        ApplyVmChrome();
+    }
+
+    private void OnLang(object? sender, EventArgs e)
+        => DispatcherQueue.TryEnqueue(ApplyOnShown);
 
     private void ApplyLocalizedChrome()
     {
         TitleText.Text = Loc.T("Stats_Title");
         FromLabel.Text = Loc.T("Stats_From");
         ToLabel.Text = Loc.T("Stats_To");
-        Last7Button.Content = Loc.T("Stats_Last7");
-        Last30Button.Content = Loc.T("Stats_Last30");
-        Last90Button.Content = Loc.T("Stats_Last90");
-        ApplyButton.Content = Loc.T("Stats_Apply");
-        ResetButton.Content = Loc.T("Stats_Reset");
+        Last7ButtonText.Text = Loc.T("Stats_Last7");
+        Last30ButtonText.Text = Loc.T("Stats_Last30");
+        Last90ButtonText.Text = Loc.T("Stats_Last90");
+        ApplyButtonText.Text = Loc.T("Stats_Apply");
+        ResetButtonText.Text = Loc.T("Stats_Reset");
     }
 
     private void ApplyVmChrome()

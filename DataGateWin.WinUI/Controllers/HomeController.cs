@@ -7,7 +7,9 @@ using DataGateWin.Services.Ipc;
 using DataGateWin.Services.IpList;
 using DataGateWin.Services.OpenVpnFiles;
 using DataGateWin.Services.Profiles;
+using DataGateWin.Services.Ui;
 using DataGateWin.Services.VpnServers;
+using DataGateWin.Services.Xray;
 
 namespace DataGateWin.Controllers;
 
@@ -35,18 +37,27 @@ public sealed class HomeController : IDisposable
 
     private UiState _lastUiState = UiState.Idle;
     private string _lastStatusText = Loc.T("Home_Status_Idle");
+    private Func<string>? _statusComposer;
     private VpnConnectionSessionInfo? _sessionInfo;
+
+    /// <summary>Fired on every VPN UI state change (engine and user actions). Used by tray toasts.</summary>
+    public event Action<UiState, string>? UiStateChanged;
+
+    public UiState LastUiState => _lastUiState;
+    public string LastStatusText => _lastStatusText;
 
     public HomeController()
     {
         var serversApi = new OpenVpnServersApiClient(App.AuthedApiHttp);
         var selector = new WssServerSelector(serversApi);
         var filesApi = new OpenVpnFilesApiClient(App.AuthedApiHttp);
+        var xrayFilesApi = new XrayClientLinksApiClient(App.AuthedApiHttp);
 
         _payloadBuilder = new StartSessionPayloadBuilder(
             wssServerSelector: selector,
             installationIdService: _installation,
             filesApi: filesApi,
+            xrayFilesApi: xrayFilesApi,
             session: App.Session,
             ipListRoutes: new IpListRoutesRepository());
 
@@ -60,7 +71,11 @@ public sealed class HomeController : IDisposable
 
     public void AppendLogLine(string line) => Log(line);
 
-    public void ReapplyUiToLastState() => ApplyUiState(_lastUiState, _lastStatusText);
+    public void ReapplyUiToLastState()
+        => ApplyUiState(_lastUiState, _statusComposer ?? (() => Loc.T("Home_Status_Idle")));
+
+    /// <summary>Last humanized start failure (for Import/tray status).</summary>
+    public string? LastConnectErrorHuman => _engine.LastStartErrorHuman;
 
     public void AttachUi(
         Action<string> statusTextSetter,
@@ -74,7 +89,7 @@ public sealed class HomeController : IDisposable
             _log = logAppender;
         }
 
-        ApplyUiState(_lastUiState, _lastStatusText);
+        ReapplyUiToLastState();
         Log(Loc.T("Home_Log_UiAttached"));
     }
 
@@ -104,7 +119,7 @@ public sealed class HomeController : IDisposable
         try
         {
             if (!returningToPage)
-                ApplyUiState(UiState.Connecting, Loc.T("Home_Status_Attaching"));
+                ApplyKeyed(UiState.Connecting, "Home_Status_Attaching");
             else
                 ReapplyUiToLastState();
 
@@ -112,16 +127,21 @@ public sealed class HomeController : IDisposable
             RememberSelectionFromEngine();
             await RefreshStatusAsync(ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+        }
         catch (Exception ex)
         {
             if (TryHandleEngineMissing(ex))
                 return;
 
             CrashReporter.ReportNonFatal(ex, "HomeController.OnLoaded");
-            Log(Loc.T("Home_Log_ErrorFmt", ex));
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
             // Always surface attach failure (including return-to-Home), so we never leave a
             // stale Connected UI when the engine IPC is dead.
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_AttachFailedFmt", ex.Message));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_AttachFailedFmt", VpnUserFacingError.FromException(ex)));
         }
     }
 
@@ -132,13 +152,13 @@ public sealed class HomeController : IDisposable
         DetachUi();
     }
 
-    public async Task ConnectAsync(bool autoPickServer, int? manualVpnServerId)
+    public async Task<bool> ConnectAsync(bool autoPickServer, int? manualVpnServerId)
     {
         _desiredConnected = true;
         _connectAutoPick = autoPickServer;
         _connectManualId = manualVpnServerId;
         _connectImportedProfileId = null;
-        await EnsureConnectedAsync();
+        return await EnsureConnectedAsync();
     }
 
     /// <returns>True when a start was accepted (or the desired session was already up).</returns>
@@ -163,15 +183,16 @@ public sealed class HomeController : IDisposable
         await _opLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            ApplyUiState(UiState.Connecting, Loc.T("Home_Status_Connecting"));
+            ApplyKeyed(UiState.Connecting, "Home_Status_Connecting");
 
             await _engine.AttachOrStartAsync(ct).ConfigureAwait(false);
 
             var state = await _engine.GetEngineStateAsync(ct).ConfigureAwait(false);
             if (EngineState.IsUnknown(state))
             {
-                Log(Loc.T("Home_Log_ErrorFmt", "GetStatus failed"));
-                ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleStartFailed"));
+                Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage("GetStatus failed")));
+                ApplyUiState(UiState.Idle, () =>
+                    Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage("GetStatus failed")));
                 if (_desiredConnected)
                     _ = ScheduleReconnectAsync();
                 return false;
@@ -183,31 +204,32 @@ public sealed class HomeController : IDisposable
                 RememberSelectionFromEngine();
                 if (EngineState.IsConnected(state))
                 {
-                    ApplyUiState(UiState.Connected, ConnectedStatusText(state));
+                    ApplyConnected(state);
                     return true;
                 }
 
                 // Already starting/connecting for the desired target — wait for Connected/Error.
-                ApplyUiState(UiState.Connecting, Loc.T("Home_Status_ConnectingWaiting"));
+                ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
                 return true;
             }
 
             if (!EngineState.IsIdle(state))
             {
-                ApplyUiState(UiState.Disconnecting, Loc.T("Home_Status_Disconnecting"));
+                ApplyKeyed(UiState.Disconnecting, "Home_Status_Disconnecting");
                 var stopped = await _engine.StopSessionSafeAsync(ct).ConfigureAwait(false);
                 ClearSessionInfo();
                 var afterStop = await _engine.GetEngineStateAsync(ct).ConfigureAwait(false);
                 if (!stopped || (!EngineState.IsUnknown(afterStop) && !EngineState.IsIdle(afterStop)))
                 {
-                    Log(Loc.T("Home_Log_ErrorFmt", $"StopSession incomplete (ok={stopped}, state={afterStop ?? "null"})"));
-                    ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleStartFailed"));
+                    Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage("StopSession incomplete")));
+                    ApplyUiState(UiState.Idle, () =>
+                        Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage("StopSession incomplete")));
                     if (_desiredConnected)
                         _ = ScheduleReconnectAsync();
                     return false;
                 }
 
-                ApplyUiState(UiState.Connecting, Loc.T("Home_Status_Connecting"));
+                ApplyKeyed(UiState.Connecting, "Home_Status_Connecting");
             }
 
             bool started;
@@ -231,26 +253,31 @@ public sealed class HomeController : IDisposable
                     _desiredConnected = false;
                 }
 
-                ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleStartFailed"));
+                ApplyUiState(UiState.Idle, ComposeStartFailedStatus);
                 if (_desiredConnected)
                     _ = ScheduleReconnectAsync();
                 return false;
             }
 
             // ReplyOk means accepted — Connected/Error events decide the real outcome.
-            ApplyUiState(UiState.Connecting, Loc.T("Home_Status_ConnectingWaiting"));
+            ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
             _reconnectAttempt = 0;
             return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+            return false;
         }
         catch (Exception ex)
         {
             if (TryHandleEngineMissing(ex))
                 return false;
 
-
             CrashReporter.ReportNonFatal(ex, "HomeController.EnsureConnected");
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleErrorFmt", ex.Message));
-            Log(Loc.T("Home_Log_ErrorFmt", ex));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
 
             if (_desiredConnected)
                 _ = ScheduleReconnectAsync();
@@ -299,20 +326,22 @@ public sealed class HomeController : IDisposable
             return false;
         }
 
-        if (profile.Protocol != ImportedVpnProtocol.OpenVpn)
-        {
-            Log(Loc.T("Import_Log_XrayNotReady"));
-            return false;
-        }
-
         try
         {
-            var payload = ImportedOpenVpnPayloadBuilder.Build(profile, _installation);
+            var payload = profile.Protocol switch
+            {
+                ImportedVpnProtocol.OpenVpn => ImportedOpenVpnPayloadBuilder.Build(profile, _installation),
+                ImportedVpnProtocol.Xray => ImportedXrayPayloadBuilder.Build(profile, _installation),
+                _ => throw new InvalidOperationException("Unsupported imported protocol: " + profile.Protocol),
+            };
             _sessionInfo = new VpnConnectionSessionInfo
             {
                 ServerId = 0,
                 ServerName = profile.Name,
                 ExternalIp = null,
+                DnsServers = profile.Protocol == ImportedVpnProtocol.Xray
+                    ? XrayWindowsConfigBuilder.ExtractExplicitDnsServers(profile.ConfigText)
+                    : null,
             };
             _payloadBuilder.ClearLastSelection();
             Log(Loc.T("Import_Log_ConnectingFmt", profile.Name));
@@ -321,7 +350,8 @@ public sealed class HomeController : IDisposable
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "HomeController.StartImportedProfile");
-            Log(Loc.T("Home_Log_ErrorFmt", ex.Message));
+            _engine.RememberStartError(ex);
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
             return false;
         }
     }
@@ -333,14 +363,24 @@ public sealed class HomeController : IDisposable
         await _opLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            ApplyUiState(UiState.Disconnecting, Loc.T("Home_Status_Disconnecting"));
+            ApplyKeyed(UiState.Disconnecting, "Home_Status_Disconnecting");
 
             await _engine.StopSessionSafeAsync(ct).ConfigureAwait(false);
             ClearSessionInfo();
 
-            ApplyUiState(
-                UiState.Idle,
-                userInitiated ? Loc.T("Home_Status_Idle") : Loc.T("Home_Status_IdleDisconnected"));
+            ApplyKeyed(UiState.Idle, userInitiated ? "Home_Status_Idle" : "Home_Status_IdleDisconnected");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.EnsureDisconnected");
+            ClearSessionInfo();
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
         }
         finally
         {
@@ -354,14 +394,14 @@ public sealed class HomeController : IDisposable
         {
             if (!_desiredConnected)
                 ClearSessionInfo();
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleNotAttached"));
+            ApplyKeyed(UiState.Idle, "Home_Status_IdleNotAttached");
             return;
         }
 
         var state = await _engine.GetEngineStateAsync(ct).ConfigureAwait(false);
         if (EngineState.IsUnknown(state))
         {
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleNotAttached"));
+            ApplyKeyed(UiState.Idle, "Home_Status_IdleNotAttached");
             return;
         }
 
@@ -369,20 +409,20 @@ public sealed class HomeController : IDisposable
         {
             if (!_desiredConnected)
                 ClearSessionInfo();
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_Idle"));
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
             return;
         }
 
         if (EngineState.IsConnected(state))
         {
             RememberSelectionFromEngine();
-            ApplyUiState(UiState.Connected, ConnectedStatusText(state));
+            ApplyConnected(state);
             return;
         }
 
         // starting / connecting / stopping
         RememberSelectionFromEngine();
-        ApplyUiState(UiState.Connecting, Loc.T("Home_Status_ConnectingWaiting"));
+        ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
     }
 
     private bool TryHandleEngineMissing(Exception ex)
@@ -392,7 +432,7 @@ public sealed class HomeController : IDisposable
 
         EngineMissingUi.ShowDialog(App.GetActiveXamlRoot());
         ClearSessionInfo();
-        ApplyUiState(UiState.Idle, Loc.T("Home_Status_EngineMissing"));
+        ApplyKeyed(UiState.Idle, "Home_Status_EngineMissing");
         Log(Loc.T("Home_Log_EngineMissing"));
         _desiredConnected = false;
         _reconnectAttempt = 0;
@@ -409,16 +449,15 @@ public sealed class HomeController : IDisposable
         _reconnectAttempt++;
         var delay = ReconnectPolicy.GetDelay(_reconnectAttempt);
 
-        ApplyUiState(
-            UiState.Connecting,
-            Loc.T("Home_Status_ReconnectingFmt", delay.TotalSeconds.ToString("0", CultureInfo.CurrentCulture)));
+        var seconds = delay.TotalSeconds.ToString("0", CultureInfo.InvariantCulture);
+        ApplyUiState(UiState.Connecting, () => Loc.T("Home_Status_ReconnectingFmt", seconds));
         Log(Loc.T(
             "Home_Log_ReconnectScheduledFmt",
             _reconnectAttempt.ToString(CultureInfo.InvariantCulture),
-            delay.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)));
+            seconds));
 
         try { await Task.Delay(delay, ct).ConfigureAwait(false); }
-        catch (OperationCanceledException) { ApplyUiState(UiState.Idle, Loc.T("Home_Status_Idle")); return; }
+        catch (OperationCanceledException) { ApplyKeyed(UiState.Idle, "Home_Status_Idle"); return; }
 
         if (_desiredConnected)
             await EnsureConnectedAsync().ConfigureAwait(false);
@@ -435,29 +474,22 @@ public sealed class HomeController : IDisposable
 
                 if (_desiredConnected)
                 {
-                    ApplyUiState(UiState.Connecting, Loc.T("Home_Status_ConnectingWaiting"));
+                    ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
                     return;
                 }
 
-                ApplyUiState(UiState.Idle, Loc.T("Home_Status_Idle"));
+                ApplyKeyed(UiState.Idle, "Home_Status_Idle");
                 return;
             }
 
             if (EngineState.IsConnected(ev.State))
             {
-                if (_lastUiState == UiState.Connected || _sessionInfo is { HasIdentity: true })
-                {
-                    ApplyUiState(UiState.Connected, ConnectedStatusText(ev.State));
-                    return;
-                }
-
-                SetStatusText(Loc.T("Home_Status_StateFmt", ev.State ?? "?"));
-                ApplyUiState(UiState.Connected, ConnectedStatusText(ev.State));
+                ApplyConnected(ev.State);
                 return;
             }
 
             // starting / connecting / stopping — never show Connected
-            ApplyUiState(UiState.Connecting, Loc.T("Home_Status_StateFmt", ev.State ?? "?"));
+            ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
             return;
         }
 
@@ -468,33 +500,45 @@ public sealed class HomeController : IDisposable
             if (_sessionInfo != null && !string.IsNullOrWhiteSpace(ev.Ip))
                 _sessionInfo.VpnIp = ev.Ip.Trim();
 
-            ApplyUiState(UiState.Connected, ConnectedStatusText(null));
+            ApplyConnected(null);
             return;
         }
 
         if (ev.Kind == EngineEventKind.Disconnected)
         {
-            var reason = string.IsNullOrWhiteSpace(ev.Reason) ? Loc.T("Common_Unknown") : ev.Reason;
-            Log(Loc.T("Home_Log_DisconnectedLineFmt", reason));
+            var rawReason = ev.Reason;
+            Log(Loc.T("Home_Log_DisconnectedLineFmt",
+                string.IsNullOrWhiteSpace(rawReason)
+                    ? Loc.T("Common_Unknown")
+                    : VpnUserFacingError.FromMessage(rawReason)));
+
+            string ComposeDisconnect()
+            {
+                var reason = string.IsNullOrWhiteSpace(rawReason)
+                    ? Loc.T("Common_Unknown")
+                    : VpnUserFacingError.FromMessage(rawReason);
+                return Loc.T("Home_Status_IdleDisconnectedReasonFmt", reason);
+            }
 
             if (_desiredConnected)
             {
                 // Keep footer identity while ScheduleReconnect rebuilds the session.
-                ApplyUiState(UiState.Connecting, Loc.T("Home_Status_IdleDisconnectedReasonFmt", reason));
+                ApplyUiState(UiState.Connecting, ComposeDisconnect);
                 _ = ScheduleReconnectAsync();
                 return;
             }
 
             ClearSessionInfo();
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleDisconnectedReasonFmt", reason));
+            ApplyUiState(UiState.Idle, ComposeDisconnect);
             return;
         }
 
         if (ev.Kind == EngineEventKind.Error)
         {
-            var msg = string.IsNullOrWhiteSpace(ev.Message) ? Loc.T("Common_Unknown") : ev.Message!;
-            Log(Loc.T("Home_Log_ErrorFmt", msg));
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleErrorFmt", msg));
+            var raw = ev.Message;
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage(raw)));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage(raw)));
             if (_desiredConnected)
                 _ = ScheduleReconnectAsync();
             return;
@@ -502,9 +546,10 @@ public sealed class HomeController : IDisposable
 
         if (ev.Kind == EngineEventKind.EngineExited)
         {
-            Log(Loc.T("Home_Log_ErrorFmt", $"engine exit code={ev.ExitCode}"));
+            Log(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_EngineExit")));
             ClearSessionInfo();
-            ApplyUiState(UiState.Idle, Loc.T("Home_Status_IdleErrorFmt", $"engine exit {ev.ExitCode}"));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", Loc.T("Home_Error_EngineExit")));
             if (_desiredConnected)
                 _ = ScheduleReconnectAsync();
         }
@@ -524,6 +569,7 @@ public sealed class HomeController : IDisposable
             ServerName = sel.ServerName,
             ExternalIp = sel.ExternalIp,
             VpnIp = !string.IsNullOrWhiteSpace(sel.VpnIp) ? sel.VpnIp : previousVpnIp,
+            DnsServers = sel.DnsServers ?? _sessionInfo?.DnsServers,
         };
     }
 
@@ -533,39 +579,53 @@ public sealed class HomeController : IDisposable
         _engine.ClearLastSelection();
     }
 
+    private string ComposeStartFailedStatus()
+    {
+        var human = _engine.LastStartErrorHuman;
+        return string.IsNullOrWhiteSpace(human)
+            ? Loc.T("Home_Status_IdleStartFailed")
+            : Loc.T("Home_Status_IdleErrorFmt", human);
+    }
+
+    private void ApplyConnected(string? engineState)
+        => ApplyUiState(UiState.Connected, () => ConnectedStatusText(engineState));
+
+    private void ApplyKeyed(UiState state, string key)
+        => ApplyUiState(state, () => Loc.T(key));
+
     private string ConnectedStatusText(string? engineState) =>
         HomeSessionUiPolicy.ComposeConnectedStatus(
             serverName: _sessionInfo?.ServerName,
             vpnIp: _sessionInfo?.VpnIp,
             engineState: engineState,
-            lastStatusText: _lastStatusText,
-            lastWasConnected: _lastUiState == UiState.Connected,
+            lastStatusText: null,
+            lastWasConnected: false,
             connectedPlain: Loc.T("Home_Status_Connected"),
             connectedServerFmt: Loc.T("Home_Status_ConnectedServerFmt"),
             connectedIpFmt: Loc.T("Home_Status_ConnectedIpFmt"),
             connectedFmt: Loc.T("Home_Status_ConnectedFmt"));
 
-    private void SetStatusText(string text)
-    {
-        lock (_uiLock)
-        {
-            _setStatusText?.Invoke(text);
-        }
-    }
-
-    private void ApplyUiState(UiState state, string statusText)
+    private void ApplyUiState(UiState state, Func<string> composer)
     {
         _lastUiState = state;
+        _statusComposer = composer;
+        var statusText = composer();
         _lastStatusText = statusText;
 
         var network = state is UiState.Connected or UiState.Connecting or UiState.Disconnecting
             ? _sessionInfo
             : null;
 
+        Action<UiState, string, VpnConnectionSessionInfo?>? apply;
+        Action<UiState, string>? tray;
         lock (_uiLock)
         {
-            _applyUiState?.Invoke(state, statusText, network);
+            apply = _applyUiState;
+            tray = UiStateChanged;
         }
+
+        apply?.Invoke(state, statusText, network);
+        tray?.Invoke(state, statusText);
     }
 
     private void Log(string line)

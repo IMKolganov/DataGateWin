@@ -387,6 +387,28 @@ namespace datagate::xray
         tunSettings["mtu"] = mtu;
         tunSettings["name"] = "xray0";
         tunSettings["stack"] = "system";
+        // Windows: without these, TUN comes up but default route stays on Ethernet —
+        // browser traffic never enters Xray (Android VpnService sets routes itself).
+        {
+            Json::Value gateway(Json::arrayValue);
+            gateway.append("172.19.0.1/30");
+            tunSettings["gateway"] = gateway;
+            Json::Value dns(Json::arrayValue);
+            std::vector<std::string> dnsForTun = tunnelDnsServers;
+            if (dnsForTun.empty())
+            {
+                dnsForTun.push_back("1.1.1.1");
+                dnsForTun.push_back("8.8.8.8");
+            }
+            for (const auto& d : dnsForTun)
+                if (!Trim(d).empty())
+                    dns.append(Trim(d));
+            tunSettings["dns"] = dns;
+            Json::Value routes(Json::arrayValue);
+            routes.append("0.0.0.0/0");
+            tunSettings["autoSystemRoutingTable"] = routes;
+            tunSettings["autoOutboundsInterface"] = "auto";
+        }
 
         Json::Value sniffing(Json::objectValue);
         sniffing["enabled"] = true;
@@ -402,7 +424,24 @@ namespace datagate::xray
         tunInbound["sniffing"] = sniffing;
 
         Json::Value rules(Json::arrayValue);
-        AppendProxyDnsRules(rules, proxyTag, tunnelDnsServers);
+        {
+            // Windows APIPA NetBIOS floods TUN; drop before private-direct / catch-all.
+            Json::Value netbios(Json::objectValue);
+            netbios["type"] = "field";
+            netbios["outboundTag"] = "block";
+            netbios["port"] = "137,138,139";
+            netbios["network"] = "udp";
+            rules.append(netbios);
+        }
+        {
+            std::vector<std::string> dnsForRules = tunnelDnsServers;
+            if (dnsForRules.empty())
+            {
+                dnsForRules.push_back("1.1.1.1");
+                dnsForRules.push_back("8.8.8.8");
+            }
+            AppendProxyDnsRules(rules, proxyTag, dnsForRules);
+        }
         {
             Json::Value privateRule(Json::objectValue);
             privateRule["type"] = "field";
@@ -430,6 +469,8 @@ namespace datagate::xray
         Json::Value root(Json::objectValue);
         root["log"] = Json::Value(Json::objectValue);
         root["log"]["loglevel"] = "warning";
+        // Access log floods UI with Windows NetBIOS / link-local chatter on TUN.
+        root["log"]["access"] = "none";
         root["inbounds"] = Json::Value(Json::arrayValue);
         root["inbounds"].append(tunInbound);
         root["outbounds"] = outbounds;

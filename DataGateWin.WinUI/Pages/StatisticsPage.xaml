@@ -8,22 +8,58 @@
 
     <ScrollViewer>
         <StackPanel Margin="20" Spacing="12">
-            <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <FontIcon Glyph="&#xE9D9;" FontSize="18" VerticalAlignment="Center" />
+                <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
 
-            <Border Padding="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
-                <StackPanel Spacing="10">
+            <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+                <StackPanel Spacing="12">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock x:Name="FromLabel" VerticalAlignment="Center" />
+                            <CalendarDatePicker x:Name="FromPicker" DateChanged="FromPicker_OnDateChanged" />
+                            <TextBlock x:Name="ToLabel" VerticalAlignment="Center" />
+                            <CalendarDatePicker x:Name="ToPicker" DateChanged="ToPicker_OnDateChanged" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="ApplyButton" Click="Apply_OnClick" Style="{StaticResource AccentButtonStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE73E;" FontSize="14" />
+                                    <TextBlock x:Name="ApplyButtonText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="ResetButton" Click="Reset_OnClick">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8F2;" FontSize="14" />
+                                    <TextBlock x:Name="ResetButtonText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock x:Name="FromLabel" VerticalAlignment="Center" />
-                        <CalendarDatePicker x:Name="FromPicker" DateChanged="FromPicker_OnDateChanged" />
-                        <TextBlock x:Name="ToLabel" VerticalAlignment="Center" />
-                        <CalendarDatePicker x:Name="ToPicker" DateChanged="ToPicker_OnDateChanged" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="Last7Button" Click="Last7_OnClick" />
-                        <Button x:Name="Last30Button" Click="Last30_OnClick" />
-                        <Button x:Name="Last90Button" Click="Last90_OnClick" />
-                        <Button x:Name="ApplyButton" Click="Apply_OnClick" Style="{StaticResource AccentButtonStyle}" />
-                        <Button x:Name="ResetButton" Click="Reset_OnClick" />
+                        <Button x:Name="Last7Button" Click="Last7_OnClick">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE787;" FontSize="14" />
+                                <TextBlock x:Name="Last7ButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="Last30Button" Click="Last30_OnClick">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE787;" FontSize="14" />
+                                <TextBlock x:Name="Last30ButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="Last90Button" Click="Last90_OnClick">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE787;" FontSize="14" />
+                                <TextBlock x:Name="Last90ButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                     <TextBlock x:Name="GroupingText" Opacity="0.85" />
                     <TextBlock x:Name="PeriodText" Opacity="0.85" />

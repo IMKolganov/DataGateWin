@@ -3,6 +3,7 @@ using DataGateMonitor.SharedModels.DataGateMonitor.Auth.Responses;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
+using DataGateWin.Services.Ui;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -58,7 +59,7 @@ public sealed class FreeTierOnboardingWindow
 
         _dialog = new ContentDialog
         {
-            Title = Loc.T("FreeTierOnboarding_TitleSubscribe"),
+            Title = IconButtonContent.Heading(IconButtonContent.Mail, Loc.T("FreeTierOnboarding_TitleSubscribe")),
             Content = root,
             XamlRoot = xamlRoot,
             CloseButtonText = Loc.T("Action_Ok"),
@@ -89,7 +90,8 @@ public sealed class FreeTierOnboardingWindow
             Margin = new Thickness(0, 0, 0, 10),
         };
         _linkCodeText = new TextBlock { FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontFamily = new FontFamily("Consolas") };
-        _copyCodeButton = new Button { Content = Loc.T("FreeTierOnboarding_CopyCode"), MinWidth = 110 };
+        _copyCodeButton = new Button { MinWidth = 110 };
+        IconButtonContent.Apply(_copyCodeButton, IconButtonContent.Copy, Loc.T("FreeTierOnboarding_CopyCode"));
         _copyCodeButton.Click += CopyCode_OnClick;
         _linkCodeExpiresText = new TextBlock { Opacity = 0.8, Margin = new Thickness(0, 8, 0, 0) };
         _linkCodeExpiresSoonText = new TextBlock
@@ -143,28 +145,28 @@ public sealed class FreeTierOnboardingWindow
 
         _checkAgainButton = new Button
         {
-            Content = Loc.T("FreeTierOnboarding_CheckAgain"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 0, 0, 8),
         };
+        IconButtonContent.Apply(_checkAgainButton, IconButtonContent.Refresh, Loc.T("FreeTierOnboarding_CheckAgain"));
         _checkAgainButton.Click += async (_, _) => await RefreshStatusInternalAsync();
 
         _openChannelButton = new Button
         {
-            Content = Loc.T("FreeTierOnboarding_OpenChannel"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 0, 0, 8),
             Visibility = Visibility.Collapsed,
         };
+        IconButtonContent.Apply(_openChannelButton, IconButtonContent.Mail, Loc.T("FreeTierOnboarding_OpenChannel"));
         _openChannelButton.Click += (_, _) =>
             OpenTelegramUrl(FreeTierOnboardingPolicy.ToTelegramChannelUrl(_status.RequiredChannel));
 
         _primaryActionButton = new Button
         {
-            Content = Loc.T("FreeTierOnboarding_OpenChannel"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Style = (Style)Application.Current.Resources["AccentButtonStyle"],
         };
+        IconButtonContent.Apply(_primaryActionButton, IconButtonContent.Mail, Loc.T("FreeTierOnboarding_OpenChannel"));
         _primaryActionButton.Click += PrimaryAction_OnClick;
 
         return new StackPanel
@@ -296,7 +298,7 @@ public sealed class FreeTierOnboardingWindow
             ? "FreeTierOnboarding_TitleLink"
             : "FreeTierOnboarding_TitleSubscribe";
         if (_dialog is not null)
-            _dialog.Title = Loc.T(titleKey);
+            _dialog.Title = IconButtonContent.Heading(IconButtonContent.Mail, Loc.T(titleKey));
 
         _bodyText.Text = copyMode switch
         {
@@ -318,14 +320,15 @@ public sealed class FreeTierOnboardingWindow
             _linkCodeBorder.Visibility = Visibility.Visible;
             _linkCodeText.Text = _linkCode;
             _linkCodeStepsText.Text = Loc.T("FreeTierOnboarding_CodeStepsWithVpn", _linkCode);
-            _primaryActionButton.Content = Loc.T("FreeTierOnboarding_OpenBot");
+            IconButtonContent.Apply(_primaryActionButton, IconButtonContent.Mail, Loc.T("FreeTierOnboarding_OpenBot"));
         }
         else
         {
             _linkCodeBorder.Visibility = Visibility.Collapsed;
-            _primaryActionButton.Content = copyMode == FreeTierOnboardingCopyMode.LinkAccount
-                ? Loc.T("FreeTierOnboarding_GetCode")
-                : Loc.T("FreeTierOnboarding_OpenChannel");
+            if (copyMode == FreeTierOnboardingCopyMode.LinkAccount)
+                IconButtonContent.Apply(_primaryActionButton, IconButtonContent.Copy, Loc.T("FreeTierOnboarding_GetCode"));
+            else
+                IconButtonContent.Apply(_primaryActionButton, IconButtonContent.Mail, Loc.T("FreeTierOnboarding_OpenChannel"));
         }
 
         _primaryActionButton.IsEnabled = !_isBusy &&

@@ -127,6 +127,14 @@ public sealed class XrayWindowsConfigBuilderTests
         Assert.Equal(1500, root["inbounds"]![0]!["settings"]!["mtu"]!.Value<int>());
         Assert.Equal("system", root["inbounds"]![0]!["settings"]!["stack"]!.Value<string>());
         Assert.Equal("warning", root["log"]!["loglevel"]!.Value<string>());
+        Assert.Equal("none", root["log"]!["access"]!.Value<string>());
+        Assert.Equal("auto", root["inbounds"]![0]!["settings"]!["autoOutboundsInterface"]!.Value<string>());
+        Assert.Contains(
+            ((JArray)root["inbounds"]![0]!["settings"]!["autoSystemRoutingTable"]!).Select(t => t.Value<string>()),
+            s => s == "0.0.0.0/0");
+        Assert.Contains(
+            ((JArray)root["inbounds"]![0]!["settings"]!["dns"]!).Select(t => t.Value<string>()),
+            s => s == "1.1.1.1");
         Assert.Equal("AsIs", root["routing"]!["domainStrategy"]!.Value<string>());
 
         var dest = (JArray)root["inbounds"]![0]!["sniffing"]!["destOverride"]!;
@@ -138,6 +146,9 @@ public sealed class XrayWindowsConfigBuilderTests
         Assert.Contains(outbounds.OfType<JObject>(), o => o.Value<string>("tag") == "block");
 
         var rules = (JArray)root["routing"]!["rules"]!;
+        Assert.Contains(rules.OfType<JObject>(), r =>
+            r.Value<string>("outboundTag") == "block"
+            && r.Value<string>("port") == "137,138,139");
         Assert.Contains(rules.OfType<JObject>(), r =>
             r.Value<string>("outboundTag") == "direct"
             && r["ip"] is JArray ips
@@ -232,11 +243,12 @@ public sealed class XrayWindowsConfigBuilderTests
             tunnelDnsServers: ["172.20.0.1", "10.0.0.53/32", ""]);
         var rules = (JArray)JObject.Parse(json)["routing"]!["rules"]!;
 
-        Assert.Equal("proxy", rules[0]!.Value<string>("outboundTag"));
-        var dnsIps = ((JArray)rules[0]!["ip"]!).Select(t => t.Value<string>()).ToArray();
+        Assert.Equal("block", rules[0]!.Value<string>("outboundTag")); // NetBIOS
+        Assert.Equal("proxy", rules[1]!.Value<string>("outboundTag"));
+        var dnsIps = ((JArray)rules[1]!["ip"]!).Select(t => t.Value<string>()).ToArray();
         Assert.Contains("172.20.0.1/32", dnsIps);
         Assert.Contains("10.0.0.53/32", dnsIps);
-        Assert.Equal("direct", rules[1]!.Value<string>("outboundTag")); // private
+        Assert.Equal("direct", rules[2]!.Value<string>("outboundTag")); // private
     }
 
     [Fact]
@@ -311,9 +323,9 @@ public sealed class XrayWindowsConfigBuilderTests
 
         var issued =
             """{"vless":"vless://uuid@host:443?encryption=none#n","dnsServers":["172.20.0.1"]}""";
-        Assert.Equal(
-            "vless://uuid@host:443?encryption=none#n",
-            XrayWindowsConfigBuilder.PrepareShareOrOutboundsInput(issued));
+        var issuedPrepared = JObject.Parse(XrayWindowsConfigBuilder.PrepareShareOrOutboundsInput(issued));
+        Assert.Equal("vless://uuid@host:443?encryption=none#n", issuedPrepared.Value<string>("vless"));
+        Assert.Equal("172.20.0.1", issuedPrepared["dnsServers"]![0]!.Value<string>());
 
         Assert.Equal("plain-text", XrayWindowsConfigBuilder.PrepareShareOrOutboundsInput("plain-text"));
     }

@@ -63,7 +63,7 @@ public sealed class LocalizationConsistencyTests
     private static List<string> GetLocalizationFiles()
     {
         var repoRoot = FindRepoRoot();
-        var locDir = Path.Combine(repoRoot, "DataGateWin.UI", "Localization");
+        var locDir = Path.Combine(repoRoot, "DataGateWin.WinUI", "Localization");
         return Directory
             .EnumerateFiles(locDir, "Strings.*.xaml", SearchOption.TopDirectoryOnly)
             .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)

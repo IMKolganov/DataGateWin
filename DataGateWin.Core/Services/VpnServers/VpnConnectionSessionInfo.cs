@@ -10,8 +10,12 @@ public sealed class VpnConnectionSessionInfo
     /// <summary>Tunnel address from OpenVPN Connected event (<c>vpnIpv4</c>).</summary>
     public string? VpnIp { get; set; }
 
+    /// <summary>DNS from issued/imported Xray profile (<c>dnsServers</c>), when present.</summary>
+    public IReadOnlyList<string>? DnsServers { get; init; }
+
     public bool HasIdentity =>
         !string.IsNullOrWhiteSpace(ServerName)
         || !string.IsNullOrWhiteSpace(VpnIp)
-        || !string.IsNullOrWhiteSpace(ExternalIp);
+        || !string.IsNullOrWhiteSpace(ExternalIp)
+        || (DnsServers is { Count: > 0 });
 }

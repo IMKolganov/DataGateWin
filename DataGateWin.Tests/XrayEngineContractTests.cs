@@ -33,7 +33,7 @@ public sealed class XrayEngineContractTests
     {
         var doc = File.ReadAllText(FindRepoFile(Path.Combine("docs", "XRAY_WINDOWS_REMAINING.md")));
         Assert.Contains("XrayClientLinksApiClientTests", doc, StringComparison.Ordinal);
-        Assert.Contains("XrayUiLockContractTests", doc, StringComparison.Ordinal);
+        Assert.Contains("XrayUiUnlockContractTests", doc, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -56,6 +56,12 @@ public sealed class XrayEngineContractTests
         Assert.Contains("IsRunning", session, StringComparison.Ordinal);
         Assert.Contains("user_stop", session, StringComparison.Ordinal);
         Assert.Contains("CollectProxyEndpointCidrs", session, StringComparison.Ordinal);
+        Assert.Contains("autoSystemRoutingTable", 
+            File.ReadAllText(FindRepoFile(Path.Combine("engine", "src", "xray", "XrayConfigBuilder.cpp"))),
+            StringComparison.Ordinal);
+        Assert.Contains("autoOutboundsInterface",
+            File.ReadAllText(FindRepoFile(Path.Combine("engine", "src", "xray", "XrayConfigBuilder.cpp"))),
+            StringComparison.Ordinal);
         Assert.Contains("xray_not_running", session, StringComparison.Ordinal);
         Assert.Contains("ExtractShareLinkOrEmpty", session, StringComparison.Ordinal);
 

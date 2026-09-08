@@ -14,4 +14,7 @@ public sealed class AppSettings
 
     /// <summary>Home: when <see cref="HomeVpnAutoPickServer"/> is false, OpenVPN server id from get-all-with-status.</summary>
     public int HomeVpnManualServerId { get; set; }
+
+    /// <summary>Home: show the engine journal under the live traffic graph. Hidden by default.</summary>
+    public bool HomeShowEngineLogs { get; set; }
 }

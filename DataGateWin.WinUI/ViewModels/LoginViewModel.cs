@@ -6,6 +6,7 @@ using DataGateWin.Configuration;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
+using DataGateWin.Services.Ui;
 
 namespace DataGateWin.ViewModels;
 
@@ -17,6 +18,8 @@ public sealed partial class LoginViewModel : ObservableObject
     private readonly string _apiBaseUrl;
     private CancellationTokenSource? _cts;
     private string? _loginChallengeId;
+    private string? _totpDisplayName;
+    private Exception? _lastError;
 
     public event EventHandler<string>? SignedIn;
 
@@ -90,6 +93,7 @@ public sealed partial class LoginViewModel : ObservableObject
             return;
 
         IsBusy = true;
+        _lastError = null;
         StatusText = Loc.T("Login_Status_OpeningBrowser");
 
         _cts = new CancellationTokenSource();
@@ -112,14 +116,16 @@ public sealed partial class LoginViewModel : ObservableObject
 
             await CompleteLoginAsync(apiResponse.Data, _cts.Token).ConfigureAwait(true);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_cts?.IsCancellationRequested == true)
         {
+            _lastError = null;
             StatusText = Loc.T("Login_Status_Cancelled");
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "LoginViewModel.SignIn");
-            StatusText = Loc.T("Login_Status_FailedFmt", ex.Message);
+            _lastError = ex;
+            StatusText = Loc.T("Login_Status_FailedFmt", VpnUserFacingError.FromException(ex));
         }
         finally
         {
@@ -144,6 +150,7 @@ public sealed partial class LoginViewModel : ObservableObject
         }
 
         IsBusy = true;
+        _lastError = null;
         StatusText = Loc.T("Login_Totp_Status_Verifying");
         _cts = new CancellationTokenSource();
 
@@ -165,16 +172,16 @@ public sealed partial class LoginViewModel : ObservableObject
 
             await CompleteLoginAsync(apiResponse.Data, _cts.Token).ConfigureAwait(true);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_cts?.IsCancellationRequested == true)
         {
+            _lastError = null;
             StatusText = Loc.T("Login_Status_Cancelled");
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "LoginViewModel.VerifyTotp");
-            StatusText = LoginFlow.IsLoginChallengeExpiredMessage(ex.Message)
-                ? Loc.T("Login_Totp_ChallengeExpired")
-                : Loc.T("Login_Status_FailedFmt", ex.Message);
+            _lastError = ex;
+            StatusText = VpnUserFacingError.FromException(ex);
         }
         finally
         {
@@ -218,6 +225,7 @@ public sealed partial class LoginViewModel : ObservableObject
     private void EnterTotpChallenge(string loginChallengeId, string? displayName)
     {
         _loginChallengeId = loginChallengeId;
+        _totpDisplayName = displayName;
         TotpCode = "";
         TotpLeadText = string.IsNullOrWhiteSpace(displayName)
             ? Loc.T("Login_Totp_Lead")
@@ -225,9 +233,32 @@ public sealed partial class LoginViewModel : ObservableObject
         IsTotpChallengeVisible = true;
     }
 
+    public void RefreshLanguage()
+    {
+        if (IsTotpChallengeVisible)
+        {
+            TotpLeadText = string.IsNullOrWhiteSpace(_totpDisplayName)
+                ? Loc.T("Login_Totp_Lead")
+                : Loc.T("Login_Totp_LeadNamedFmt", _totpDisplayName);
+            StatusText = _lastError is null
+                ? Loc.T("Login_Totp_Status_EnterCode")
+                : VpnUserFacingError.FromException(_lastError);
+            return;
+        }
+
+        if (!IsBusy)
+        {
+            StatusText = _lastError is null
+                ? Loc.T("Login_Status_NotSignedIn")
+                : Loc.T("Login_Status_FailedFmt", VpnUserFacingError.FromException(_lastError));
+        }
+    }
+
     private void ClearTotpChallenge()
     {
         _loginChallengeId = null;
+        _totpDisplayName = null;
+        _lastError = null;
         TotpCode = "";
         TotpLeadText = "";
         IsTotpChallengeVisible = false;

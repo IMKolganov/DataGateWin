@@ -32,7 +32,10 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
-                            <TextBlock x:Name="EnableTitleText" FontWeight="SemiBold" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE968;" FontSize="16" VerticalAlignment="Center" />
+                                <TextBlock x:Name="EnableTitleText" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
                             <TextBlock
                                 x:Name="EnableSubtitleText"
                                 Opacity="0.75"
@@ -53,11 +56,14 @@
                         Margin="0,0,0,10"
                         Visibility="Collapsed" />
 
-                    <TextBlock
-                        x:Name="SourceTitleText"
-                        FontSize="16"
-                        FontWeight="SemiBold"
-                        Margin="0,8,0,4" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,4">
+                        <FontIcon Glyph="&#xE774;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock
+                            x:Name="SourceTitleText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock
                         x:Name="SourceSubtitleText"
                         Opacity="0.75"
@@ -71,19 +77,19 @@
                         MaxHeight="220"
                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
 
-                    <TextBlock
-                        x:Name="FrequencyLabelText"
-                        FontWeight="SemiBold"
-                        Margin="0,14,0,6" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,14,0,6">
+                        <FontIcon Glyph="&#xE823;" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock x:Name="FrequencyLabelText" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
                     <ComboBox
                         x:Name="FrequencyCombo"
                         MinWidth="200"
                         HorizontalAlignment="Left" />
 
-                    <TextBlock
-                        x:Name="CoverageLabelText"
-                        FontWeight="SemiBold"
-                        Margin="0,14,0,6" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,14,0,6">
+                        <FontIcon Glyph="&#xE707;" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock x:Name="CoverageLabelText" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock
                         x:Name="CoverageWinNoteText"
                         Opacity="0.75"
@@ -94,10 +100,10 @@
                         <RadioButton x:Name="CoverageFullRadio" GroupName="Cov" />
                     </StackPanel>
 
-                    <TextBlock
-                        x:Name="RouteLimitLabelText"
-                        FontWeight="SemiBold"
-                        Margin="0,14,0,6" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,14,0,6">
+                        <FontIcon Glyph="&#xE81E;" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock x:Name="RouteLimitLabelText" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock
                         x:Name="RouteLimitHintText"
                         Opacity="0.75"
@@ -113,8 +119,18 @@
                         <Button
                             x:Name="SaveButton"
                             Style="{StaticResource AccentButtonStyle}"
-                            Click="SaveButton_OnClick" />
-                        <Button x:Name="UpdateNowButton" Click="UpdateNowButton_OnClick" />
+                            Click="SaveButton_OnClick">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE74E;" FontSize="14" />
+                                <TextBlock x:Name="SaveButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="UpdateNowButton" Click="UpdateNowButton_OnClick">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE896;" FontSize="14" />
+                                <TextBlock x:Name="UpdateNowButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <TextBlock
@@ -129,11 +145,14 @@
                         Margin="0,18,0,14"
                         Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                    <TextBlock
-                        x:Name="StatusTitleText"
-                        FontSize="16"
-                        FontWeight="SemiBold"
-                        Margin="0,0,0,8" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                        <FontIcon Glyph="&#xE946;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock
+                            x:Name="StatusTitleText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
 
                     <TextBlock x:Name="LastUpdatedText" TextWrapping="Wrap" />
                     <TextBlock x:Name="LoadedRoutesText" TextWrapping="Wrap" Margin="0,4,0,0" />

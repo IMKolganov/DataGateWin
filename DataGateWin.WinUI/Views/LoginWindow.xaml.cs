@@ -18,6 +18,7 @@ public sealed partial class LoginWindow : Window
     public LoginWindow(AuthStateStore authState)
     {
         InitializeComponent();
+        WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         WindowChrome.ApplyDefault(this, width: 520, height: 620);
         _authState = authState ?? throw new ArgumentNullException(nameof(authState));
 
@@ -74,18 +75,18 @@ public sealed partial class LoginWindow : Window
     private void ApplyLocalizedChrome()
     {
         Title = Loc.T("App_Title");
-        LanguageLabel.Text = Loc.T("Settings_Language");
+        ToolTipService.SetToolTip(LoginLanguageCombo, Loc.T("Settings_Language"));
         WelcomeTitle.Text = Loc.T("Login_Welcome");
         WelcomeSubtitle.Text = Loc.T("Login_SignInToContinue");
-        SignInButton.Content = Loc.T("Login_SignInGoogle");
-        CancelButton.Content = Loc.T("Login_Cancel");
+        SignInButtonText.Text = Loc.T("Login_SignInGoogle");
+        CancelButtonText.Text = Loc.T("Login_Cancel");
         TotpTitle.Text = Loc.T("Login_Totp_Title");
-        TotpVerifyButton.Content = Loc.T("Login_Totp_Verify");
-        TotpBackButton.Content = Loc.T("Login_Totp_Back");
+        TotpVerifyButtonText.Text = Loc.T("Login_Totp_Verify");
+        TotpBackButtonText.Text = Loc.T("Login_Totp_Back");
         TotpCodeBox.PlaceholderText = Loc.T("Login_Totp_CodePlaceholder");
-        TelegramButton.Content = Loc.T("Telegram_SubscribeHint");
+        TelegramButtonText.Text = Loc.T("Telegram_SubscribeHint");
         FooterHint.Text = Loc.T("Login_FooterHint");
-        ReportIssueButton.Content = Loc.T("Home_ReportIssue");
+        ReportIssueButtonText.Text = Loc.T("Home_ReportIssue");
         ToolTipService.SetToolTip(ReportIssueButton, Loc.T("Home_ReportIssue"));
     }
 
@@ -95,8 +96,9 @@ public sealed partial class LoginWindow : Window
         {
             ApplyLocalizedChrome();
             PopulateLoginLanguageCombo();
-            if (_vm.IsTotpChallengeVisible)
-                ApplyVmToUi();
+            _vm.RefreshLanguage();
+            ApplyVmToUi();
+            WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         });
     }
 

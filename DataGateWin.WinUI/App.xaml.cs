@@ -177,9 +177,12 @@ public partial class App : Application
 
     public static void ApplyElementThemeToWindow(Window? window, ElementTheme? theme = null)
     {
-        if (window?.Content is not FrameworkElement root)
+        if (window is null)
             return;
-        root.RequestedTheme = theme ?? ResolveElementTheme();
+        var resolved = theme ?? ResolveElementTheme();
+        if (window.Content is FrameworkElement root)
+            root.RequestedTheme = resolved;
+        WindowChrome.ApplyTheme(window, resolved);
     }
 
     public static XamlRoot? GetActiveXamlRoot()
@@ -355,7 +358,7 @@ public partial class App : Application
 
             await ShowMessageAsync(
                 Loc.T("Msg_StartupFailedTitle"),
-                Loc.T("Msg_StartupFailedBodyFmt", ex.Message)).ConfigureAwait(true);
+                Loc.T("Msg_StartupFailedBodyFmt", VpnUserFacingError.FromException(ex))).ConfigureAwait(true);
             ExitApp();
         }
     }
@@ -378,7 +381,10 @@ public partial class App : Application
             try { _tray?.Unregister(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "App.ShowMain.TrayUnregister"); }
             _tray = new TrayService();
             _tray.AttachMainWindow(main);
+            _tray.ConnectRequested = () => main.RequestConnectFromTray();
+            _tray.DisconnectRequested = () => main.RequestDisconnectFromTray();
             _tray.Register();
+            main.BindTray(_tray);
 
             if (previous is not null && !ReferenceEquals(previous, main))
                 previous.Close();

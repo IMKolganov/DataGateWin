@@ -20,6 +20,7 @@ public sealed partial class IpListSettingsWindow : Window
     public IpListSettingsWindow()
     {
         InitializeComponent();
+        WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         WindowChrome.ApplyDefault(this, width: 560, height: 720);
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -28,8 +29,27 @@ public sealed partial class IpListSettingsWindow : Window
         }
 
         ApplyLocalizedChrome();
-        Closed += (_, _) => _closedTcs.TrySetResult();
+        Closed += (_, _) =>
+        {
+            WinUiLanguageService.LanguageChanged -= OnUiLanguageChanged;
+            _closedTcs.TrySetResult();
+        };
+        WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
     }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+        => DispatcherQueue.TryEnqueue(() =>
+        {
+            WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
+            ApplyLocalizedChrome();
+            foreach (ComboBoxItem item in FrequencyCombo.Items)
+            {
+                if (item.Tag is IpListUpdateFrequency f)
+                    item.Content = FrequencyLabel(f);
+            }
+
+            RefreshStatusTexts(IpListStore.LoadState().Status);
+        });
 
     public Task ShowAsync()
     {
@@ -53,8 +73,8 @@ public sealed partial class IpListSettingsWindow : Window
         CoverageFullRadio.Content = Loc.T("IpList_CoverageFull");
         RouteLimitLabelText.Text = Loc.T("IpList_RouteLimitLabel");
         RouteLimitHintText.Text = Loc.T("IpList_RouteLimitHint");
-        SaveButton.Content = Loc.T("IpList_Save");
-        UpdateNowButton.Content = Loc.T("IpList_UpdateNow");
+        SaveButtonText.Text = Loc.T("IpList_Save");
+        UpdateNowButtonText.Text = Loc.T("IpList_UpdateNow");
         StatusTitleText.Text = Loc.T("IpList_StatusTitle");
     }
 
@@ -151,7 +171,7 @@ public sealed partial class IpListSettingsWindow : Window
         if (st.ReachedRouteLimit)
             routesLine += "\n" + Loc.T("IpList_SourceListTruncated");
         LoadedRoutesText.Text = routesLine;
-        LastErrorText.Text = $"{Loc.T("IpList_LastError")} {st.LastError ?? Loc.T("IpList_LastErrorNone")}";
+        LastErrorText.Text = $"{Loc.T("IpList_LastError")} {(string.IsNullOrWhiteSpace(st.LastError) ? Loc.T("IpList_LastErrorNone") : VpnUserFacingError.FromMessage(st.LastError))}";
     }
 
     private void CidrEnabledToggle_OnToggled(object sender, RoutedEventArgs e)
@@ -225,8 +245,8 @@ public sealed partial class IpListSettingsWindow : Window
             else
             {
                 SaveMessageText.Text = result.UsedFallback
-                    ? Loc.T("IpList_UpdateFailedFallbackFmt", result.Error)
-                    : Loc.T("IpList_UpdateFailedFmt", result.Error);
+                    ? Loc.T("IpList_UpdateFailedFallbackFmt", VpnUserFacingError.FromMessage(result.Error))
+                    : Loc.T("IpList_UpdateFailedFmt", VpnUserFacingError.FromMessage(result.Error));
             }
 
             SaveMessageText.Visibility = Visibility.Visible;

@@ -44,6 +44,7 @@ public sealed class WinUiPublishLayoutContractTests
                      "DataGateWin.exe",
                      "DataGateWin.pri",
                      @"Images\favicon.ico",
+                     @"Assets\Flags",
                      @"engine\engine.exe",
                      @"Installer\DataGateWin.Installer.exe",
                  })

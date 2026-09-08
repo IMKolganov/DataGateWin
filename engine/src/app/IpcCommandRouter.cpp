@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 #include <iostream>
 #include <windows.h>
 
@@ -97,6 +98,55 @@ static bool TryExtractJsonBoolField(
     if (json.compare(i, 5, "false") == 0) { outValue = false; return true; }
 
     return false;
+}
+
+static bool TryExtractJsonStringArrayField(
+    const std::string& json,
+    const char* field,
+    std::vector<std::string>& outValues)
+{
+    std::string key = std::string("\"") + field + "\"";
+    auto p = json.find(key);
+    if (p == std::string::npos) return false;
+
+    p = json.find(':', p);
+    if (p == std::string::npos) return false;
+
+    p = json.find('[', p);
+    if (p == std::string::npos) return false;
+
+    auto e = json.find(']', p);
+    if (e == std::string::npos) return false;
+
+    const std::string arr = json.substr(p + 1, e - (p + 1));
+    size_t i = 0;
+    while (i < arr.size())
+    {
+        while (i < arr.size() && (std::isspace((unsigned char)arr[i]) || arr[i] == ','))
+            i++;
+        if (i >= arr.size() || arr[i] != '"')
+            break;
+
+        auto s = i + 1;
+        bool escaped = false;
+        size_t j = s;
+        for (; j < arr.size(); j++)
+        {
+            char c = arr[j];
+            if (escaped) { escaped = false; continue; }
+            if (c == '\\') { escaped = true; continue; }
+            if (c == '"') break;
+        }
+        if (j >= arr.size())
+            break;
+
+        std::string item = JsonUnescape(arr.substr(s, j - s));
+        if (!item.empty())
+            outValues.push_back(std::move(item));
+        i = j + 1;
+    }
+
+    return !outValues.empty();
 }
 
 static bool TryExtractJsonUInt16Field(
@@ -201,6 +251,8 @@ void IpcCommandRouter::Install()
             {
                 TryExtractJsonStringField(cmd.payloadJson, "xrayShareLinks", opt.xrayShareLinks);
                 TryExtractJsonStringField(cmd.payloadJson, "xrayConfigJson", opt.xrayConfigJson);
+                TryExtractJsonStringArrayField(cmd.payloadJson, "directBypassCidrs", opt.directBypassCidrs);
+                TryExtractJsonStringArrayField(cmd.payloadJson, "dnsServers", opt.dnsServers);
                 if (opt.xrayShareLinks.empty() && opt.xrayConfigJson.empty())
                 {
                     ipc_.ReplyError(cmd.id, "bad_payload", "Missing xrayShareLinks or xrayConfigJson");
@@ -211,6 +263,7 @@ void IpcCommandRouter::Install()
                           << " protocol=xray"
                           << " shareLinksBytes=" << opt.xrayShareLinks.size()
                           << " configJsonBytes=" << opt.xrayConfigJson.size()
+                          << " bypassCidrs=" << opt.directBypassCidrs.size()
                           << std::endl;
             }
             else

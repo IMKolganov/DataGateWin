@@ -25,6 +25,9 @@ namespace datagate::wintun
 
         bool EnsureAdapter(const std::wstring& adapterName, const std::wstring& tunnelType, std::string& outError);
 
+        /// Open+delete a leftover adapter by name (e.g. libXray "xray0" after a crash).
+        bool TryDeleteAdapterByName(const std::wstring& adapterName, std::string& outError);
+
         std::optional<uint32_t> GetIfIndex() const;
 
     private:

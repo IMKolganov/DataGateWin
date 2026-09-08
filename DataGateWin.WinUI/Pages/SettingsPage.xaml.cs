@@ -4,6 +4,7 @@ using DataGateWin.Configuration;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
+using DataGateWin.Services.Ui;
 using DataGateWin.Services.Update;
 using DataGateWin.Views;
 using Microsoft.UI.Xaml;
@@ -30,15 +31,22 @@ public sealed partial class SettingsPage : Page
 
         LoadVersionInfo();
         WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
-        Unloaded += (_, _) => WinUiLanguageService.LanguageChanged -= OnUiLanguageChanged;
+        // Do not unsubscribe on Unloaded: swapping Application.Resources during
+        // language change can fire Unloaded while Settings is still the visible page.
     }
 
+    private bool _languageHookAttached = true;
+
     private void OnUiLanguageChanged(object? sender, EventArgs e)
-        => DispatcherQueue.TryEnqueue(() =>
-        {
-            ApplyLocalizedChrome();
-            PopulateLanguageComboSelection();
-        });
+        => DispatcherQueue.TryEnqueue(ApplyOnShown);
+
+    /// <summary>Re-apply strings while this page is visible (language switch).</summary>
+    public void ApplyOnShown()
+    {
+        ApplyLocalizedChrome();
+        PopulateLanguageComboSelection();
+        LoadVersionInfo();
+    }
 
     private void ApplyLocalizedChrome()
     {
@@ -49,16 +57,25 @@ public sealed partial class SettingsPage : Page
         AppearanceHint.Text = Loc.T("Settings_AppearanceHint");
         ThemeToggle.Header = Loc.T("Settings_DarkMode");
         IpListsHeader.Text = Loc.T("Settings_IpLists");
+        IpListsHint.Text = Loc.T("Settings_IpLists_Subtitle");
         IpListsMainToggle.Header = Loc.T("Settings_IpLists_Enable");
         IpListsConfigureButtonText.Text = Loc.T("Settings_IpLists_Open");
-        VersionHeader.Text = Loc.T("Settings_CurrentVersion");
+        VersionHeader.Text = Loc.T("Settings_Application");
         AboutButtonText.Text = Loc.T("Settings_About");
+        AccountHeader.Text = Loc.T("Settings_Account");
+        AccountHint.Text = Loc.T("Settings_AccountHint");
         LogoutButtonText.Text = Loc.T("Settings_Logout");
     }
 
     private void SettingsPage_OnLoaded(object sender, RoutedEventArgs e)
     {
-        PopulateLanguageComboSelection();
+        if (!_languageHookAttached)
+        {
+            WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
+            _languageHookAttached = true;
+        }
+
+        ApplyOnShown();
         ApplyIpListsToggleFromStore();
     }
 
@@ -125,6 +142,7 @@ public sealed partial class SettingsPage : Page
         if (LanguageCombo.SelectedItem is not ComboBoxItem { Tag: string code })
             return;
         WinUiLanguageService.Apply(code, persist: true);
+        ApplyOnShown();
     }
 
     private void LoadVersionInfo()
@@ -172,7 +190,7 @@ public sealed partial class SettingsPage : Page
 
         var confirm = new ContentDialog
         {
-            Title = Loc.T("Msg_LogoutTitle"),
+            Title = IconButtonContent.Heading(IconButtonContent.SignOut, Loc.T("Msg_LogoutTitle")),
             Content = Loc.T("Msg_LogoutConfirm"),
             PrimaryButtonText = Loc.T("Action_Yes"),
             CloseButtonText = Loc.T("Action_No"),
@@ -195,7 +213,7 @@ public sealed partial class SettingsPage : Page
             await new ContentDialog
             {
                 Title = Loc.T("Msg_ErrorTitle"),
-                Content = Loc.T("Msg_LogoutFailedFmt", ex.Message),
+                Content = Loc.T("Msg_LogoutFailedFmt", VpnUserFacingError.FromException(ex)),
                 CloseButtonText = Loc.T("Action_Ok"),
                 XamlRoot = XamlRoot,
             }.ShowAsync();

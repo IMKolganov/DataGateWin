@@ -33,6 +33,9 @@ public sealed class EngineLogNoiseFilter
 
         lock (_gate)
         {
+            if (IsXrayAccessNoise(trimmed))
+                return null;
+
             if (IsRouteNoise(trimmed, out var isFailure, out var is5010))
             {
                 _routeAttempts++;
@@ -126,6 +129,29 @@ public sealed class EngineLogNoiseFilter
                      line.Contains("already exists", StringComparison.OrdinalIgnoreCase);
             return true;
         }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Xray access lines for link-local NetBIOS / tun-in→direct private chatter.
+    /// </summary>
+    internal static bool IsXrayAccessNoise(string line)
+    {
+        // e.g. from udp:169.254.57.70:65187 accepted udp:169.254.255.255:137 [tun-in -> direct]
+        if (!line.Contains("accepted", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!line.Contains("[tun-in", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (line.Contains(":137 ", StringComparison.Ordinal)
+            || line.Contains(":138 ", StringComparison.Ordinal)
+            || line.Contains(":139 ", StringComparison.Ordinal))
+            return true;
+
+        if (line.Contains("169.254.", StringComparison.Ordinal)
+            && line.Contains("-> direct]", StringComparison.OrdinalIgnoreCase))
+            return true;
 
         return false;
     }

@@ -47,7 +47,7 @@ public static class WinUiLanguageService
     {
         var p = NormalizePreferenceForStorage(preference);
         if (p == SystemPreference)
-            return CultureMapping.MapCultureToSupportedCode(CultureInfo.CurrentUICulture);
+            return CultureMapping.MapCultureToSupportedCode(CultureInfo.InstalledUICulture);
         return p;
     }
 
@@ -104,6 +104,21 @@ public static class WinUiLanguageService
         ReloadStringTable(effective);
         MergeResourceDictionaries(effective);
         LanguageChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    public static bool IsRightToLeft(string? preference = null)
+    {
+        var code = ResolveEffectiveLanguageCode(preference ?? GetStoredLanguagePreference());
+        return code is "ar" or "fa";
+    }
+
+    public static void ApplyFlowDirection(FrameworkElement? root)
+    {
+        if (root is null)
+            return;
+        root.FlowDirection = IsRightToLeft()
+            ? FlowDirection.RightToLeft
+            : FlowDirection.LeftToRight;
     }
 
     public static string GetLanguageDisplayName(string code)
