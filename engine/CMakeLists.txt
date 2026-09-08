@@ -6,6 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENGINE_SHOW_INCLUDES "Enable MSVC /showIncludes for debugging include duplication" OFF)
 option(ENGINE_ENABLE_TAP "Enable TAP-Windows backend (requires tap-windows.h)" OFF)
+option(ENGINE_WIN7 "Unsupported Windows 7 engine: Vista/Win7 APIs, no libXray, PE subsystem 6.01" OFF)
+
+if (ENGINE_WIN7)
+    set(DATAGATE_WIN32_WINNT 0x0601)
+    message(STATUS "ENGINE_WIN7: targeting Windows 7 (_WIN32_WINNT=0x0601), skipping libXray")
+else()
+    set(DATAGATE_WIN32_WINNT 0x0A00)
+endif()
 
 if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -86,9 +94,10 @@ add_executable(engine
 )
 
 target_compile_definitions(engine PRIVATE
-        _WIN32_WINNT=0x0A00
+        _WIN32_WINNT=${DATAGATE_WIN32_WINNT}
         NOMINMAX
         WIN32_LEAN_AND_MEAN
+        $<$<BOOL:${ENGINE_WIN7}>:DATAGATE_ENGINE_WIN7=1>
 )
 
 target_include_directories(engine PRIVATE
@@ -148,8 +157,8 @@ if (MSVC AND ENGINE_SHOW_INCLUDES)
 endif()
 
 target_compile_definitions(ovpn3-core PUBLIC
-        _WIN32_WINNT=0x0A00
-        OPENVPN_VERSION=\"3.11.7_datagate_windows_1.0.14\"
+        _WIN32_WINNT=${DATAGATE_WIN32_WINNT}
+        OPENVPN_VERSION=\"3.11.7_datagate_windows_1.0.15\"
         USE_ASIO
         USE_OPENSSL
         HAVE_LZ4
@@ -211,10 +220,17 @@ target_link_libraries(engine PRIVATE
         Boost::boost
 )
 
+if (ENGINE_WIN7 AND MSVC)
+    target_link_options(engine PRIVATE "/SUBSYSTEM:CONSOLE,6.01")
+endif()
+
 # libXray Windows DLL (LoadLibrary at runtime). Fetch via scripts/libxray/fetch-windows.ps1.
+# Go-built libXray is not a Windows 7 target — skip it for ENGINE_WIN7.
 set(LIBXRAY_DIR "${CMAKE_CURRENT_LIST_DIR}/third_party/libxray")
 set(LIBXRAY_DLL "${LIBXRAY_DIR}/libXray.dll")
-if (EXISTS "${LIBXRAY_DLL}")
+if (ENGINE_WIN7)
+    message(STATUS "ENGINE_WIN7: not shipping libXray.dll (OpenVPN/WSS only)")
+elseif (EXISTS "${LIBXRAY_DLL}")
     add_custom_command(TARGET engine POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${LIBXRAY_DLL}"

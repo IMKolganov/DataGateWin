@@ -1,4 +1,5 @@
 using DataGateWin.Configuration;
+using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Support;
@@ -37,17 +38,20 @@ public sealed partial class LoginWindow : Window
                 or nameof(LoginViewModel.IsGoogleSignInVisible)
                 or nameof(LoginViewModel.TotpLeadText)
                 or nameof(LoginViewModel.TotpCode))
-                ApplyVmToUi();
+                UiDispatch.Run(DispatcherQueue, ApplyVmToUi, "LoginWindow.ApplyVm");
         };
         _vm.SignedIn += (_, accessToken) =>
         {
-            _authState.SetAuthorized(accessToken);
-            if (Application.Current is App app)
-                app.ShowMain(_authState);
+            UiDispatch.Run(DispatcherQueue, () =>
+            {
+                _authState.SetAuthorized(accessToken);
+                if (Application.Current is App app)
+                    app.ShowMain(_authState);
+            }, "LoginWindow.SignedIn");
         };
 
         WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
-        Closed += (_, _) => WinUiLanguageService.LanguageChanged -= OnUiLanguageChanged;
+        Closed += OnLoginClosed;
         ApplyLocalizedChrome();
         PopulateLoginLanguageCombo();
         ApplyVmToUi();
@@ -144,16 +148,68 @@ public sealed partial class LoginWindow : Window
         WinUiLanguageService.Apply(code, persist: true);
     }
 
+    private void OnLoginClosed(object sender, WindowEventArgs args)
+    {
+        WinUiLanguageService.LanguageChanged -= OnUiLanguageChanged;
+        try
+        {
+            if (_vm.CancelCommand.CanExecute(null))
+                _vm.CancelCommand.Execute(null);
+        }
+        catch
+        {
+            // Never let cancel/close tear down the process.
+        }
+    }
+
     private async void SignIn_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_vm.SignInCommand.CanExecute(null))
-            await _vm.SignInCommand.ExecuteAsync(null);
+        try
+        {
+            if (_vm.SignInCommand.CanExecute(null))
+                await _vm.SignInCommand.ExecuteAsync(null);
+            if (_vm.HasFailure)
+                await ShowErrorAsync(_vm.StatusText);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "LoginWindow.SignIn");
+            await ShowErrorAsync(VpnUserFacingError.FromException(ex));
+        }
     }
 
     private void Cancel_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_vm.CancelCommand.CanExecute(null))
-            _vm.CancelCommand.Execute(null);
+        try
+        {
+            if (_vm.CancelCommand.CanExecute(null))
+                _vm.CancelCommand.Execute(null);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "LoginWindow.Cancel");
+        }
+    }
+
+    private async Task ShowErrorAsync(string message)
+    {
+        try
+        {
+            if (Content is not FrameworkElement fe || fe.XamlRoot is null)
+                return;
+            var dlg = new ContentDialog
+            {
+                Title = Loc.T("Msg_ErrorTitle"),
+                Content = message,
+                CloseButtonText = Loc.T("Action_Ok"),
+                XamlRoot = fe.XamlRoot,
+            };
+            await dlg.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "LoginWindow.ShowError");
+        }
     }
 
     private void TotpCodeBox_OnTextChanged(object sender, TextChangedEventArgs e)
@@ -163,8 +219,18 @@ public sealed partial class LoginWindow : Window
 
     private async void TotpVerify_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_vm.VerifyTotpCommand.CanExecute(null))
-            await _vm.VerifyTotpCommand.ExecuteAsync(null);
+        try
+        {
+            if (_vm.VerifyTotpCommand.CanExecute(null))
+                await _vm.VerifyTotpCommand.ExecuteAsync(null);
+            if (_vm.HasFailure)
+                await ShowErrorAsync(_vm.StatusText);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "LoginWindow.VerifyTotp");
+            await ShowErrorAsync(VpnUserFacingError.FromException(ex));
+        }
     }
 
     private void TotpBack_OnClick(object sender, RoutedEventArgs e)

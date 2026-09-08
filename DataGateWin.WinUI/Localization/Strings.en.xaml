@@ -20,7 +20,7 @@
     <x:String x:Key="Action_No">No</x:String>
 
     <x:String x:Key="Msg_AdminTitle">Administrator privileges required</x:String>
-    <x:String x:Key="Msg_AdminBody">This application must be run with administrator privileges.&#x0a;&#x0a;Please restart the application as an administrator.</x:String>
+    <x:String x:Key="Msg_AdminBody">DataGate needs administrator rights for the VPN engine. Windows should show a User Account Control prompt.&#x0a;&#x0a;If you cancelled it, right-click DataGate and choose Run as administrator.</x:String>
     <x:String x:Key="Msg_ConfigMissingTitle">Configuration missing</x:String>
     <x:String x:Key="Msg_ConfigMissingBodyFmt">Configuration file was not found:&#x0a;{0}</x:String>
     <x:String x:Key="Msg_StartupFailedTitle">Error</x:String>

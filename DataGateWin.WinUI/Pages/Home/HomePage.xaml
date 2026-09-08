@@ -7,13 +7,11 @@
     Loaded="HomePage_OnLoaded"
     Unloaded="HomePage_OnUnloaded">
 
-    <Grid Margin="20" RowSpacing="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
+    <ScrollViewer
+        x:Name="HomeScroll"
+        HorizontalScrollBarVisibility="Disabled"
+        VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20" Spacing="16">
         <StackPanel Orientation="Horizontal" Spacing="10">
             <FontIcon Glyph="&#xE80F;" FontSize="18" VerticalAlignment="Center" />
             <TextBlock
@@ -24,7 +22,6 @@
         </StackPanel>
 
         <Border
-            Grid.Row="1"
             Padding="16"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
@@ -124,7 +121,20 @@
                 </Grid>
 
                 <StackPanel x:Name="NetworkInfoPanel" Spacing="4" Visibility="Collapsed">
-                    <TextBlock x:Name="NetworkServerText" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="NetworkServerLabel" VerticalAlignment="Center" />
+                        <Image
+                            x:Name="NetworkServerFlag"
+                            Width="22"
+                            Height="16.5"
+                            Stretch="Uniform"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed" />
+                        <TextBlock
+                            x:Name="NetworkServerName"
+                            TextWrapping="Wrap"
+                            VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock x:Name="NetworkVpnIpText" FontFamily="Consolas" />
                     <TextBlock x:Name="NetworkExternalIpText" FontFamily="Consolas" />
                     <TextBlock x:Name="NetworkDnsText" FontFamily="Consolas" TextWrapping="Wrap" />
@@ -134,19 +144,10 @@
 
         <Border
             x:Name="TrafficLogsCard"
-            Grid.Row="2"
             Padding="16"
-            VerticalAlignment="Stretch"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
-            <Grid RowSpacing="10">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+            <StackPanel Spacing="10">
 
                 <Grid ColumnSpacing="16">
                     <Grid.ColumnDefinitions>
@@ -176,14 +177,12 @@
 
                 <TextBlock
                     x:Name="TrafficErrorText"
-                    Grid.Row="1"
                     Foreground="OrangeRed"
                     TextWrapping="Wrap"
                     Text="{x:Bind Traffic.ErrorText, Mode=OneWay}" />
 
                 <lvc:CartesianChart
                     x:Name="TrafficChart"
-                    Grid.Row="2"
                     Height="150"
                     LegendPosition="Hidden"
                     Series="{x:Bind Traffic.Series, Mode=OneWay}"
@@ -193,19 +192,22 @@
 
                 <CheckBox
                     x:Name="ShowEngineLogsCheck"
-                    Grid.Row="3"
                     Click="ShowEngineLogsCheck_OnClick" />
 
                 <TextBox
                     x:Name="LogTextBox"
-                    Grid.Row="4"
+                    Height="240"
+                    MinHeight="180"
                     AcceptsReturn="True"
                     FontFamily="Consolas"
                     FontSize="12"
                     IsReadOnly="True"
+                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                    ScrollViewer.VerticalScrollBarVisibility="Auto"
                     TextWrapping="NoWrap"
                     Visibility="Collapsed" />
-            </Grid>
+            </StackPanel>
         </Border>
-    </Grid>
+        </StackPanel>
+    </ScrollViewer>
 </Page>

@@ -141,6 +141,22 @@ public static class CrashReporter
     public static Task FlushPendingAsync(CancellationToken cancellationToken = default)
         => Task.Run(() => FlushPendingCoreAsync(cancellationToken), cancellationToken);
 
+    static void TryFlushBlocking(TimeSpan timeout)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            FlushPendingCoreAsync(cts.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception inner)
+        {
+            LogStructured(
+                "crash_report_failed",
+                ("stage", "TryFlushBlocking"),
+                ("error_type", inner.GetType().FullName ?? inner.GetType().Name));
+        }
+    }
+
     static async Task FlushPendingCoreAsync(CancellationToken cancellationToken)
     {
         var cfg = GetConfiguration();
@@ -216,7 +232,7 @@ public static class CrashReporter
         if (kind == CrashReportKind.Fatal)
         {
             if (TryQueueReport(ex, kind, threadLabel, tag))
-                _ = FlushPendingAsync(CancellationToken.None);
+                TryFlushBlocking(TimeSpan.FromSeconds(5));
 
             return;
         }
