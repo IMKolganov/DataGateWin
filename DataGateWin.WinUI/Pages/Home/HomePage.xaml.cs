@@ -50,6 +50,7 @@ public sealed partial class HomePage : Page
         ConnectionStatusLabel.Text = Loc.T("Home_ConnectionStatus");
         VpnServerLabel.Text = Loc.T("Home_VpnServer");
         ServerLabel.Text = Loc.T("Home_Server");
+        NetworkServerLabel.Text = Loc.T("Home_Network_Server") + ":";
         RefreshServersButtonText.Text = Loc.T("Home_Refresh");
         ConnectButtonText.Text = Loc.T("Home_Connect");
         DisconnectButtonText.Text = Loc.T("Home_Disconnect");
@@ -308,7 +309,7 @@ public sealed partial class HomePage : Page
         {
             // Plain Text — SetTextEnlargingFlags builds one Inline per grapheme and
             // FailFasts WinUI (E_INVALIDARG / CoreMessaging) on long engine errors.
-            StatusText.Text = statusText ?? "";
+            StatusText.Text = UiSafeText.ForStatus(statusText);
 
             var isBusy = state is UiState.Connecting or UiState.Disconnecting;
             var idle = state == UiState.Idle;
@@ -323,7 +324,7 @@ public sealed partial class HomePage : Page
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "HomePage.ApplyUiState");
-            try { StatusText.Text = statusText ?? Loc.T("Home_Status_Idle"); } catch { /* ignore */ }
+            try { StatusText.Text = UiSafeText.ForStatus(statusText ?? Loc.T("Home_Status_Idle")); } catch { /* ignore */ }
             try
             {
                 ConnectButton.IsEnabled = true;
@@ -344,14 +345,22 @@ public sealed partial class HomePage : Page
 
             var dash = Loc.T("Home_Network_Unavailable");
             var server = string.IsNullOrWhiteSpace(network!.ServerName) ? dash : network.ServerName;
+            NetworkServerLabel.Text = Loc.T("Home_Network_Server") + ":";
             try
             {
-                ServerNameUi.SetLabeledServer(NetworkServerText, Loc.T("Home_Network_Server") + ": ", server);
+                var flag = ServerNameUi.TryGetFlagImage(server);
+                NetworkServerFlag.Source = flag;
+                NetworkServerFlag.Visibility = flag is null ? Visibility.Collapsed : Visibility.Visible;
+                NetworkServerName.Text = ServerNameFlag.TrySplit(server, out _, out var rest) && !string.IsNullOrEmpty(rest)
+                    ? rest
+                    : server;
             }
             catch (Exception ex)
             {
                 CrashReporter.ReportNonFatal(ex, "HomePage.ApplyNetworkInfo.Flag");
-                NetworkServerText.Text = Loc.T("Home_Network_Server") + ": " + server;
+                NetworkServerFlag.Source = null;
+                NetworkServerFlag.Visibility = Visibility.Collapsed;
+                NetworkServerName.Text = server;
             }
 
             NetworkVpnIpText.Text = Loc.T("Home_Network_VpnIp") + ": " +
@@ -468,7 +477,6 @@ public sealed partial class HomePage : Page
     {
         var show = ShowEngineLogsCheck.IsChecked == true;
         LogTextBox.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        TrafficLogsCard.VerticalAlignment = show ? VerticalAlignment.Stretch : VerticalAlignment.Top;
 
         if (!show)
             return;
@@ -477,6 +485,18 @@ public sealed partial class HomePage : Page
         lock (_logUiLock)
             text = CrashReporting.InMemoryLogBudget.JoinLinesForTextBox(_logLines);
         LogTextBox.Text = text;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                LogTextBox.UpdateLayout();
+                LogTextBox.StartBringIntoView();
+            }
+            catch (Exception ex)
+            {
+                CrashReporter.ReportNonFatal(ex, "HomePage.BringEngineLogIntoView");
+            }
+        });
     }
 
     private void StartTrafficTimer()

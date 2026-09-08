@@ -40,6 +40,15 @@ public partial class App : Application
     {
         try
         {
+            CrashReporter.Configure(new CrashReportingConfiguration
+            {
+                Enabled = true,
+                BaseUrl = DataGatePublicDefaults.ApiBaseUrl,
+                ProcessName = CrashReporter.DefaultProcessName,
+                CrashToken = "",
+            });
+            CrashReporter.InstallDomainHandlers();
+
             // Must run before any window — otherwise WinUI unpackaged taskbar icon stays blank/generic.
             AppIcon.SetProcessAppUserModelId();
 
@@ -76,6 +85,7 @@ public partial class App : Application
                 File.WriteAllText(boot, "App() InitializeComponent FAILED\n" + ex);
             }
             catch { /* ignore */ }
+            try { CrashReporter.HandleDispatcherUnhandled(ex); } catch { /* ignore */ }
             throw;
         }
 
@@ -107,6 +117,15 @@ public partial class App : Application
 
             CrashReporter.InstallDomainHandlers();
             UiDispatcher = DispatcherQueue.GetForCurrentThread();
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSyncContext(UiDispatcher));
+                File.AppendAllText(boot, "DispatcherQueueSyncContext OK\n");
+            }
+            catch (Exception ex)
+            {
+                File.AppendAllText(boot, "DispatcherQueueSyncContext WARN: " + ex + "\n");
+            }
 
             try
             {
@@ -140,6 +159,7 @@ public partial class App : Application
             }
             catch { /* ignore */ }
 
+            try { CrashReporter.HandleDispatcherUnhandled(ex); } catch { /* ignore */ }
             throw;
         }
     }
@@ -250,8 +270,16 @@ public partial class App : Application
         try
         {
             File.AppendAllText(boot, "admin check\n");
-            if (ShouldQuitForMissingAdministrator())
+            if (ShouldElevateProcess())
             {
+                if (TryRelaunchAsAdministrator())
+                {
+                    File.AppendAllText(boot, "relaunched elevated\n");
+                    ExitApp();
+                    return;
+                }
+
+                File.AppendAllText(boot, "UAC cancelled or relaunch failed\n");
                 await ShowMessageAsync(Loc.T("Msg_AdminTitle"), Loc.T("Msg_AdminBody")).ConfigureAwait(true);
                 ExitApp();
                 return;
@@ -456,7 +484,7 @@ public partial class App : Application
         CrashReporter.Configure(crashSettings);
     }
 
-    private static bool ShouldQuitForMissingAdministrator()
+    private static bool ShouldElevateProcess()
     {
 #if DEBUG
         return false;
@@ -468,6 +496,33 @@ public partial class App : Application
 
         return !IsRunningAsAdministrator();
 #endif
+    }
+
+    private static bool TryRelaunchAsAdministrator()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
+            return false;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(exe)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? AppContext.BaseDirectory,
+            });
+            return true;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "App.RelaunchElevated");
+            return false;
+        }
     }
 
     private static bool IsRunningAsAdministrator()

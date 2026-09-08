@@ -1,4 +1,5 @@
 using System.Globalization;
+using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Access;
 using DataGateWin.Services.Ui;
@@ -13,29 +14,31 @@ namespace DataGateWin.Pages;
 public sealed partial class AccessPage : Page
 {
     private readonly AccessViewModel _vm;
+    private IList<VpnServerWithStatusV2Dto>? _renderedServers;
 
     public AccessPage()
     {
         InitializeComponent();
         var http = App.AuthedApiHttp;
         _vm = new AccessViewModel(new OpenVpnServersApiClient(http), new UserVpnAccessClient(http), App.Session);
-        _vm.PropertyChanged += (_, _) => ApplyVm();
+        _vm.PropertyChanged += (_, _) => QueueApplyVm();
         ApplyLocalizedChrome();
         ApplyVm();
         WinUiLanguageService.LanguageChanged += OnLang;
         Unloaded += (_, _) => WinUiLanguageService.LanguageChanged -= OnLang;
     }
 
-    private void OnLang(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(() =>
-    {
-        ApplyLocalizedChrome();
-        ApplyVm();
-    });
+    private void OnLang(object? sender, EventArgs e)
+        => UiDispatch.Run(DispatcherQueue, () =>
+        {
+            ApplyLocalizedChrome();
+            ApplyVm(forceRows: true);
+        }, "AccessPage.OnLang");
 
     public void ApplyLanguage()
     {
         ApplyLocalizedChrome();
-        ApplyVm();
+        ApplyVm(forceRows: true);
     }
 
     private void ApplyLocalizedChrome()
@@ -52,34 +55,63 @@ public sealed partial class AccessPage : Page
         ColPlan.Text = Loc.T("Access_Col_PlanAccess");
     }
 
-    private void ApplyVm()
-    {
-        PlanLineText.Text = _vm.PlanLineText;
-        QuotaMetaText.Text = _vm.QuotaMetaText;
-        QuotaMetaText.Visibility = _vm.QuotaMetaVisible ? Visibility.Visible : Visibility.Collapsed;
-        TrafficQuotaHeader.Visibility = _vm.ShowTrafficQuotaTitle ? Visibility.Visible : Visibility.Collapsed;
-        QuotaUsedCaptionText.Text = _vm.QuotaUsedCaption;
-        QuotaUsedCaptionText.Visibility = _vm.QuotaUsageCaptionsVisible ? Visibility.Visible : Visibility.Collapsed;
-        QuotaRemainingCaptionText.Text = _vm.QuotaRemainingCaption;
-        QuotaRemainingCaptionText.Visibility = _vm.QuotaUsageCaptionsVisible ? Visibility.Visible : Visibility.Collapsed;
-        QuotaBar.Visibility = _vm.QuotaBarVisible ? Visibility.Visible : Visibility.Collapsed;
-        QuotaBar.Value = _vm.QuotaBarValue;
-        QuotaBar.ShowError = _vm.QuotaBarIsOver;
-        QuotaDetailsText.Text = _vm.QuotaDetailsText;
-        QuotaDetailsText.Visibility = _vm.QuotaDetailsVisible ? Visibility.Visible : Visibility.Collapsed;
-        ValidityFooterText.Text = _vm.ValidityFooterText;
-        LoadingRing.IsActive = _vm.IsLoading;
-        LoadingRing.Visibility = _vm.IsLoading ? Visibility.Visible : Visibility.Collapsed;
-        ErrorText.Text = _vm.ErrorText ?? "";
-        TotalClientsLineText.Text = _vm.TotalClientsLineText;
+    private void QueueApplyVm()
+        => UiDispatch.Run(DispatcherQueue, () => ApplyVm(), "AccessPage.ApplyVm");
 
+    private void ApplyVm(bool forceRows = false)
+    {
+        try
+        {
+            PlanLineText.Text = UiSafeText.ForStatus(_vm.PlanLineText);
+            QuotaMetaText.Text = UiSafeText.ForStatus(_vm.QuotaMetaText);
+            QuotaMetaText.Visibility = _vm.QuotaMetaVisible ? Visibility.Visible : Visibility.Collapsed;
+            TrafficQuotaHeader.Visibility = _vm.ShowTrafficQuotaTitle ? Visibility.Visible : Visibility.Collapsed;
+            QuotaUsedCaptionText.Text = UiSafeText.ForStatus(_vm.QuotaUsedCaption);
+            QuotaUsedCaptionText.Visibility = _vm.QuotaUsageCaptionsVisible ? Visibility.Visible : Visibility.Collapsed;
+            QuotaRemainingCaptionText.Text = UiSafeText.ForStatus(_vm.QuotaRemainingCaption);
+            QuotaRemainingCaptionText.Visibility = _vm.QuotaUsageCaptionsVisible ? Visibility.Visible : Visibility.Collapsed;
+            QuotaBar.Visibility = _vm.QuotaBarVisible ? Visibility.Visible : Visibility.Collapsed;
+            QuotaBar.Value = AccessQuotaBarMath.ClampPercent(_vm.QuotaBarValue);
+            QuotaBar.ShowError = _vm.QuotaBarIsOver;
+            QuotaDetailsText.Text = UiSafeText.ForStatus(_vm.QuotaDetailsText);
+            QuotaDetailsText.Visibility = _vm.QuotaDetailsVisible ? Visibility.Visible : Visibility.Collapsed;
+            ValidityFooterText.Text = UiSafeText.ForStatus(_vm.ValidityFooterText);
+            LoadingRing.IsActive = _vm.IsLoading;
+            LoadingRing.Visibility = _vm.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+            ErrorText.Text = UiSafeText.ForError(_vm.ErrorText);
+            TotalClientsLineText.Text = UiSafeText.ForStatus(_vm.TotalClientsLineText);
+
+            if (forceRows || !ReferenceEquals(_renderedServers, _vm.Servers))
+            {
+                _renderedServers = _vm.Servers;
+                RebuildServerRows();
+            }
+
+            EmptyServersText.Text = Loc.T("Access_Dash");
+            EmptyServersText.Visibility = _vm.Servers.Count == 0 && !_vm.IsLoading
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "AccessPage.ApplyVm");
+        }
+    }
+
+    private void RebuildServerRows()
+    {
         ServersHost.Children.Clear();
         foreach (var s in _vm.Servers)
-            ServersHost.Children.Add(BuildServerRow(s));
-        EmptyServersText.Text = Loc.T("Access_Dash");
-        EmptyServersText.Visibility = _vm.Servers.Count == 0 && !_vm.IsLoading
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        {
+            try
+            {
+                ServersHost.Children.Add(BuildServerRow(s));
+            }
+            catch (Exception ex)
+            {
+                CrashReporter.ReportNonFatal(ex, "AccessPage.BuildServerRow");
+            }
+        }
     }
 
     private static Grid BuildServerRow(VpnServerWithStatusV2Dto s)
@@ -111,7 +143,17 @@ public sealed partial class AccessPage : Page
             grid.Children.Add(tb);
         }
 
-        var nameUi = ServerNameUi.CreateRow(name);
+        FrameworkElement nameUi;
+        try
+        {
+            nameUi = ServerNameUi.CreateRow(name);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "AccessPage.CreateRow");
+            nameUi = new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis };
+        }
+
         if (server is not null && WssServerSelector.IsXrayWindowsSupported(server))
         {
             var stack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -166,16 +208,12 @@ public sealed partial class AccessPage : Page
         return $"{gb:F2} GB";
     }
 
-    private void AccessPage_OnLoaded(object sender, RoutedEventArgs e)
-        => RefreshOnShown();
-
     /// <summary>Called when nav switches to Access (Loaded may not re-fire for a cached page).</summary>
     public void RefreshOnShown()
     {
         ApplyLocalizedChrome();
-        ApplyVm();
-        if (_vm.RefreshCommand.CanExecute(null))
-            _vm.RefreshCommand.Execute(null);
+        ApplyVm(forceRows: true);
+        _vm.RequestReload();
     }
 
     private void Refresh_OnClick(object sender, RoutedEventArgs e)

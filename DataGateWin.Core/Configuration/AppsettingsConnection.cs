@@ -60,6 +60,7 @@ public static class AppsettingsConnection
         new()
         {
             Enabled = true,
+            BaseUrl = DataGatePublicDefaults.ApiBaseUrl,
             ProcessName = CrashReporter.DefaultProcessName,
             CrashToken = ""
         };

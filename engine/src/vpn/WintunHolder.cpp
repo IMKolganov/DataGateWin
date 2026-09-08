@@ -7,6 +7,13 @@
 
 #pragma comment(lib, "Iphlpapi.lib")
 
+#ifndef LOAD_LIBRARY_SEARCH_APPLICATION_DIR
+#define LOAD_LIBRARY_SEARCH_APPLICATION_DIR 0x00000200
+#endif
+#ifndef LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
+#define LOAD_LIBRARY_SEARCH_DEFAULT_DIRS 0x00001000
+#endif
+
 namespace datagate::wintun
 {
     static std::string GetLastErrorText(DWORD code)
@@ -37,18 +44,40 @@ namespace datagate::wintun
         Unload();
     }
 
+    static std::wstring ModuleDirectory()
+    {
+        wchar_t path[MAX_PATH]{};
+        const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+            return L".";
+        std::wstring w(path, n);
+        const auto slash = w.find_last_of(L"\\/");
+        if (slash == std::wstring::npos)
+            return L".";
+        return w.substr(0, slash);
+    }
+
     bool WintunHolder::Load(std::string& outError)
     {
         if (_dll)
             return true;
 
-        SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+        // Do not statically import SetDefaultDllDirectories / LOAD_LIBRARY_SEARCH_* —
+        // those are missing on stock Windows 7 and the process would fail to start.
+        using SetDefaultDllDirectoriesFn = BOOL (WINAPI*)(DWORD);
+        auto setDirs = reinterpret_cast<SetDefaultDllDirectoriesFn>(
+            GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetDefaultDllDirectories"));
+        if (setDirs)
+            setDirs(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
 
-        _dll = LoadLibraryExW(L"wintun.dll", nullptr, LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+        const auto fullPath = ModuleDirectory() + L"\\wintun.dll";
+        _dll = LoadLibraryW(fullPath.c_str());
+        if (!_dll)
+            _dll = LoadLibraryW(L"wintun.dll");
         if (!_dll)
         {
             const auto e = GetLastError();
-            outError = "LoadLibraryExW(wintun.dll) failed: " + std::to_string(e) + " " + GetLastErrorText(e);
+            outError = "LoadLibraryW(wintun.dll) failed: " + std::to_string(e) + " " + GetLastErrorText(e);
             return false;
         }
 

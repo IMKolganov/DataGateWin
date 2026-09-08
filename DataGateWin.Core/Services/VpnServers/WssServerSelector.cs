@@ -17,15 +17,16 @@ public sealed class WssServerSelector(OpenVpnServersApiClient apiClient)
 public static List<VpnServerWithStatusV2Dto> FilterEligible(
     IEnumerable<VpnServerWithStatusV2Dto>? source) =>
     FilterWindowsSupported(source)
-        .Where(x => x.VpnServerResponses.VpnServer.IsAccessibleForUserQuotaPlanOrDefault())
-        .OrderBy(x => x.VpnServerResponses.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
+        .Where(x => x.VpnServerResponses?.VpnServer is { } srv
+                     && srv.IsAccessibleForUserQuotaPlanOrDefault())
+        .OrderBy(x => x.VpnServerResponses!.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
 /// <summary>Access / lists: OpenVPN (WSS or direct) and Xray catalog rows.</summary>
 public static List<VpnServerWithStatusV2Dto> FilterWssEnabled(
     IEnumerable<VpnServerWithStatusV2Dto>? source) =>
     FilterWindowsSupported(source)
-        .OrderBy(x => x.VpnServerResponses.VpnServer.ServerName, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x.VpnServerResponses?.VpnServer?.ServerName ?? "", StringComparer.OrdinalIgnoreCase)
         .ToList();
 
 /// <summary>OpenVPN (with or without WSS bridge), or any Xray catalog server.</summary>
@@ -42,8 +43,17 @@ public static bool IsOpenVpnDirect(VpnServerV2Dto? server) =>
     private static IEnumerable<VpnServerWithStatusV2Dto> FilterWindowsSupported(
         IEnumerable<VpnServerWithStatusV2Dto>? source) =>
         source?
-            .Where(x => x.VpnServerResponses?.VpnServer != null)
-            .Where(x => IsWindowsSupported(x.VpnServerResponses.VpnServer))
+            .Where(static x =>
+            {
+                try
+                {
+                    return x?.VpnServerResponses?.VpnServer is { } srv && IsWindowsSupported(srv);
+                }
+                catch
+                {
+                    return false;
+                }
+            })
         ?? Enumerable.Empty<VpnServerWithStatusV2Dto>();
 
     /// <summary>
@@ -64,7 +74,7 @@ public static bool IsOpenVpnDirect(VpnServerV2Dto? server) =>
 
         if (!autoPick && manualServerId is int id && id > 0)
         {
-            var row = eligible.FirstOrDefault(x => x.VpnServerResponses.VpnServer.Id == id);
+            var row = eligible.FirstOrDefault(x => x.VpnServerResponses?.VpnServer?.Id == id);
             if (row == null)
                 return null;
             _lastSelectedServerId = row.VpnServerResponses.VpnServer.Id;

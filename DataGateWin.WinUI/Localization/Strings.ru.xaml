@@ -19,7 +19,7 @@
     <x:String x:Key="Action_Yes">Да</x:String>
     <x:String x:Key="Action_No">Нет</x:String>
     <x:String x:Key="Msg_AdminTitle">Нужны права администратора</x:String>
-    <x:String x:Key="Msg_AdminBody">Это приложение нужно запускать с правами администратора.&#x0a;&#x0a;Перезапустите приложение от имени администратора.</x:String>
+    <x:String x:Key="Msg_AdminBody">Для VPN-движка DataGate нужны права администратора. Windows должен показать запрос UAC.&#x0a;&#x0a;Если вы его отменили, щёлкните DataGate правой кнопкой и выберите «Запуск от имени администратора».</x:String>
     <x:String x:Key="Msg_ConfigMissingTitle">Нет конфигурации</x:String>
     <x:String x:Key="Msg_ConfigMissingBodyFmt">Файл конфигурации не найден:&#x0a;{0}</x:String>
     <x:String x:Key="Msg_StartupFailedTitle">Ошибка</x:String>

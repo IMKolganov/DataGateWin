@@ -23,7 +23,7 @@ public sealed partial class ImportPage : Page
         {
             if (e.PropertyName is nameof(ImportViewModel.StatusText) or nameof(ImportViewModel.IsBusy)
                 or nameof(ImportViewModel.IsXraySelected))
-                ApplyVmChrome();
+                UiDispatch.Run(DispatcherQueue, ApplyVmChrome, "ImportPage.ApplyVm");
         };
 
         ApplyLocalizedChrome();

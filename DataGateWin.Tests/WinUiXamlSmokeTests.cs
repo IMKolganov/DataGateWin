@@ -62,6 +62,29 @@ public sealed class WinUiXamlSmokeTests
         Assert.DoesNotContain("ImageIconSource", File.ReadAllText(xaml), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void HomePage_connected_server_row_has_flag_image_above_vpn_ip()
+    {
+        var xaml = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Pages", "Home", "HomePage.xaml")));
+        Assert.Contains("x:Name=\"NetworkServerFlag\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"NetworkVpnIpText\"", xaml, StringComparison.Ordinal);
+        var flagAt = xaml.IndexOf("x:Name=\"NetworkServerFlag\"", StringComparison.Ordinal);
+        var ipAt = xaml.IndexOf("x:Name=\"NetworkVpnIpText\"", StringComparison.Ordinal);
+        Assert.True(flagAt >= 0 && ipAt > flagAt, "flag must sit above VPN IP in the connected card");
+        Assert.DoesNotContain("x:Name=\"NetworkServerText\"", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HomePage_has_scroll_and_fixed_engine_log_height()
+    {
+        var xaml = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Pages", "Home", "HomePage.xaml")));
+        Assert.Contains("<ScrollViewer", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"HomeScroll\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"LogTextBox\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Height=\"240\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Height=\"*\"", xaml, StringComparison.Ordinal);
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
