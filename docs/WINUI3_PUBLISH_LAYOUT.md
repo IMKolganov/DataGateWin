@@ -26,6 +26,7 @@ Or use `DataGateWin.UI\Build-Release.ps1` (post-cutover: publishes WinUI, stages
 |------|------|
 | `DataGateWin.exe` | WinUI shell (`AssemblyName=DataGateWin`) |
 | `DataGateWin.pri` | WinUI XAML/resources (must be full EmbeddedData PRI, typically ≥ ~100KB — tiny PRI breaks LoadComponent) |
+| `en-us\Microsoft.ui.xaml.dll.mui` (+ other `*\Microsoft.ui.xaml.dll.mui`) | **Required in release ZIP.** Missing MUI → FailFast `0x80073B01` / `0xC000027B` after ShowMain when run from install, while publish folder still works |
 | `DataGateWin.Core.dll` + deps | Portable logic |
 | `DataGateWin.CrashReporting.dll` | Crash queue / ingest |
 | Windows App SDK / WinUI / Skia native DLLs | Self-contained runtime (many files) |
@@ -49,9 +50,20 @@ Or use `DataGateWin.UI\Build-Release.ps1` (post-cutover: publishes WinUI, stages
 
 ## Smoke checklist (manual)
 
+**Hard gate before any GitHub release** (catches packaging vs “works on my publish folder”):
+
+```powershell
+powershell -NoProfile -File scripts\Release-Smoke-FromZip.ps1 `
+  -ZipPath DataGateWin.WinUI\bin\Release\net10.0-windows10.0.26100.0\win-x64\publish\DataGateWin.vX.Y.Z.zip
+```
+
+Must print `PASS` (process alive after `ShowMain done`). Do **not** ship if this fails.
+
+Then:
+
 1. Publish Release win-x64 as above; stage `engine\` next to exe.
 2. Run elevated `DataGateWin.exe` (Release manifest = requireAdministrator).
-3. First-run / login / Main nav load.
+3. First-run / login / Main nav load (all tabs: Home / Access / Import / Statistics / Settings).
 4. Tray: close hides; Open / Exit work.
 5. Home: engine starts, IPC status, connect / disconnect / reconnect.
 6. DNS recovery path after kill (installer or engine `--recover-dns`).
