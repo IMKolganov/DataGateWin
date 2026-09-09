@@ -20,6 +20,8 @@ public sealed partial class StatisticsPage : Page
         InitializeComponent();
         UiThemeBrushes.ApplyMissingCardChrome(this);
         UiThemeBrushes.ApplyCardBackground(ChartCard);
+        try { Chart.FlowDirection = FlowDirection.LeftToRight; }
+        catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "StatisticsPage.ChartInit"); }
         Vm.PropertyChanged += (_, _) =>
             UiDispatch.Run(DispatcherQueue, ApplyVmChrome, "StatisticsPage.ApplyVm");
         ActualThemeChanged += (_, _) =>
