@@ -154,6 +154,24 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
         ErrorText = "";
     }
 
+    /// <summary>Zero the series and rate labels (call when hiding the chart on disconnect).</summary>
+    public void ResetSeries()
+    {
+        try
+        {
+            ClearError();
+            for (var i = 0; i < _inValues.Count; i++)
+                _inValues[i].Value = 0;
+            for (var i = 0; i < _outValues.Count; i++)
+                _outValues[i].Value = 0;
+            ApplyRateLabels(0, 0);
+        }
+        catch
+        {
+            SetErrorFromKey(LiveTrafficError.KeyGeneric);
+        }
+    }
+
     public void Push(LiveTrafficTick tick)
     {
         try
