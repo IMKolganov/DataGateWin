@@ -113,33 +113,51 @@ public sealed partial class LoginWindow : Window
     {
         var pref = WinUiLanguageService.GetStoredLanguagePreference();
         _suppressLanguageCombo = true;
-        LoginLanguageCombo.Items.Clear();
-        LoginLanguageCombo.Items.Add(new ComboBoxItem
+        try
         {
-            Tag = WinUiLanguageService.SystemPreference,
-            Content = WinUiLanguageService.GetLanguageDisplayName(WinUiLanguageService.SystemPreference),
-        });
-        foreach (var code in WinUiLanguageService.GetLanguagePickerCodes())
-        {
-            LoginLanguageCombo.Items.Add(new ComboBoxItem
+            if (LoginLanguageCombo.Items.Count == 0)
             {
-                Tag = code,
-                Content = WinUiLanguageService.GetLanguageDisplayName(code),
-            });
-        }
-
-        ComboBoxItem? match = null;
-        foreach (ComboBoxItem item in LoginLanguageCombo.Items)
-        {
-            if (item.Tag is string t && string.Equals(t, pref, StringComparison.OrdinalIgnoreCase))
-            {
-                match = item;
-                break;
+                LoginLanguageCombo.Items.Add(new ComboBoxItem
+                {
+                    Tag = WinUiLanguageService.SystemPreference,
+                    Content = WinUiLanguageService.GetLanguageDisplayName(WinUiLanguageService.SystemPreference),
+                });
+                foreach (var code in WinUiLanguageService.GetLanguagePickerCodes())
+                {
+                    LoginLanguageCombo.Items.Add(new ComboBoxItem
+                    {
+                        Tag = code,
+                        Content = WinUiLanguageService.GetLanguageDisplayName(code),
+                    });
+                }
             }
-        }
+            else
+            {
+                foreach (ComboBoxItem item in LoginLanguageCombo.Items)
+                {
+                    if (item.Tag is string tag)
+                        item.Content = WinUiLanguageService.GetLanguageDisplayName(tag);
+                }
+            }
 
-        LoginLanguageCombo.SelectedItem = match ?? LoginLanguageCombo.Items[0] as ComboBoxItem;
-        _suppressLanguageCombo = false;
+            ComboBoxItem? match = null;
+            foreach (ComboBoxItem item in LoginLanguageCombo.Items)
+            {
+                if (item.Tag is string t && string.Equals(t, pref, StringComparison.OrdinalIgnoreCase))
+                {
+                    match = item;
+                    break;
+                }
+            }
+
+            var selected = match ?? LoginLanguageCombo.Items[0] as ComboBoxItem;
+            if (!ReferenceEquals(LoginLanguageCombo.SelectedItem, selected))
+                LoginLanguageCombo.SelectedItem = selected;
+        }
+        finally
+        {
+            _suppressLanguageCombo = false;
+        }
     }
 
     private void LoginLanguageCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)

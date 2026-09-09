@@ -338,6 +338,33 @@ public sealed class WinUiFailSoftContractTests
     }
 
     [Fact]
+    public void CartesianCharts_MustForceLeftToRight_SoRtlLanguageDoesNotBlankLiveCharts()
+    {
+        var home = ReadWinUi("Pages", "Home", "HomePage.xaml");
+        var stats = ReadWinUi("Pages", "StatisticsPage.xaml");
+        var lang = ReadWinUi("Localization", "WinUiLanguageService.cs");
+        Assert.Contains("x:Name=\"TrafficChart\"", home, StringComparison.Ordinal);
+        Assert.Contains("FlowDirection=\"LeftToRight\"", home, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"Chart\"", stats, StringComparison.Ordinal);
+        Assert.Contains("FlowDirection=\"LeftToRight\"", stats, StringComparison.Ordinal);
+        Assert.Contains("ForceChartsLeftToRight", lang, StringComparison.Ordinal);
+        Assert.Contains("IsLiveChartsOrSkia", lang, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsLanguageCombo_MustNotClearItems_OnRepopulate()
+    {
+        var cs = ReadWinUi("Pages", "SettingsPage.xaml.cs");
+        var populateStart = cs.IndexOf("PopulateLanguageComboSelection", StringComparison.Ordinal);
+        Assert.True(populateStart >= 0);
+        var populateEnd = cs.IndexOf("LanguageCombo_OnSelectionChanged", populateStart, StringComparison.Ordinal);
+        Assert.True(populateEnd > populateStart);
+        var populate = cs[populateStart..populateEnd];
+        Assert.DoesNotContain("_languageCombo.Items.Clear()", populate, StringComparison.Ordinal);
+        Assert.Contains("Update labels in place", populate, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GitHubUpdateChecker_MarksSessionCompleteBeforeLaunch_AndUsesFileVersionPolicy()
     {
         var winui = ReadWinUi("Services", "Update", "GitHubUpdateChecker.cs");
