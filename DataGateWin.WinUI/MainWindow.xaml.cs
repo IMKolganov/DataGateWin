@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(AuthStateStore authState, HttpClient authedApiHttp)
     {
         InitializeComponent();
+        AppIcon.TryAssignBrandMark(TitleBarBrandMark, decodePixelWidth: 40);
         WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);

@@ -281,6 +281,26 @@ public sealed class WinUiFailSoftContractTests
         Assert.Contains("UiDispatch.Run", login, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BrandMarks_LoadLoosePng_NotMsAppx()
+    {
+        var mainXaml = ReadWinUi("MainWindow.xaml");
+        var loginXaml = ReadWinUi("Views", "LoginWindow.xaml");
+        var mainCs = ReadWinUi("MainWindow.xaml.cs");
+        var loginCs = ReadWinUi("Views", "LoginWindow.xaml.cs");
+        var appIcon = ReadWinUi("Services", "Ui", "AppIcon.cs");
+
+        Assert.DoesNotContain("ms-appx:///Images/", mainXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ms-appx:///Images/", loginXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ms-appx:///Assets/", mainXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ms-appx:///Assets/", loginXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TryAssignBrandMark(TitleBarBrandMark", mainCs, StringComparison.Ordinal);
+        Assert.Contains("TryAssignBrandMark(LoginBrandMark", loginCs, StringComparison.Ordinal);
+        Assert.Contains("ResolveBrandPngPath", appIcon, StringComparison.Ordinal);
+        Assert.Contains("UiFileBitmap.TryLoad", appIcon, StringComparison.Ordinal);
+        Assert.Contains(@"Images"", ""favicon.png""", appIcon, StringComparison.Ordinal);
+    }
+
     private static string ReadWinUi(params string[] parts)
         => File.ReadAllText(FindRepoFile(Path.Combine(["DataGateWin.WinUI", .. parts])));
 

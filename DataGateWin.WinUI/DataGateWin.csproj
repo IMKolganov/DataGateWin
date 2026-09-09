@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
@@ -8,8 +8,8 @@
     <Product>DataGate</Product>
     <AssemblyTitle>DataGate</AssemblyTitle>
     <Description>DataGate</Description>
-    <AssemblyVersion>1.0.17</AssemblyVersion>
-    <FileVersion>1.0.17</FileVersion>
+    <AssemblyVersion>1.0.18</AssemblyVersion>
+    <FileVersion>1.0.18</FileVersion>
     <ApplicationManifest Condition="'$(Configuration)'=='Debug'">app.manifest.debug.xml</ApplicationManifest>
     <ApplicationManifest Condition="'$(Configuration)'!='Debug'">app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\favicon.ico</ApplicationIcon>

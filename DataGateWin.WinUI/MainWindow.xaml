@@ -21,11 +21,12 @@
             Background="Transparent"
             IsPaneToggleButtonVisible="False">
             <TitleBar.LeftHeader>
+                <!-- Loose file via AppIcon.TryAssignBrandMark — never ms-appx (unpackaged MUI FailFast). -->
                 <Image
+                    x:Name="TitleBarBrandMark"
                     Width="20"
                     Height="20"
                     Margin="10,0,4,0"
-                    Source="ms-appx:///Images/favicon.png"
                     Stretch="Uniform" />
             </TitleBar.LeftHeader>
         </TitleBar>
