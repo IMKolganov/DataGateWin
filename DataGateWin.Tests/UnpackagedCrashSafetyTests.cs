@@ -172,7 +172,7 @@ public sealed class WinUiFailSoftContractTests
         var helper = ReadWinUi("Services", "Ui", "UiFileBitmap.cs");
         Assert.DoesNotContain("UriSource =", helper, StringComparison.Ordinal);
         Assert.DoesNotContain("bmp.UriSource", helper, StringComparison.Ordinal);
-        Assert.Contains("UiFileBytes.TryReadImage", helper, StringComparison.Ordinal);
+        Assert.Contains("UiFileBytes.TryReadImage(path)", helper, StringComparison.Ordinal);
         Assert.Contains("catch (Exception", helper, StringComparison.Ordinal);
         Assert.Contains("return null", helper, StringComparison.Ordinal);
         Assert.Contains("SetSource", helper, StringComparison.Ordinal);

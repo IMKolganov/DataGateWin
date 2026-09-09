@@ -14,7 +14,7 @@ internal static class UiFileBitmap
     {
         try
         {
-            var bytes = UiFileBytes.TryReadImage(full);
+            var bytes = UiFileBytes.TryReadImage(path);
             if (bytes is null)
                 return null;
 
