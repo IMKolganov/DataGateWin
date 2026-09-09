@@ -1,0 +1,18 @@
+🔄 DataGate for Windows — version 1.0.16
+
+Hotfix: 1.0.15 closed the app immediately on Connect.
+
+What's fixed:
+• Connect no longer kills the process (WinUI flag image / MUI FailFast)
+• Profile photo uses the same safe image load path
+• Access after connect still stays alive
+
+Download:
+https://github.com/IMKolganov/DataGateWin/releases/tag/1.0.16
+
+Installer:
+https://github.com/IMKolganov/DataGateWin/releases/download/1.0.16/DataGateWin.Installer.exe
+
+—
+
+If something does not work after updating, message me: @KolganovIvan

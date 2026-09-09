@@ -331,6 +331,7 @@ public sealed partial class HomePage : Page
                 DisconnectButton.IsEnabled = false;
             }
             catch { /* ignore */ }
+            AppendLog(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
         }
     }
 
@@ -346,21 +347,20 @@ public sealed partial class HomePage : Page
             var dash = Loc.T("Home_Network_Unavailable");
             var server = string.IsNullOrWhiteSpace(network!.ServerName) ? dash : network.ServerName;
             NetworkServerLabel.Text = Loc.T("Home_Network_Server") + ":";
+            NetworkServerName.Text = ServerNameFlag.TrySplit(server, out _, out var rest) && !string.IsNullOrEmpty(rest)
+                ? rest
+                : server;
             try
             {
                 var flag = ServerNameUi.TryGetFlagImage(server);
-                NetworkServerFlag.Source = flag;
-                NetworkServerFlag.Visibility = flag is null ? Visibility.Collapsed : Visibility.Visible;
-                NetworkServerName.Text = ServerNameFlag.TrySplit(server, out _, out var rest) && !string.IsNullOrEmpty(rest)
-                    ? rest
-                    : server;
+                if (!UiSafeImage.TryAssign(NetworkServerFlag, flag, "HomePage.ApplyNetworkInfo.Flag"))
+                    AppendLog(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_UiImage")));
             }
             catch (Exception ex)
             {
                 CrashReporter.ReportNonFatal(ex, "HomePage.ApplyNetworkInfo.Flag");
-                NetworkServerFlag.Source = null;
-                NetworkServerFlag.Visibility = Visibility.Collapsed;
-                NetworkServerName.Text = server;
+                UiSafeImage.TryAssign(NetworkServerFlag, null, "HomePage.ApplyNetworkInfo.FlagClear");
+                AppendLog(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_UiImage")));
             }
 
             NetworkVpnIpText.Text = Loc.T("Home_Network_VpnIp") + ": " +
@@ -375,7 +375,16 @@ public sealed partial class HomePage : Page
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "HomePage.ApplyNetworkInfo");
+            try { UiSafeImage.TryAssign(NetworkServerFlag, null, "HomePage.ApplyNetworkInfo.Clear"); }
+            catch { /* ignore */ }
+            AppendLog(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
         }
+    }
+
+    private void NetworkServerFlag_OnImageFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        UiSafeImage.TryAssign(NetworkServerFlag, null, "HomePage.FlagImageFailed");
+        AppendLog(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_UiImage")));
     }
 
     private void AppendLog(string line)
@@ -746,7 +755,15 @@ public sealed partial class HomePage : Page
                 ? $"{nameWithoutFlag} (OpenVPN)"
                 : nameWithoutFlag;
         var label = Loc.T("Home_ServerRowFmt", displayName, r.Clients, onOff);
-        var flagImage = ServerNameUi.TryGetFlagImage(rawName);
+        ImageSource? flagImage = null;
+        try
+        {
+            flagImage = ServerNameUi.TryGetFlagImage(rawName);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomePage.CreateServerListItem.Flag");
+        }
         return new HomeVpnServerListItem
         {
             Id = r.Id,
