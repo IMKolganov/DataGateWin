@@ -340,15 +340,16 @@ public sealed class WinUiFailSoftContractTests
     [Fact]
     public void CartesianCharts_MustForceLeftToRight_SoRtlLanguageDoesNotBlankLiveCharts()
     {
-        var home = ReadWinUi("Pages", "Home", "HomePage.xaml");
-        var stats = ReadWinUi("Pages", "StatisticsPage.xaml");
+        var homeCs = ReadWinUi("Pages", "Home", "HomePage.xaml.cs");
+        var statsCs = ReadWinUi("Pages", "StatisticsPage.xaml.cs");
         var lang = ReadWinUi("Localization", "WinUiLanguageService.cs");
-        Assert.Contains("x:Name=\"TrafficChart\"", home, StringComparison.Ordinal);
-        Assert.Contains("FlowDirection=\"LeftToRight\"", home, StringComparison.Ordinal);
-        Assert.Contains("x:Name=\"Chart\"", stats, StringComparison.Ordinal);
-        Assert.Contains("FlowDirection=\"LeftToRight\"", stats, StringComparison.Ordinal);
+        Assert.Contains("TrafficChart.FlowDirection = FlowDirection.LeftToRight", homeCs, StringComparison.Ordinal);
+        Assert.Contains("Chart.FlowDirection = FlowDirection.LeftToRight", statsCs, StringComparison.Ordinal);
         Assert.Contains("ForceChartsLeftToRight", lang, StringComparison.Ordinal);
         Assert.Contains("IsLiveChartsOrSkia", lang, StringComparison.Ordinal);
+        // Do not set FlowDirection in LiveCharts XAML — WinUI markup compiler WMC9999.
+        Assert.DoesNotContain("FlowDirection=\"LeftToRight\"", ReadWinUi("Pages", "Home", "HomePage.xaml"), StringComparison.Ordinal);
+        Assert.DoesNotContain("FlowDirection=\"LeftToRight\"", ReadWinUi("Pages", "StatisticsPage.xaml"), StringComparison.Ordinal);
     }
 
     [Fact]
