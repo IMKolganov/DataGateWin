@@ -74,7 +74,6 @@
                     x:Name="Chart"
                     Height="260"
                     Background="Transparent"
-                    FlowDirection="LeftToRight"
                     Series="{x:Bind Vm.Series, Mode=OneWay}"
                     XAxes="{x:Bind Vm.XAxes, Mode=OneWay}"
                     YAxes="{x:Bind Vm.YAxes, Mode=OneWay}"

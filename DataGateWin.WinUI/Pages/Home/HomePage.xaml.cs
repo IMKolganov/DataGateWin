@@ -42,7 +42,11 @@ public sealed partial class HomePage : Page
         UiThemeBrushes.ApplyMissingCardChrome(this);
         UiThemeBrushes.ApplyCardBackground(TrafficLogsCard);
         _controller = controller;
-        try { TrafficChart.AnimationsSpeed = TimeSpan.Zero; }
+        try
+        {
+            TrafficChart.FlowDirection = FlowDirection.LeftToRight;
+            TrafficChart.AnimationsSpeed = TimeSpan.Zero;
+        }
         catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomePage.TrafficChartInit"); }
         ApplyLocalizedChrome();
     }
