@@ -21,10 +21,11 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+            <!-- Loose file via AppIcon.TryAssignBrandMark — never ms-appx (unpackaged MUI FailFast). -->
             <Image
+                x:Name="LoginBrandMark"
                 Width="28"
                 Height="28"
-                Source="ms-appx:///Images/favicon.png"
                 Stretch="Uniform"
                 VerticalAlignment="Center" />
             <ComboBox

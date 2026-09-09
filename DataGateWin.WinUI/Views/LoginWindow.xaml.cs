@@ -19,6 +19,7 @@ public sealed partial class LoginWindow : Window
     public LoginWindow(AuthStateStore authState)
     {
         InitializeComponent();
+        AppIcon.TryAssignBrandMark(LoginBrandMark, decodePixelWidth: 56);
         WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         WindowChrome.ApplyDefault(this, width: 520, height: 620);
         _authState = authState ?? throw new ArgumentNullException(nameof(authState));

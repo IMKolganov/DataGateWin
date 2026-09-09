@@ -755,20 +755,9 @@ public sealed partial class HomePage : Page
                 ? $"{nameWithoutFlag} (OpenVPN)"
                 : nameWithoutFlag;
         var label = Loc.T("Home_ServerRowFmt", displayName, r.Clients, onOff);
-        ImageSource? flagImage = null;
-        try
-        {
-            flagImage = ServerNameUi.TryGetFlagImage(rawName);
-        }
-        catch (Exception ex)
-        {
-            CrashReporter.ReportNonFatal(ex, "HomePage.CreateServerListItem.Flag");
-        }
         return new HomeVpnServerListItem
         {
             Id = r.Id,
-            FlagImage = flagImage,
-            FlagVisibility = flagImage is null ? Visibility.Collapsed : Visibility.Visible,
             Label = label,
         };
     }
@@ -786,8 +775,6 @@ public sealed partial class HomePage : Page
     private sealed class HomeVpnServerListItem
     {
         public int Id { get; init; }
-        public ImageSource? FlagImage { get; init; }
-        public Visibility FlagVisibility { get; init; }
         public string Label { get; init; } = "";
         public override string ToString() => Label;
     }

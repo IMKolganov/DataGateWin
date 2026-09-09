@@ -198,6 +198,62 @@ public sealed class WinUiFailSoftContractTests
         Assert.Contains("NetworkServerFlag_OnImageFailed", home, StringComparison.Ordinal);
         Assert.Contains("ImageFailed=\"NetworkServerFlag_OnImageFailed\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("NetworkServerFlag.Source = flag", home, StringComparison.Ordinal);
+        // ComboBox must NOT bind Image.Source — shared/virtualized BitmapImage FailFasts WinUI (0xc000027b).
+        Assert.DoesNotContain("Source=\"{Binding FlagImage}\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("FlagImage =", home, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ServerNameUi_CachesPngBytes_NotSharedBitmapImage()
+    {
+        var cs = ReadWinUi("Services", "Ui", "ServerNameUi.cs");
+        Assert.Contains("FlagBytesCache", cs, StringComparison.Ordinal);
+        Assert.Contains("never cache", cs, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TryLoadFromBytes", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dictionary<string, BitmapImage?", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("FlagCache[iso] = bmp", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("FlagCache[iso] = null", cs, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UiFileBitmap_ExposesFreshBitmapFromBytes_ForMultiImageSafety()
+    {
+        var helper = ReadWinUi("Services", "Ui", "UiFileBitmap.cs");
+        Assert.Contains("TryLoadFromBytes", helper, StringComparison.Ordinal);
+        Assert.Contains("Always returns a", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("new BitmapImage()", helper, StringComparison.Ordinal);
+        Assert.DoesNotContain("UriSource =", helper, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AccessPage_FlagRows_UseCreateRow_WhichMustNotShareBitmaps()
+    {
+        var access = ReadWinUi("Pages", "AccessPage.xaml.cs");
+        var serverUi = ReadWinUi("Services", "Ui", "ServerNameUi.cs");
+        Assert.Contains("ServerNameUi.CreateRow", access, StringComparison.Ordinal);
+        // CreateRow → CreateFlagImage → TryCreateFlagBitmap → TryLoadFromBytes (fresh BitmapImage).
+        Assert.Contains("TryCreateFlagBitmap", serverUi, StringComparison.Ordinal);
+        Assert.Contains("TryLoadFromBytes", serverUi, StringComparison.Ordinal);
+        Assert.Contains("FlagBytesCache", serverUi, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Home_And_Access_NeverAssignFileUriToBitmapImage()
+    {
+        var paths = new[]
+        {
+            ReadWinUi("Services", "Ui", "ServerNameUi.cs"),
+            ReadWinUi("Services", "Ui", "UiFileBitmap.cs"),
+            ReadWinUi("Services", "Ui", "UserAvatarCache.cs"),
+            ReadWinUi("Pages", "Home", "HomePage.xaml.cs"),
+            ReadWinUi("Pages", "AccessPage.xaml.cs"),
+        };
+        foreach (var cs in paths)
+        {
+            Assert.DoesNotContain("UriSource =", cs, StringComparison.Ordinal);
+            Assert.DoesNotContain("new Uri(path", cs, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("file:///", cs, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
@@ -223,6 +279,26 @@ public sealed class WinUiFailSoftContractTests
         var login = ReadWinUi("Views", "LoginWindow.xaml.cs");
         Assert.Contains("UiDispatch.Run", access, StringComparison.Ordinal);
         Assert.Contains("UiDispatch.Run", login, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrandMarks_LoadLoosePng_NotMsAppx()
+    {
+        var mainXaml = ReadWinUi("MainWindow.xaml");
+        var loginXaml = ReadWinUi("Views", "LoginWindow.xaml");
+        var mainCs = ReadWinUi("MainWindow.xaml.cs");
+        var loginCs = ReadWinUi("Views", "LoginWindow.xaml.cs");
+        var appIcon = ReadWinUi("Services", "Ui", "AppIcon.cs");
+
+        Assert.DoesNotContain("ms-appx:///Images/", mainXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ms-appx:///Images/", loginXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ms-appx:///Assets/", mainXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ms-appx:///Assets/", loginXaml, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TryAssignBrandMark(TitleBarBrandMark", mainCs, StringComparison.Ordinal);
+        Assert.Contains("TryAssignBrandMark(LoginBrandMark", loginCs, StringComparison.Ordinal);
+        Assert.Contains("ResolveBrandPngPath", appIcon, StringComparison.Ordinal);
+        Assert.Contains("UiFileBitmap.TryLoad", appIcon, StringComparison.Ordinal);
+        Assert.Contains(@"Images"", ""favicon.png""", appIcon, StringComparison.Ordinal);
     }
 
     private static string ReadWinUi(params string[] parts)

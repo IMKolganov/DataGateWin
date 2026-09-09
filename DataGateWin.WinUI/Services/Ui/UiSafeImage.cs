@@ -16,6 +16,7 @@ internal static class UiSafeImage
         ArgumentNullException.ThrowIfNull(target);
         try
         {
+            // Clear first so a previous shared/broken source cannot FailFast on replace.
             target.Source = null;
             if (source is null)
             {
@@ -37,7 +38,7 @@ internal static class UiSafeImage
             }
             catch
             {
-                // ignore
+                // ignore — never rethrow into WinUI dispatcher (0xc000027b)
             }
 
             return false;

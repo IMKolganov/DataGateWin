@@ -16,7 +16,9 @@ internal static class ServerNameUi
 {
     private const double FlagWidth = 22;
     private const double FlagHeight = 16.5;
-    private static readonly Dictionary<string, BitmapImage?> FlagCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>PNG bytes only — never cache <see cref="BitmapImage"/> (one source → many Images = FailFast).</summary>
+    private static readonly Dictionary<string, byte[]?> FlagBytesCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object FlagCacheLock = new();
 
     public static FrameworkElement CreateRow(string? serverName, double nameFontSize = 14, bool muted = false)
@@ -85,6 +87,7 @@ internal static class ServerNameUi
     /// <summary>Any flag emoji in the string is replaced with a flag image.</summary>
     public static void SetTextEnlargingFlags(TextBlock target, string text)
     {
+        // Do not use on long/status strings — hundreds of Inlines FailFast WinUI.
         target.Inlines.Clear();
         if (string.IsNullOrEmpty(text))
             return;
@@ -100,8 +103,9 @@ internal static class ServerNameUi
         }
     }
 
+    /// <summary>Fresh <see cref="BitmapImage"/> every call (safe for ComboBox + network footer).</summary>
     public static ImageSource? TryGetFlagImage(string? serverNameOrFlagEmoji)
-        => TryLoadFlagBitmap(serverNameOrFlagEmoji);
+        => TryCreateFlagBitmap(serverNameOrFlagEmoji);
 
     private static void AppendFlagInline(TextBlock target, string flagEmoji)
     {
@@ -117,7 +121,7 @@ internal static class ServerNameUi
 
     private static Image? CreateFlagImage(string? serverNameOrFlagEmoji)
     {
-        var bmp = TryLoadFlagBitmap(serverNameOrFlagEmoji);
+        var bmp = TryCreateFlagBitmap(serverNameOrFlagEmoji);
         if (bmp is null)
             return null;
         var image = new Image
@@ -130,36 +134,35 @@ internal static class ServerNameUi
         return UiSafeImage.TryAssign(image, bmp, "ServerNameUi.CreateFlagImage") ? image : null;
     }
 
-    private static BitmapImage? TryLoadFlagBitmap(string? serverNameOrFlagEmoji)
+    private static BitmapImage? TryCreateFlagBitmap(string? serverNameOrFlagEmoji)
+    {
+        var bytes = TryGetFlagBytes(serverNameOrFlagEmoji);
+        return bytes is null ? null : UiFileBitmap.TryLoadFromBytes(bytes, decodePixelWidth: 48);
+    }
+
+    private static byte[]? TryGetFlagBytes(string? serverNameOrFlagEmoji)
     {
         if (!ServerNameFlag.TryGetIso2(serverNameOrFlagEmoji, out var iso))
             return null;
 
         lock (FlagCacheLock)
         {
-            if (FlagCache.TryGetValue(iso, out var cached))
+            if (FlagBytesCache.TryGetValue(iso, out var cached))
                 return cached;
         }
 
         try
         {
             var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", iso.ToLowerInvariant() + ".png");
-            if (!File.Exists(path))
-            {
-                lock (FlagCacheLock)
-                    FlagCache[iso] = null;
-                return null;
-            }
-
-            var bmp = UiFileBitmap.TryLoad(path, decodePixelWidth: 48);
+            var bytes = File.Exists(path) ? UiFileBytes.TryReadImage(path) : null;
             lock (FlagCacheLock)
-                FlagCache[iso] = bmp;
-            return bmp;
+                FlagBytesCache[iso] = bytes;
+            return bytes;
         }
         catch
         {
             lock (FlagCacheLock)
-                FlagCache[iso] = null;
+                FlagBytesCache[iso] = null;
             return null;
         }
     }
