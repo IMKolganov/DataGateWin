@@ -12,6 +12,35 @@ public sealed class HomeSessionUiPolicyTests
     public void ShouldClearSessionIdentity_OnlyWhenUserDoesNotWantVpn(bool desired, bool expectClear)
         => Assert.Equal(expectClear, HomeSessionUiPolicy.ShouldClearSessionIdentity(desired));
 
+    [Theory]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Idle, true, false)]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Connecting, false, true)]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Connected, false, true)]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Disconnecting, false, false)]
+    public void HomeButtons_DisconnectStaysEnabledWhileConnecting(
+        DataGateWin.Models.Ipc.UiState state,
+        bool expectConnect,
+        bool expectDisconnect)
+    {
+        Assert.Equal(expectConnect, HomeSessionUiPolicy.IsHomeConnectEnabled(state));
+        Assert.Equal(expectDisconnect, HomeSessionUiPolicy.IsHomeDisconnectEnabled(state));
+    }
+
+    [Theory]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Idle, false)]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Connecting, false)]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Connected, true)]
+    [InlineData(DataGateWin.Models.Ipc.UiState.Disconnecting, false)]
+    public void HomeTraffic_VisibleOnlyWhenConnected(DataGateWin.Models.Ipc.UiState state, bool expectVisible)
+        => Assert.Equal(expectVisible, HomeSessionUiPolicy.IsHomeTrafficVisible(state));
+
+    [Fact]
+    public void ConnectEventWatchdog_IsLongEnoughForHandshake_ButFinite()
+    {
+        Assert.True(HomeSessionUiPolicy.ConnectEventWatchdog >= TimeSpan.FromSeconds(30));
+        Assert.True(HomeSessionUiPolicy.ConnectEventWatchdog <= TimeSpan.FromMinutes(3));
+    }
+
     [Fact]
     public void ComposeConnectedStatus_PrefersServerNameOverBarePhase()
     {

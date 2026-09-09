@@ -18,6 +18,9 @@ public sealed class HomeController : IDisposable
     private readonly SemaphoreSlim _opLock = new(1, 1);
 
     private CancellationTokenSource? _lifetimeCts;
+    private CancellationTokenSource? _connectCts;
+    private CancellationTokenSource? _connectWatchdogCts;
+    private int _connectWatchdogGeneration;
     private bool _desiredConnected;
     private int _reconnectAttempt;
     private bool _connectAutoPick = true;
@@ -173,12 +176,16 @@ public sealed class HomeController : IDisposable
     public async Task DisconnectAsync()
     {
         _desiredConnected = false;
+        CancelConnectWatchdog();
+        try { _connectCts?.Cancel(); } catch { /* ignore */ }
         await EnsureDisconnectedAsync(userInitiated: true);
     }
 
     private async Task<bool> EnsureConnectedAsync()
     {
-        var ct = _lifetimeCts?.Token ?? CancellationToken.None;
+        var lifetime = _lifetimeCts?.Token ?? CancellationToken.None;
+        BeginConnectCts(lifetime);
+        var ct = _connectCts?.Token ?? lifetime;
 
         await _opLock.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -210,6 +217,7 @@ public sealed class HomeController : IDisposable
 
                 // Already starting/connecting for the desired target — wait for Connected/Error.
                 ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+                ArmConnectWatchdog();
                 return true;
             }
 
@@ -262,15 +270,24 @@ public sealed class HomeController : IDisposable
             // ReplyOk means accepted — Connected/Error events decide the real outcome.
             ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
             _reconnectAttempt = 0;
+            ArmConnectWatchdog();
             return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            CancelConnectWatchdog();
+            if (!_desiredConnected)
+            {
+                ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+                return false;
+            }
+
             ApplyKeyed(UiState.Idle, "Home_Status_Idle");
             return false;
         }
         catch (Exception ex)
         {
+            CancelConnectWatchdog();
             if (TryHandleEngineMissing(ex))
                 return false;
 
@@ -475,15 +492,18 @@ public sealed class HomeController : IDisposable
                 if (_desiredConnected)
                 {
                     ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+                    _ = ScheduleReconnectAsync();
                     return;
                 }
 
+                CancelConnectWatchdog();
                 ApplyKeyed(UiState.Idle, "Home_Status_Idle");
                 return;
             }
 
             if (EngineState.IsConnected(ev.State))
             {
+                CancelConnectWatchdog();
                 ApplyConnected(ev.State);
                 return;
             }
@@ -495,6 +515,7 @@ public sealed class HomeController : IDisposable
 
         if (ev.Kind == EngineEventKind.Connected)
         {
+            CancelConnectWatchdog();
             _reconnectAttempt = 0;
             RememberSelectionFromEngine();
             if (_sessionInfo != null && !string.IsNullOrWhiteSpace(ev.Ip))
@@ -528,6 +549,7 @@ public sealed class HomeController : IDisposable
                 return;
             }
 
+            CancelConnectWatchdog();
             ClearSessionInfo();
             ApplyUiState(UiState.Idle, ComposeDisconnect);
             return;
@@ -535,6 +557,7 @@ public sealed class HomeController : IDisposable
 
         if (ev.Kind == EngineEventKind.Error)
         {
+            CancelConnectWatchdog();
             var raw = ev.Message;
             Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage(raw)));
             ApplyUiState(UiState.Idle, () =>
@@ -636,8 +659,69 @@ public sealed class HomeController : IDisposable
         }
     }
 
+    private void BeginConnectCts(CancellationToken lifetime)
+    {
+        try { _connectCts?.Cancel(); } catch { /* ignore */ }
+        try { _connectCts?.Dispose(); } catch { /* ignore */ }
+        _connectCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+    }
+
+    private void ArmConnectWatchdog()
+    {
+        CancelConnectWatchdog();
+        var generation = Interlocked.Increment(ref _connectWatchdogGeneration);
+        var cts = new CancellationTokenSource();
+        _connectWatchdogCts = cts;
+        _ = RunConnectWatchdogAsync(generation, cts.Token);
+    }
+
+    private void CancelConnectWatchdog()
+    {
+        Interlocked.Increment(ref _connectWatchdogGeneration);
+        try { _connectWatchdogCts?.Cancel(); } catch { /* ignore */ }
+        try { _connectWatchdogCts?.Dispose(); } catch { /* ignore */ }
+        _connectWatchdogCts = null;
+    }
+
+    private async Task RunConnectWatchdogAsync(int generation, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(HomeSessionUiPolicy.ConnectEventWatchdog, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (generation != Volatile.Read(ref _connectWatchdogGeneration))
+            return;
+        if (_lastUiState != UiState.Connecting)
+            return;
+
+        Log(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_Timeout")));
+        _desiredConnected = false;
+        CancelConnectWatchdog();
+        try
+        {
+            await EnsureDisconnectedAsync(userInitiated: false).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.ConnectWatchdogStop");
+        }
+
+        ApplyUiState(UiState.Idle, () =>
+            Loc.T("Home_Status_IdleErrorFmt", Loc.T("Home_Error_Timeout")));
+    }
+
     public void Dispose()
     {
+        _desiredConnected = false;
+        CancelConnectWatchdog();
+        try { _connectCts?.Cancel(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomeController.DisposeConnectCancel"); }
+        try { _connectCts?.Dispose(); } catch { /* ignore */ }
+        _connectCts = null;
         try { _lifetimeCts?.Cancel(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomeController.DisposeCancel"); }
         _lifetimeCts = null;
 
