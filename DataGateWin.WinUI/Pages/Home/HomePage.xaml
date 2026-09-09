@@ -93,19 +93,11 @@
                         SelectionChanged="ManualServerCombo_OnSelectionChanged">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Image
-                                        Width="22"
-                                        Height="16"
-                                        Source="{Binding FlagImage}"
-                                        Stretch="Uniform"
-                                        VerticalAlignment="Center"
-                                        Visibility="{Binding FlagVisibility}" />
-                                    <TextBlock
-                                        Text="{Binding Label}"
-                                        TextTrimming="CharacterEllipsis"
-                                        VerticalAlignment="Center" />
-                                </StackPanel>
+                                <!-- No Image in ComboBox rows: shared/virtualized Image.Source FailFasts WinUI (0xc000027b). Flags only on network footer. -->
+                                <TextBlock
+                                    Text="{Binding Label}"
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
