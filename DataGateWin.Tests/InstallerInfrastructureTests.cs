@@ -96,6 +96,16 @@ public sealed class InstallerInfrastructureTests
     }
 
     [Fact]
+    public void LocalBuildPackage_IsNotUsedForUpdateMode_Contract()
+    {
+        // Source contract: update path must skip LocalBuildPackage.TryFind (Program Files poison).
+        var main = File.ReadAllText(FindInstallerMainWindow());
+        Assert.Contains("if (!isUpdate)", main, StringComparison.Ordinal);
+        Assert.Contains("LocalBuildPackage.TryFind(_installerDir)", main, StringComparison.Ordinal);
+        Assert.Contains("local DataGateWinBuild* ignored", main, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void WizardRules_GetInitialStep_UsesUpdateMode()
     {
         Assert.Equal(InstallerWizardStep.Policy, InstallerWizardRules.GetInitialStep(isUpdateMode: false));
@@ -336,5 +346,19 @@ public sealed class InstallerInfrastructureTests
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(handle(request));
         }
+    }
+
+    private static string FindInstallerMainWindow()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "DataGateWin.Installer", "MainWindow.xaml.cs");
+            if (File.Exists(candidate))
+                return candidate;
+            dir = dir.Parent;
+        }
+
+        throw new FileNotFoundException("DataGateWin.Installer/MainWindow.xaml.cs");
     }
 }

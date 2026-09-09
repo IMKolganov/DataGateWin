@@ -21,8 +21,6 @@
 
             <Border
                 Padding="16"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 CornerRadius="8">
                 <StackPanel Spacing="4">
@@ -142,8 +140,7 @@
 
                     <Border
                         Height="1"
-                        Margin="0,18,0,14"
-                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        Margin="0,18,0,14" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
                         <FontIcon Glyph="&#xE946;" FontSize="16" VerticalAlignment="Center" />

@@ -49,7 +49,6 @@
         <Border
             Grid.Row="1"
             Padding="28"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
             <StackPanel Spacing="14">
                 <StackPanel Orientation="Horizontal" Spacing="10">

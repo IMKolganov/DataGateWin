@@ -301,6 +301,54 @@ public sealed class WinUiFailSoftContractTests
         Assert.Contains(@"Images"", ""favicon.png""", appIcon, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MainWindow_Navigation_GoesThroughSafeUiContent_AndShowsErrors()
+    {
+        var main = ReadWinUi("MainWindow.xaml.cs");
+        Assert.Contains("SafeUiContent.Create", main, StringComparison.Ordinal);
+        Assert.Contains("SettingsPage.Create(", main, StringComparison.Ordinal);
+        Assert.DoesNotContain("new SettingsPage(_authState)", main, StringComparison.Ordinal);
+        Assert.Contains("UiErrorPanel.FromException(\"MainWindow.NavigateTo:\"", main, StringComparison.Ordinal);
+        Assert.DoesNotContain("ReportNonFatal(ex, \"MainWindow.NavigateTo\")", main, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SettingsPage_UsesUiThemeBrushes_NotThemeResourceMarkup()
+    {
+        var cs = ReadWinUi("Pages", "SettingsPage.xaml.cs");
+        Assert.DoesNotContain("InitializeComponent", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("{ThemeResource", cs, StringComparison.Ordinal);
+        Assert.Contains("UiThemeBrushes.CardBackground", cs, StringComparison.Ordinal);
+        Assert.Contains("UiErrorPanel", cs, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UiThemeBrushes_And_SafeUiContent_ExistAsArchitectureGate()
+    {
+        var brushes = ReadWinUi("Services", "Ui", "UiThemeBrushes.cs");
+        var safe = ReadWinUi("Services", "Ui", "SafeUiContent.cs");
+        var err = ReadWinUi("Services", "Ui", "UiErrorPanel.cs");
+        Assert.Contains("ApplyMissingCardChrome", brushes, StringComparison.Ordinal);
+        Assert.Contains("WalkLogical", brushes, StringComparison.Ordinal);
+        Assert.Contains("IsChartOrSkiaSubtree", brushes, StringComparison.Ordinal);
+        Assert.Contains("TryGetValue", brushes, StringComparison.Ordinal);
+        Assert.Contains("FallbackCard", brushes, StringComparison.Ordinal);
+        Assert.Contains("UiErrorPanel.FromException", safe, StringComparison.Ordinal);
+        Assert.Contains("Msg_ErrorTitle", err, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GitHubUpdateChecker_MarksSessionCompleteBeforeLaunch_AndUsesFileVersionPolicy()
+    {
+        var winui = ReadWinUi("Services", "Update", "GitHubUpdateChecker.cs");
+        Assert.Contains("AppUpdatePolicy.ShouldOfferUpgrade", winui, StringComparison.Ordinal);
+        Assert.Contains("AppUpdatePolicy.ResolveCurrentAppVersion", winui, StringComparison.Ordinal);
+        Assert.Contains("_updatePromptCompletedThisSession = true", winui, StringComparison.Ordinal);
+        Assert.Contains("TryLaunchUpdater", winui, StringComparison.Ordinal);
+        Assert.Contains("InstallerUpdateArgument", winui, StringComparison.Ordinal);
+    }
+
+
     private static string ReadWinUi(params string[] parts)
         => File.ReadAllText(FindRepoFile(Path.Combine(["DataGateWin.WinUI", .. parts])));
 

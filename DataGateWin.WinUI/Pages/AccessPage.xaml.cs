@@ -19,6 +19,7 @@ public sealed partial class AccessPage : Page
     public AccessPage()
     {
         InitializeComponent();
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         var http = App.AuthedApiHttp;
         _vm = new AccessViewModel(new OpenVpnServersApiClient(http), new UserVpnAccessClient(http), App.Session);
         _vm.PropertyChanged += (_, _) => QueueApplyVm();
@@ -37,6 +38,7 @@ public sealed partial class AccessPage : Page
 
     public void ApplyLanguage()
     {
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         ApplyLocalizedChrome();
         ApplyVm(forceRows: true);
     }
@@ -211,6 +213,7 @@ public sealed partial class AccessPage : Page
     /// <summary>Called when nav switches to Access (Loaded may not re-fire for a cached page).</summary>
     public void RefreshOnShown()
     {
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         ApplyLocalizedChrome();
         ApplyVm(forceRows: true);
         _vm.RequestReload();

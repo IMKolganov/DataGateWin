@@ -20,6 +20,8 @@ public sealed partial class IpListSettingsWindow : Window
     public IpListSettingsWindow()
     {
         InitializeComponent();
+        if (Content is FrameworkElement root)
+            UiThemeBrushes.ApplyMissingCardChrome(root);
         WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         WindowChrome.ApplyDefault(this, width: 560, height: 720);
         if (AppWindow.Presenter is OverlappedPresenter presenter)
