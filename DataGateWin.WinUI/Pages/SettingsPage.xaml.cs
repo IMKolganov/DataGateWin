@@ -178,19 +178,31 @@ public sealed class SettingsPage : Page
         _suppressLanguageCombo = true;
         try
         {
-            _languageCombo.Items.Clear();
-            _languageCombo.Items.Add(new ComboBoxItem
-            {
-                Tag = WinUiLanguageService.SystemPreference,
-                Content = WinUiLanguageService.GetLanguageDisplayName(WinUiLanguageService.SystemPreference),
-            });
-            foreach (var code in WinUiLanguageService.GetLanguagePickerCodes())
+            // Never Items.Clear() while this ComboBox may still be inside SelectionChanged —
+            // unpackaged WinUI FailFasts (0xC000027B / 0x80070490). Update labels in place.
+            if (_languageCombo.Items.Count == 0)
             {
                 _languageCombo.Items.Add(new ComboBoxItem
                 {
-                    Tag = code,
-                    Content = WinUiLanguageService.GetLanguageDisplayName(code),
+                    Tag = WinUiLanguageService.SystemPreference,
+                    Content = WinUiLanguageService.GetLanguageDisplayName(WinUiLanguageService.SystemPreference),
                 });
+                foreach (var code in WinUiLanguageService.GetLanguagePickerCodes())
+                {
+                    _languageCombo.Items.Add(new ComboBoxItem
+                    {
+                        Tag = code,
+                        Content = WinUiLanguageService.GetLanguageDisplayName(code),
+                    });
+                }
+            }
+            else
+            {
+                foreach (ComboBoxItem item in _languageCombo.Items)
+                {
+                    if (item.Tag is string tag)
+                        item.Content = WinUiLanguageService.GetLanguageDisplayName(tag);
+                }
             }
 
             ComboBoxItem? match = null;
@@ -203,7 +215,9 @@ public sealed class SettingsPage : Page
                 }
             }
 
-            _languageCombo.SelectedItem = match ?? _languageCombo.Items[0] as ComboBoxItem;
+            var selected = match ?? _languageCombo.Items[0] as ComboBoxItem;
+            if (!ReferenceEquals(_languageCombo.SelectedItem, selected))
+                _languageCombo.SelectedItem = selected;
         }
         finally
         {
@@ -219,12 +233,21 @@ public sealed class SettingsPage : Page
             return;
         try
         {
+            // Only persist + reload strings here. Do not rebuild this ComboBox / chrome until
+            // LanguageChanged runs on a later dispatcher tick (see WinUiLanguageService.Apply).
             WinUiLanguageService.Apply(code, persist: true);
-            ApplyOnShown();
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "SettingsPage.LanguageChange");
+            try
+            {
+                Content = UiErrorPanel.FromException("SettingsPage.LanguageChange", ex);
+            }
+            catch (Exception panelEx)
+            {
+                CrashReporter.ReportNonFatal(panelEx, "SettingsPage.LanguageChange.ErrorPanel");
+            }
         }
     }
 

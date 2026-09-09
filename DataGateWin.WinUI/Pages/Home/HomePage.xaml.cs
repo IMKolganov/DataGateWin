@@ -163,11 +163,20 @@ public sealed partial class HomePage : Page
         => Traffic.SetChartTheme(ActualTheme == ElementTheme.Dark);
 
     private void OnUiLanguageChanged(object? sender, EventArgs e)
-        => DispatchUi(() =>
+        => DispatcherQueue.TryEnqueue(() =>
         {
-            ApplyLocalizedChrome();
-            RebuildServerComboFromCache();
-            _controller.ReapplyUiToLastState();
+            try
+            {
+                ApplyLocalizedChrome();
+                RelocalizeServerComboLabels();
+                WinUiLanguageService.ForceChartsLeftToRight(this);
+                Traffic.ApplyChrome();
+                _controller.ReapplyUiToLastState();
+            }
+            catch (Exception ex)
+            {
+                CrashReporter.ReportNonFatal(ex, "HomePage.OnUiLanguageChanged");
+            }
         });
 
     private async void ConnectButton_OnClick(object sender, RoutedEventArgs e)
@@ -781,6 +790,39 @@ public sealed partial class HomePage : Page
         }
     }
 
+    /// <summary>Refresh server row labels after language change without Items.Clear (FailFast-safe).</summary>
+    private void RelocalizeServerComboLabels()
+    {
+        if (_cachedServerRows is null || _cachedServerRows.Count == 0)
+            return;
+        if (ManualServerCombo.Items.Count == 0)
+        {
+            RebuildServerComboFromCache();
+            return;
+        }
+
+        var byId = _cachedServerRows.ToDictionary(r => r.Id);
+        foreach (HomeVpnServerListItem item in ManualServerCombo.Items)
+        {
+            if (!byId.TryGetValue(item.Id, out var row))
+                continue;
+            item.Label = CreateServerListItem(row).Label;
+        }
+
+        // Force ComboBox to re-read ToString() without clearing the collection.
+        var selected = ManualServerCombo.SelectedItem;
+        _suppressSettingsSave = true;
+        try
+        {
+            ManualServerCombo.SelectedItem = null;
+            ManualServerCombo.SelectedItem = selected;
+        }
+        finally
+        {
+            _suppressSettingsSave = false;
+        }
+    }
+
     private static HomeVpnServerListItem CreateServerListItem(CachedVpnServerRow r)
     {
         var rawName = string.IsNullOrWhiteSpace(r.Name)
@@ -816,7 +858,7 @@ public sealed partial class HomePage : Page
     private sealed class HomeVpnServerListItem
     {
         public int Id { get; init; }
-        public string Label { get; init; } = "";
+        public string Label { get; set; } = "";
         public override string ToString() => Label;
     }
 }

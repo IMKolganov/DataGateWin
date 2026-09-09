@@ -2,25 +2,31 @@ using System.Globalization;
 using System.Xml.Linq;
 using DataGateWin.Configuration;
 using DataGateWin.CrashReporting;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace DataGateWin.Localization;
 
 /// <summary>
-/// WinUI language switcher: en base + overlay merge into <see cref="Application.Resources"/>,
-/// and wires <see cref="Loc.Resolver"/>.
+/// WinUI language switcher: in-memory string table + <see cref="Loc.Resolver"/>.
+/// Does not mutate process UI culture or Application.MergedDictionaries at runtime
+/// (those FailFast unpackaged WinUI with 0x80070490 / 0xC000027B).
 /// </summary>
 public static class WinUiLanguageService
 {
     private static readonly Dictionary<string, string> Strings = new(StringComparer.Ordinal);
-    private static ResourceDictionary? _activeBase;
-    private static ResourceDictionary? _activeOverlay;
+    private static readonly object RaiseGate = new();
+    private static bool _raiseLanguageChangedQueued;
 
     public static readonly string[] SupportedCodes = UiLocale.All.Select(l => l.Code).ToArray();
 
     public static IReadOnlyList<string> GetLanguagePickerCodes() => UiLocale.GetLanguagePickerCodes();
 
     public const string SystemPreference = "system";
+
+    /// <summary>UI dispatcher used to raise <see cref="LanguageChanged"/> outside ComboBox SelectionChanged.</summary>
+    public static DispatcherQueue? UiDispatcher { get; set; }
 
     public static event EventHandler? LanguageChanged;
 
@@ -73,6 +79,7 @@ public static class WinUiLanguageService
 
     public static void Apply(string? languageCode, bool persist)
     {
+        Trace("Apply begin persist=" + persist + " code=" + (languageCode ?? "(null)"));
         var preference = persist
             ? NormalizePreferenceForStorage(languageCode)
             : NormalizePreferenceForStorage(App.Settings.UiLanguage);
@@ -81,9 +88,11 @@ public static class WinUiLanguageService
         {
             App.Settings.UiLanguage = preference;
             AppSettingsStore.SaveSafe(App.Settings);
+            Trace("Apply saved preference=" + preference);
         }
 
         var effective = ResolveEffectiveLanguageCode(preference);
+        Trace("Apply effective=" + effective);
 
         try
         {
@@ -91,19 +100,24 @@ public static class WinUiLanguageService
             var ci = loc != null
                 ? CultureInfo.GetCultureInfo(loc.CultureName)
                 : CultureInfo.GetCultureInfo("en-US");
-            CultureInfo.DefaultThreadCurrentUICulture = ci;
-            CultureInfo.DefaultThreadCurrentCulture = ci;
+            // Never assign process DefaultThread* culture fields here.
+            // WinUI unpackaged FailFasts (0x80070490 / 0xC000027B) when the process UI culture
+            // changes while XamlControlsResources / live trees are loaded.
+            Loc.FormatCulture = ci;
         }
         catch (CultureNotFoundException ex)
         {
             CrashReporter.ReportNonFatal(ex, "WinUiLanguageService.ApplyCulture");
-            CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.GetCultureInfo("en-US");
-            CultureInfo.DefaultThreadCurrentCulture = CultureInfo.GetCultureInfo("en-US");
+            Loc.FormatCulture = CultureInfo.GetCultureInfo("en-US");
         }
 
         ReloadStringTable(effective);
-        MergeResourceDictionaries(effective);
-        LanguageChanged?.Invoke(null, EventArgs.Empty);
+        Trace("Apply string table reloaded count=" + Strings.Count);
+        // Do not add/remove Application.Resources.MergedDictionaries after startup windows exist —
+        // that also FailFasts. Loc.Resolver already reads the in-memory Strings table.
+        // Defer LanguageChanged so ComboBox SelectionChanged can finish before any Items mutate.
+        QueueLanguageChanged();
+        Trace("Apply end (LanguageChanged queued)");
     }
 
     public static bool IsRightToLeft(string? preference = null)
@@ -116,9 +130,144 @@ public static class WinUiLanguageService
     {
         if (root is null)
             return;
-        root.FlowDirection = IsRightToLeft()
+        var next = IsRightToLeft()
             ? FlowDirection.RightToLeft
             : FlowDirection.LeftToRight;
+        if (root.FlowDirection != next)
+        {
+            Trace("ApplyFlowDirection " + root.FlowDirection + " -> " + next);
+            root.FlowDirection = next;
+        }
+
+        // LiveCharts/Skia charts break under RTL inheritance — keep them LTR always.
+        ForceChartsLeftToRight(root);
+    }
+
+    /// <summary>
+    /// LiveCharts WinUI canvases render blank/corrupt when an ancestor sets RTL FlowDirection.
+    /// </summary>
+    public static void ForceChartsLeftToRight(DependencyObject? root)
+    {
+        if (root is null)
+            return;
+        try
+        {
+            WalkForceChartLtr(root);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "WinUiLanguageService.ForceChartsLeftToRight");
+        }
+    }
+
+    private static void WalkForceChartLtr(DependencyObject node)
+    {
+        if (IsLiveChartsOrSkia(node) && node is FrameworkElement fe)
+        {
+            if (fe.FlowDirection != FlowDirection.LeftToRight)
+                fe.FlowDirection = FlowDirection.LeftToRight;
+            return;
+        }
+
+        switch (node)
+        {
+            case Panel panel:
+                foreach (var child in panel.Children)
+                {
+                    if (child is DependencyObject d)
+                        WalkForceChartLtr(d);
+                }
+                break;
+            case Border border when border.Child is DependencyObject borderChild:
+                WalkForceChartLtr(borderChild);
+                break;
+            case UserControl userControl when userControl.Content is DependencyObject ucContent:
+                if (IsLiveChartsOrSkia(userControl))
+                {
+                    userControl.FlowDirection = FlowDirection.LeftToRight;
+                    return;
+                }
+                WalkForceChartLtr(ucContent);
+                break;
+            case ContentControl contentControl when contentControl.Content is DependencyObject content:
+                WalkForceChartLtr(content);
+                break;
+            case ContentPresenter presenter when presenter.Content is DependencyObject presented:
+                WalkForceChartLtr(presented);
+                break;
+            case Page page when page.Content is DependencyObject pageContent:
+                WalkForceChartLtr(pageContent);
+                break;
+            case ScrollViewer scroll when scroll.Content is DependencyObject scrollContent:
+                WalkForceChartLtr(scrollContent);
+                break;
+            case Microsoft.UI.Xaml.Controls.Frame frame when frame.Content is DependencyObject frameContent:
+                WalkForceChartLtr(frameContent);
+                break;
+            case NavigationView nav:
+                if (nav.Content is DependencyObject navContent)
+                    WalkForceChartLtr(navContent);
+                break;
+        }
+    }
+
+    private static bool IsLiveChartsOrSkia(DependencyObject node)
+    {
+        var asm = node.GetType().Assembly.GetName().Name ?? "";
+        return asm.StartsWith("LiveCharts", StringComparison.OrdinalIgnoreCase)
+               || asm.StartsWith("SkiaSharp", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void QueueLanguageChanged()
+    {
+        lock (RaiseGate)
+        {
+            if (_raiseLanguageChangedQueued)
+                return;
+            _raiseLanguageChangedQueued = true;
+        }
+
+        var dq = UiDispatcher ?? DispatcherQueue.GetForCurrentThread();
+        if (dq is not null && dq.TryEnqueue(DispatcherQueuePriority.Normal, RaiseLanguageChangedSafe))
+            return;
+
+        RaiseLanguageChangedSafe();
+    }
+
+    private static void RaiseLanguageChangedSafe()
+    {
+        lock (RaiseGate)
+            _raiseLanguageChangedQueued = false;
+
+        Trace("LanguageChanged invoke begin");
+        try
+        {
+            LanguageChanged?.Invoke(null, EventArgs.Empty);
+            Trace("LanguageChanged invoke end");
+        }
+        catch (Exception ex)
+        {
+            Trace("LanguageChanged invoke EX: " + ex.GetType().Name + " " + ex.Message);
+            CrashReporter.ReportNonFatal(ex, "WinUiLanguageService.LanguageChanged");
+        }
+    }
+
+    private static void Trace(string step)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DataGateWin");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(
+                Path.Combine(dir, "language-switch.log"),
+                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) + " " + step + Environment.NewLine);
+        }
+        catch
+        {
+            // never throw from diagnostics
+        }
     }
 
     public static string GetLanguageDisplayName(string code)
@@ -175,71 +324,6 @@ public static class WinUiLanguageService
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "WinUiLanguageService.MergeFileIntoTable");
-        }
-    }
-
-    private static void MergeResourceDictionaries(string effective)
-    {
-        var app = Application.Current;
-        if (app is null)
-            return;
-
-        var merged = app.Resources.MergedDictionaries;
-        if (_activeOverlay is not null)
-        {
-            merged.Remove(_activeOverlay);
-            _activeOverlay = null;
-        }
-
-        if (_activeBase is not null)
-        {
-            merged.Remove(_activeBase);
-            _activeBase = null;
-        }
-
-        _activeBase = TryLoadDictionary("en");
-        if (_activeBase is not null)
-            merged.Add(_activeBase);
-
-        if (!string.Equals(effective, "en", StringComparison.OrdinalIgnoreCase))
-        {
-            _activeOverlay = TryLoadDictionary(effective);
-            if (_activeOverlay is not null)
-                merged.Add(_activeOverlay);
-        }
-    }
-
-    private static ResourceDictionary? TryLoadDictionary(string code)
-    {
-        try
-        {
-            var path = Path.Combine(AppContext.BaseDirectory, "Localization", $"Strings.{code}.xaml");
-            if (!File.Exists(path))
-                return null;
-
-            var dict = new ResourceDictionary();
-            var fileOnly = new Dictionary<string, string>(StringComparer.Ordinal);
-            var doc = XDocument.Load(path);
-            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-            foreach (var el in doc.Descendants())
-            {
-                if (!el.Name.LocalName.Equals("String", StringComparison.Ordinal))
-                    continue;
-                var key = el.Attribute(x + "Key")?.Value;
-                if (string.IsNullOrEmpty(key))
-                    continue;
-                fileOnly[key] = el.Value;
-            }
-
-            foreach (var kv in fileOnly)
-                dict[kv.Key] = kv.Value;
-
-            return dict;
-        }
-        catch (Exception ex)
-        {
-            CrashReporter.ReportNonFatal(ex, "WinUiLanguageService.TryLoadDictionary");
-            return null;
         }
     }
 }
