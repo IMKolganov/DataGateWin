@@ -33,9 +33,10 @@ public sealed partial class StatisticsPage : Page
 
     public void ApplyOnShown()
     {
-        UiThemeBrushes.ApplyMissingCardChrome(this);
         ApplyLocalizedChrome();
         ApplyVmChrome();
+        WinUiLanguageService.ForceChartsLeftToRight(this);
+        Vm.RefreshChart();
     }
 
     private void OnLang(object? sender, EventArgs e)

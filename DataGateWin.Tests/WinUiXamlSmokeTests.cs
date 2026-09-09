@@ -130,6 +130,20 @@ public sealed class WinUiXamlSmokeTests
         Assert.DoesNotContain("Height=\"*\"", xaml, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void WinUiLanguageService_MustNotFlipProcessUiCulture_OrMutateMergedDictionariesAtRuntime()
+    {
+        var text = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Localization", "WinUiLanguageService.cs")));
+        Assert.DoesNotContain("DefaultThreadCurrentUICulture", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("DefaultThreadCurrentCulture", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("MergedDictionaries.Add", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("MergedDictionaries.Remove", text, StringComparison.Ordinal);
+        Assert.Contains("Loc.FormatCulture", text, StringComparison.Ordinal);
+        Assert.Contains("ReloadStringTable", text, StringComparison.Ordinal);
+        Assert.Contains("QueueLanguageChanged", text, StringComparison.Ordinal);
+        Assert.Contains("TryEnqueue", text, StringComparison.Ordinal);
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

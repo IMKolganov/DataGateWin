@@ -117,6 +117,7 @@ public partial class App : Application
 
             CrashReporter.InstallDomainHandlers();
             UiDispatcher = DispatcherQueue.GetForCurrentThread();
+            WinUiLanguageService.UiDispatcher = UiDispatcher;
 
             try
             {

@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>DataGateWin</RootNamespace>
     <AssemblyName>DataGateWin.Core</AssemblyName>
-    <AssemblyVersion>1.0.21</AssemblyVersion>
-    <FileVersion>1.0.21</FileVersion>
+    <AssemblyVersion>1.0.22</AssemblyVersion>
+    <FileVersion>1.0.22</FileVersion>
     <Product>DataGate</Product>
   </PropertyGroup>
 

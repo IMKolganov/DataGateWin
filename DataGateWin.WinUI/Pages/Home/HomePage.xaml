@@ -176,6 +176,7 @@
                         x:Name="TrafficChart"
                         Height="150"
                         Background="Transparent"
+                        FlowDirection="LeftToRight"
                         LegendPosition="Hidden"
                         Series="{x:Bind Traffic.Series, Mode=OneWay}"
                         TooltipPosition="Top"
