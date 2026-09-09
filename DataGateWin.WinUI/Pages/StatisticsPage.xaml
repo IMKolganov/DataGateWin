@@ -13,7 +13,7 @@
                 <TextBlock x:Name="TitleText" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
             </StackPanel>
 
-            <Border Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+            <Border Padding="16" CornerRadius="8">
                 <StackPanel Spacing="12">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -69,10 +69,11 @@
                 </StackPanel>
             </Border>
 
-            <Border Padding="8" MinHeight="280" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8">
+            <Border x:Name="ChartCard" Padding="8" MinHeight="280" CornerRadius="8">
                 <lvc:CartesianChart
                     x:Name="Chart"
                     Height="260"
+                    Background="Transparent"
                     Series="{x:Bind Vm.Series, Mode=OneWay}"
                     XAxes="{x:Bind Vm.XAxes, Mode=OneWay}"
                     YAxes="{x:Bind Vm.YAxes, Mode=OneWay}"

@@ -30,7 +30,6 @@ public sealed class WinUiXamlSmokeTests
                      Path.Combine("DataGateWin.WinUI", "Pages", "Home", "HomePage.xaml"),
                      Path.Combine("DataGateWin.WinUI", "Pages", "AccessPage.xaml"),
                      Path.Combine("DataGateWin.WinUI", "Pages", "ImportPage.xaml"),
-                     Path.Combine("DataGateWin.WinUI", "Pages", "SettingsPage.xaml"),
                      Path.Combine("DataGateWin.WinUI", "Pages", "StatisticsPage.xaml"),
                  })
         {
@@ -43,6 +42,52 @@ public sealed class WinUiXamlSmokeTests
                 || xaml.Contains("ImageSource=\"Assets\\AppIcon.ico\"", StringComparison.OrdinalIgnoreCase),
                 rel + " must not bind TitleBar/Image to .ico via ImageSource in XAML");
         }
+    }
+
+    [Fact]
+    public void SettingsPage_IsCodeBuilt_NoXamlThemeResourceFailFastSurface()
+    {
+        var cs = FindRepoFile(Path.Combine("DataGateWin.WinUI", "Pages", "SettingsPage.xaml.cs"));
+        Assert.True(File.Exists(cs));
+
+        var xamlPath = Path.Combine(Path.GetDirectoryName(cs)!, "SettingsPage.xaml");
+        Assert.False(File.Exists(xamlPath),
+            "SettingsPage.xaml must stay deleted — LoadComponent ThemeResource FailFast took down the process");
+
+        var text = File.ReadAllText(cs);
+        Assert.Contains("Create(", text, StringComparison.Ordinal);
+        Assert.Contains("UiThemeBrushes", text, StringComparison.Ordinal);
+        Assert.Contains("SafeUiContent", File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "MainWindow.xaml.cs"))), StringComparison.Ordinal);
+        Assert.DoesNotContain("InitializeComponent", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("{ThemeResource", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("ms-appx", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WinUiPages_MustNotUseThemeResourceMarkup_FailFastArchitecture()
+    {
+        var mainXaml = FindRepoFile(Path.Combine("DataGateWin.WinUI", "MainWindow.xaml"));
+        var winUiRoot = Path.GetDirectoryName(mainXaml)!;
+        var offenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(winUiRoot, "*.xaml", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(winUiRoot, path);
+            if (rel.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                rel.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                rel.StartsWith("Localization" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var text = File.ReadAllText(path);
+            if (text.Contains("{ThemeResource", StringComparison.Ordinal))
+                offenders.Add(rel);
+        }
+
+        Assert.True(offenders.Count == 0,
+            "ThemeResource markup FailFasts unpackaged WinUI when a key is missing. Offenders: " +
+            string.Join(", ", offenders) +
+            ". Use UiThemeBrushes / SafeUiContent instead.");
     }
 
     [Fact]

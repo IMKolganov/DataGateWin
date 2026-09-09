@@ -41,9 +41,25 @@ public sealed class GitHubUpdateCheckerTests
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_DoesNotThrowWhenReleaseIsNotNewer()
+    public async Task CheckForUpdateAsync_DoesNotThrowWhenReleaseIsNewer_ButUiUnavailable()
     {
-        var current = typeof(GitHubUpdateChecker).Assembly.GetName().Version ?? new Version(0, 0, 0);
+        // Newer tag must pass ShouldOfferUpgrade; without a WPF MainWindow the prompt path no-ops safely.
+        using var http = CreateHttpClient("""
+            {
+              "tag_name": "99.0.0"
+            }
+            """);
+
+        var checker = new GitHubUpdateChecker(http, "IMKolganov", "DataGateWin");
+        await checker.CheckForUpdateAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CheckForUpdateAsync_SkipsSecondCallAfterPromptGateWouldComplete_OnNotNewer()
+    {
+        var current = AppUpdatePolicy.ResolveCurrentAppVersion(
+            typeof(GitHubUpdateChecker).Assembly.Location,
+            typeof(GitHubUpdateChecker).Assembly.GetName().Version);
         using var http = CreateHttpClient($$"""
             {
               "tag_name": "{{current.Major}}.{{current.Minor}}.{{current.Build}}"
@@ -51,9 +67,23 @@ public sealed class GitHubUpdateCheckerTests
             """);
 
         var checker = new GitHubUpdateChecker(http, "IMKolganov", "DataGateWin");
-
+        await checker.CheckForUpdateAsync(CancellationToken.None);
         await checker.CheckForUpdateAsync(CancellationToken.None);
     }
+
+    [Fact]
+    public void AppUpdatePolicy_DoesNotOfferUpgradeWhenLatestEqualsCurrent_ViciousLoopGuard()
+    {
+        // The Yes→installer→relaunch→prompt loop happens when latest stays > current.
+        // Same/older tags must never offer.
+        Assert.False(AppUpdatePolicy.ShouldOfferUpgrade(
+            ReleaseVersionParser.ParseTag("1.0.18"),
+            ReleaseVersionParser.ParseTag("1.0.18")));
+        Assert.False(AppUpdatePolicy.ShouldOfferUpgrade(
+            ReleaseVersionParser.ParseTag("1.0.14"),
+            ReleaseVersionParser.ParseTag("1.0.18")));
+    }
+
 
     [Fact]
     public async Task CheckForUpdateAsync_DoesNotThrowWhenGitHubReturnsInvalidJson()

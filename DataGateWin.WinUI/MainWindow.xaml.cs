@@ -31,13 +31,14 @@ public sealed partial class MainWindow : Window
     private AccessPage? _accessPage;
     private ImportPage? _importPage;
     private StatisticsPage? _statisticsPage;
-    private SettingsPage? _settingsPage;
+    private UIElement? _settingsContent;
     private readonly TorrentClientMonitor _torrentClientMonitor;
 
     public MainWindow(AuthStateStore authState, HttpClient authedApiHttp)
     {
         InitializeComponent();
         AppIcon.TryAssignBrandMark(TitleBarBrandMark, decodePixelWidth: 40);
+        UiThemeBrushes.ApplyCardBackground(UserAvatarBorder);
         WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
@@ -201,44 +202,66 @@ public sealed partial class MainWindow : Window
 
     private void NavigateTo(string? tag)
     {
+        // Architecture: every nav target is built through SafeUiContent. Managed failures
+        // become a visible error panel — never silent return and never an uncaught path
+        // that leaves the shell looking "broken" with no explanation.
+        var key = tag ?? "home";
         try
         {
-            switch (tag)
+            switch (key)
             {
                 case "access":
-                    _accessPage ??= new AccessPage();
-                    NavFrame.Content = _accessPage;
-                    _accessPage.RefreshOnShown();
+                    NavFrame.Content = SafeUiContent.Create(() =>
+                    {
+                        _accessPage ??= new AccessPage();
+                        return _accessPage;
+                    }, "AccessPage");
+                    _accessPage?.RefreshOnShown();
                     break;
                 case "import":
-                    _importPage ??= new ImportPage(_homeController);
-                    NavFrame.Content = _importPage;
-                    _importPage.ApplyOnShown();
+                    NavFrame.Content = SafeUiContent.Create(() =>
+                    {
+                        _importPage ??= new ImportPage(_homeController);
+                        return _importPage;
+                    }, "ImportPage");
+                    _importPage?.ApplyOnShown();
                     break;
                 case "statistics":
-                    _statisticsPage ??= new StatisticsPage(_authedApiHttp, App.Session);
-                    NavFrame.Content = _statisticsPage;
-                    _statisticsPage.ApplyOnShown();
+                    NavFrame.Content = SafeUiContent.Create(() =>
+                    {
+                        _statisticsPage ??= new StatisticsPage(_authedApiHttp, App.Session);
+                        return _statisticsPage;
+                    }, "StatisticsPage");
+                    _statisticsPage?.ApplyOnShown();
                     break;
                 case "settings":
-                    _settingsPage ??= new SettingsPage(_authState);
-                    NavFrame.Content = _settingsPage;
+                    NavFrame.Content = SafeUiContent.Create(() =>
+                    {
+                        _settingsContent ??= SettingsPage.Create(authState: _authState);
+                        return _settingsContent;
+                    }, "SettingsPage");
+                    if (_settingsContent is SettingsPage settings)
+                        settings.ApplyOnShown();
                     break;
                 default:
-                    _homePage ??= new HomePage(_homeController);
-                    NavFrame.Content = _homePage;
-                    tag = "home";
-                    _ = _homePage.RefreshOnShownAsync();
+                    key = "home";
+                    NavFrame.Content = SafeUiContent.Create(() =>
+                    {
+                        _homePage ??= new HomePage(_homeController);
+                        return _homePage;
+                    }, "HomePage");
+                    if (_homePage is not null)
+                        _ = _homePage.RefreshOnShownAsync();
                     break;
             }
         }
         catch (Exception ex)
         {
-            CrashReporter.ReportNonFatal(ex, "MainWindow.NavigateTo");
+            NavFrame.Content = UiErrorPanel.FromException("MainWindow.NavigateTo:" + key, ex);
             return;
         }
 
-        if (tag is "home" or "access")
+        if (key is "home" or "access")
             _ = CheckAndShowFreeTierOnboardingIfNeededAsync(force: false);
     }
 

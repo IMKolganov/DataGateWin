@@ -31,6 +31,13 @@ public sealed class GitHubUpdateChecker
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("DataGateWin");
     }
 
+    /// <summary>Test seam: clear single-flight + "already prompted" session gates.</summary>
+    internal static void ResetSessionStateForTests()
+    {
+        _updatePromptCompletedThisSession = false;
+        Interlocked.Exchange(ref _checkInFlight, 0);
+    }
+
     public async Task CheckForUpdateAsync(CancellationToken ct)
     {
         if (_updatePromptCompletedThisSession)
@@ -41,10 +48,13 @@ public sealed class GitHubUpdateChecker
 
         try
         {
-            var currentVersion = GetCurrentVersion();
+            var currentVersion = AppUpdatePolicy.ResolveCurrentAppVersion(
+                Assembly.GetEntryAssembly()?.Location,
+                Assembly.GetEntryAssembly()?.GetName().Version,
+                AppContext.BaseDirectory);
             var latest = await GetLatestReleaseAsync(ct).ConfigureAwait(false);
 
-            if (latest == null || !ReleaseVersionParser.IsUpgradeAvailable(latest.Version, currentVersion))
+            if (latest == null || !AppUpdatePolicy.ShouldOfferUpgrade(latest.Version, currentVersion))
                 return;
 
             await StartUpdaterAsync().ConfigureAwait(false);
@@ -82,15 +92,14 @@ public sealed class GitHubUpdateChecker
 
         var json = await resp.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(json);
-        var tag = doc.RootElement.GetProperty("tag_name").GetString();
+        if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl))
+            return null;
+        var tag = tagEl.GetString();
         if (string.IsNullOrWhiteSpace(tag))
             return null;
 
         return new GitHubRelease { Version = ReleaseVersionParser.ParseTag(tag) };
     }
-
-    private static Version GetCurrentVersion() =>
-        Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0);
 
     private sealed class GitHubRelease
     {
@@ -120,25 +129,34 @@ public sealed class GitHubUpdateChecker
 
                 if (!await ConfirmUpdateAsync(xamlRoot).ConfigureAwait(true))
                 {
+                    // Declined: never re-prompt this process lifetime (breaks Yes→relaunch→Yes loops).
                     _updatePromptCompletedThisSession = true;
                     return;
                 }
+
+                // Mark completed before launching so a failed/partial update cannot re-open the dialog
+                // if this process somehow stays alive or a second check races.
+                _updatePromptCompletedThisSession = true;
 
                 var updaterPath = AppInstallerLocator.TryFindInstallerExe();
                 if (string.IsNullOrWhiteSpace(updaterPath))
                 {
-                    _updatePromptCompletedThisSession = true;
                     await ShowUpdaterMissingAsync(xamlRoot).ConfigureAwait(true);
                     return;
                 }
 
-                _updatePromptCompletedThisSession = true;
                 StopEngineIfRunning();
-                LaunchUpdater(updaterPath);
+                if (!TryLaunchUpdater(updaterPath))
+                {
+                    await ShowUpdaterMissingAsync(xamlRoot).ConfigureAwait(true);
+                    return;
+                }
+
                 App.RequestExit();
             }
             catch (Exception ex)
             {
+                _updatePromptCompletedThisSession = true;
                 CrashReporter.ReportNonFatal(ex, "GitHubUpdateChecker.StartUpdater");
             }
             finally
@@ -156,14 +174,11 @@ public sealed class GitHubUpdateChecker
         {
             Title = Loc.T("Msg_UpdateAvailableTitle"),
             Content = Loc.T("Msg_UpdateAvailableBody"),
-            PrimaryButtonText = Loc.T("Action_Ok"),
-            SecondaryButtonText = Loc.T("Login_Cancel"),
+            PrimaryButtonText = Loc.T("Action_Yes"),
+            SecondaryButtonText = Loc.T("Action_No"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = xamlRoot,
         };
-        // Prefer Yes/No semantics via Primary=Yes
-        dlg.PrimaryButtonText = "Yes";
-        dlg.SecondaryButtonText = "No";
         var result = await dlg.ShowAsync();
         return result == ContentDialogResult.Primary;
     }
@@ -187,15 +202,24 @@ public sealed class GitHubUpdateChecker
             KillEngineProcessesByExactPathOnce(enginePath);
     }
 
-    private static void LaunchUpdater(string updaterPath)
+    private static bool TryLaunchUpdater(string updaterPath)
     {
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = updaterPath,
-            Arguments = AppInstallerLocator.InstallerUpdateArgument,
-            UseShellExecute = true,
-            WorkingDirectory = AppContext.BaseDirectory
-        });
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = updaterPath,
+                Arguments = AppInstallerLocator.InstallerUpdateArgument,
+                UseShellExecute = true,
+                WorkingDirectory = AppContext.BaseDirectory
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "GitHubUpdateChecker.LaunchUpdater");
+            return false;
+        }
     }
 
     private static void KillEngineProcessesByExactPathOnce(string engineExePath)

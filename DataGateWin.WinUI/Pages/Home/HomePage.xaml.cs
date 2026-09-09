@@ -22,6 +22,7 @@ public sealed partial class HomePage : Page
     private List<CachedVpnServerRow>? _cachedServerRows;
     private bool _suppressSettingsSave;
     private bool _suppressServerListFetch;
+    private bool _suppressEngineLogsToggle;
     private bool _languageHookAttached;
     private readonly List<string> _logLines = new();
     private readonly object _logUiLock = new();
@@ -38,6 +39,8 @@ public sealed partial class HomePage : Page
     {
         Traffic = new HomeLiveTrafficViewModel();
         InitializeComponent();
+        UiThemeBrushes.ApplyMissingCardChrome(this);
+        UiThemeBrushes.ApplyCardBackground(TrafficLogsCard);
         _controller = controller;
         try { TrafficChart.AnimationsSpeed = TimeSpan.Zero; }
         catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomePage.TrafficChartInit"); }
@@ -55,7 +58,7 @@ public sealed partial class HomePage : Page
         ConnectButtonText.Text = Loc.T("Home_Connect");
         DisconnectButtonText.Text = Loc.T("Home_Disconnect");
         TrafficTitle.Text = Loc.T("Home_Traffic_Title");
-        ShowEngineLogsCheck.Content = Loc.T("Home_ShowEngineLogs");
+        ShowEngineLogsToggle.Header = Loc.T("Home_ShowEngineLogs");
         Traffic.ApplyChrome();
         Bindings.Update();
 
@@ -68,6 +71,7 @@ public sealed partial class HomePage : Page
 
     private async void HomePage_OnLoaded(object sender, RoutedEventArgs e)
     {
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         if (!_languageHookAttached)
         {
             WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
@@ -477,15 +481,17 @@ public sealed partial class HomePage : Page
     private void UpdateManualRowVisibility()
         => ManualServerRow.Visibility = ServerModeCombo.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
 
-    private void ShowEngineLogsCheck_OnClick(object sender, RoutedEventArgs e)
+    private void ShowEngineLogsToggle_OnToggled(object sender, RoutedEventArgs e)
     {
+        if (_suppressEngineLogsToggle)
+            return;
         ApplyEngineLogVisibility();
         SaveVpnHomeSettingsFromUi();
     }
 
     private void ApplyEngineLogVisibility()
     {
-        var show = ShowEngineLogsCheck.IsChecked == true;
+        var show = ShowEngineLogsToggle.IsOn;
         LogTextBox.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
         if (!show)
@@ -630,7 +636,9 @@ public sealed partial class HomePage : Page
         {
             var s = App.Settings;
             ServerModeCombo.SelectedIndex = s.HomeVpnAutoPickServer ? 0 : 1;
-            ShowEngineLogsCheck.IsChecked = s.HomeShowEngineLogs;
+            _suppressEngineLogsToggle = true;
+            ShowEngineLogsToggle.IsOn = s.HomeShowEngineLogs;
+            _suppressEngineLogsToggle = false;
             ApplyEngineLogVisibility();
             UpdateManualRowVisibility();
         }
@@ -647,7 +655,7 @@ public sealed partial class HomePage : Page
 
         var s = App.Settings;
         s.HomeVpnAutoPickServer = ServerModeCombo.SelectedIndex <= 0;
-        s.HomeShowEngineLogs = ShowEngineLogsCheck.IsChecked == true;
+        s.HomeShowEngineLogs = ShowEngineLogsToggle.IsOn;
         if (ManualServerCombo.SelectedItem is HomeVpnServerListItem mid && mid.Id > 0)
             s.HomeVpnManualServerId = mid.Id;
         else if (!s.HomeVpnAutoPickServer && ManualServerCombo.SelectedItem is not null)

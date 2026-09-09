@@ -31,7 +31,6 @@
         <Border
             Grid.Row="1"
             Padding="16"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
             <StackPanel Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -44,7 +43,6 @@
                     SelectionChanged="ProtocolCombo_OnSelectionChanged" />
                 <TextBlock
                     x:Name="XrayHintText"
-                    Foreground="{ThemeResource SystemFillColorCautionBrush}"
                     TextWrapping="Wrap"
                     Visibility="Collapsed" />
             </StackPanel>
@@ -53,7 +51,6 @@
         <Border
             Grid.Row="2"
             Padding="16"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             CornerRadius="8">
             <StackPanel Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -90,8 +87,6 @@
         <Border
             Grid.Row="3"
             Padding="0"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
             BorderThickness="1"
             CornerRadius="8">
             <Grid>
