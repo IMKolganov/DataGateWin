@@ -117,6 +117,34 @@ public sealed class WinUiLocalizationConsistencyTests
         Assert.True(failures.Count == 0, string.Join('\n', failures));
     }
 
+    [Fact]
+    public void WinUiLocalizationFiles_Home_Error_UiImage_IsNotLeftInEnglish()
+    {
+        var locDir = Path.Combine(FindRepoRoot(), "DataGateWin.WinUI", "Localization");
+        var english = ReadMap(Path.Combine(locDir, "Strings.en.xaml"));
+        Assert.True(english.TryGetValue("Home_Error_UiImage", out var en) && !string.IsNullOrWhiteSpace(en));
+
+        var failures = new List<string>();
+        foreach (var file in GetWinUiLocalizationFiles())
+        {
+            var name = Path.GetFileName(file)!;
+            if (string.Equals(name, "Strings.en.xaml", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var map = ReadMap(file);
+            if (!map.TryGetValue("Home_Error_UiImage", out var val) || string.IsNullOrWhiteSpace(val))
+            {
+                failures.Add($"{name}: missing Home_Error_UiImage");
+                continue;
+            }
+
+            if (string.Equals(val, en, StringComparison.Ordinal))
+                failures.Add($"{name}: Home_Error_UiImage is still English");
+        }
+
+        Assert.True(failures.Count == 0, string.Join('\n', failures));
+    }
+
     private static List<string> GetWinUiLocalizationFiles()
     {
         var locDir = Path.Combine(FindRepoRoot(), "DataGateWin.WinUI", "Localization");

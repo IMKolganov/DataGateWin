@@ -169,7 +169,13 @@ public sealed partial class MainWindow : Window
                         return;
                     }
 
-                    UserAvatarBrush.ImageSource = UserAvatarCache.CreateBitmapFromFile(path);
+                    var bmp = UserAvatarCache.CreateBitmapFromFile(path);
+                    if (bmp is null || !UiSafeImage.TryAssignBrush(UserAvatarBrush, bmp, "MainWindow.ApplyUserPaneFooter.ApplyImage"))
+                    {
+                        ShowUserAvatarFallback();
+                        return;
+                    }
+
                     UserAvatarInitials.Visibility = Visibility.Collapsed;
                 }
                 catch (Exception ex)

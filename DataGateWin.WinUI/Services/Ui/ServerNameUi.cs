@@ -120,14 +120,14 @@ internal static class ServerNameUi
         var bmp = TryLoadFlagBitmap(serverNameOrFlagEmoji);
         if (bmp is null)
             return null;
-        return new Image
+        var image = new Image
         {
-            Source = bmp,
             Width = FlagWidth,
             Height = FlagHeight,
             Stretch = Stretch.Uniform,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        return UiSafeImage.TryAssign(image, bmp, "ServerNameUi.CreateFlagImage") ? image : null;
     }
 
     private static BitmapImage? TryLoadFlagBitmap(string? serverNameOrFlagEmoji)
@@ -151,9 +151,7 @@ internal static class ServerNameUi
                 return null;
             }
 
-            var bmp = new BitmapImage { DecodePixelWidth = 48 };
-            var fullPath = Path.GetFullPath(path);
-            bmp.UriSource = new Uri(fullPath, UriKind.Absolute);
+            var bmp = UiFileBitmap.TryLoad(path, decodePixelWidth: 48);
             lock (FlagCacheLock)
                 FlagCache[iso] = bmp;
             return bmp;

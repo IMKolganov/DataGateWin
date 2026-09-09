@@ -83,13 +83,8 @@ public static class UserAvatarCache
         }
     }
 
-    public static BitmapImage CreateBitmapFromFile(string path)
-    {
-        var bmp = new BitmapImage();
-        bmp.UriSource = new Uri(Path.GetFullPath(path), UriKind.Absolute);
-        bmp.DecodePixelWidth = 96;
-        return bmp;
-    }
+    public static BitmapImage? CreateBitmapFromFile(string path)
+        => UiFileBitmap.TryLoad(path, decodePixelWidth: 96);
 
     private static string BuildCacheBaseName(string? numericUserId, string url)
     {
