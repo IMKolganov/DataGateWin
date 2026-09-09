@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using WinRT.Interop;
 
 namespace DataGateWin.Services.Ui;
@@ -8,6 +9,8 @@ namespace DataGateWin.Services.Ui;
 /// <summary>
 /// Taskbar / title-bar icon for unpackaged WinUI. Prefers the shield favicon (same as WPF),
 /// not Assets/AppIcon.ico (different mark that reads as “blank” on a dark taskbar).
+/// Brand PNG for in-window chrome is loaded from loose files next to the exe — never
+/// <c>ms-appx:///</c> (unpackaged Install → 0x80073B01 MUI FailFast).
 /// </summary>
 internal static class AppIcon
 {
@@ -51,6 +54,39 @@ internal static class AppIcon
         }
 
         return null;
+    }
+
+    /// <summary>Loose PNG beside the exe (copied via csproj <c>None</c>, not PRI).</summary>
+    public static string? ResolveBrandPngPath()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        foreach (var relative in new[]
+                 {
+                     Path.Combine("Images", "favicon.png"),
+                     Path.Combine("Assets", "favicon.png"),
+                 })
+        {
+            var full = Path.Combine(baseDir, relative);
+            if (File.Exists(full))
+                return full;
+        }
+
+        return null;
+    }
+
+    /// <summary>Assign brand mark from disk; hide the control if the file is missing or unloadable.</summary>
+    public static void TryAssignBrandMark(Image target, int decodePixelWidth = 40)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var path = ResolveBrandPngPath();
+        if (path is null)
+        {
+            UiSafeImage.TryAssign(target, null, "AppIcon.BrandMark.Missing");
+            return;
+        }
+
+        var bmp = UiFileBitmap.TryLoad(path, decodePixelWidth);
+        UiSafeImage.TryAssign(target, bmp, "AppIcon.BrandMark");
     }
 
     public static void ApplyToWindow(Window window)

@@ -33,6 +33,69 @@ public sealed class InstallerInfrastructureTests
     }
 
     [Fact]
+    public void LocalBuildPackage_FindsSiblingDataGateWinBuildFolder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DataGateLocalBuild_" + Guid.NewGuid().ToString("N"));
+        var installerDir = Path.Combine(root, "Installer");
+        var packageDir = Path.Combine(installerDir, "DataGateWinBuild.v9.9.9");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, InstallerConstants.ExeName), "fake");
+
+        try
+        {
+            var found = LocalBuildPackage.TryFind(installerDir);
+            Assert.Equal(Path.GetFullPath(packageDir), found);
+            Assert.True(LocalBuildPackage.IsLocalBuildDirectoryName("DataGateWinBuild.v1.0.18"));
+            Assert.True(LocalBuildPackage.IsLocalBuildDirectoryName("datagatewinbuild-smoke"));
+            Assert.False(LocalBuildPackage.IsLocalBuildDirectoryName("DataGateWin"));
+            Assert.False(LocalBuildPackage.IsLocalBuildDirectoryName("Installer"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void LocalBuildPackage_IgnoresFolderWithoutMainExe()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DataGateLocalBuild_" + Guid.NewGuid().ToString("N"));
+        var installerDir = Path.Combine(root, "Installer");
+        var packageDir = Path.Combine(installerDir, "DataGateWinBuild.empty");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, "readme.txt"), "no exe");
+
+        try
+        {
+            Assert.Null(LocalBuildPackage.TryFind(installerDir));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public void LocalBuildPackage_SearchesParentOfInstallerDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DataGateLocalBuild_" + Guid.NewGuid().ToString("N"));
+        var installerDir = Path.Combine(root, "Installer");
+        Directory.CreateDirectory(installerDir);
+        var packageDir = Path.Combine(root, "DataGateWinBuild.parent");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, InstallerConstants.ExeName), "fake");
+
+        try
+        {
+            Assert.Equal(Path.GetFullPath(packageDir), LocalBuildPackage.TryFind(installerDir));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
     public void WizardRules_GetInitialStep_UsesUpdateMode()
     {
         Assert.Equal(InstallerWizardStep.Policy, InstallerWizardRules.GetInitialStep(isUpdateMode: false));
