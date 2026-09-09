@@ -15,7 +15,7 @@ public sealed class WinUiPublishLayoutContractTests
         Assert.Contains("DataGateWin.WinUI", script, StringComparison.Ordinal);
         Assert.Contains("DataGateWin.pri", script, StringComparison.Ordinal);
         Assert.Contains("engine.exe", script, StringComparison.Ordinal);
-        Assert.Contains("Images", script, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.ui.xaml.dll.mui", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Remove-Item -Recurse -Force $EngineOut", script, StringComparison.Ordinal);
         Assert.Contains("DataGateWin.Installer.exe", script, StringComparison.Ordinal);
         Assert.Contains("libXray.dll", script, StringComparison.Ordinal);
@@ -36,6 +36,26 @@ public sealed class WinUiPublishLayoutContractTests
     }
 
     [Fact]
+    public void BuildRelease_ZipMustPackFullTree_AndRefuseMissingWinUiMui()
+    {
+        // 1.0.20 regression: ZIP packed only root files + Images/Assets/… and omitted
+        // en-us\Microsoft.ui.xaml.dll.mui → install-from-GitHub FailFast after ShowMain,
+        // while the same publish folder still launched fine.
+        var script = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.UI", "Build-Release.ps1")));
+
+        Assert.Contains("Microsoft.ui.xaml.dll.mui", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("*.mui", script, StringComparison.Ordinal);
+        Assert.Contains("refuse to ship a broken ZIP", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Release ZIP missing *.mui", script, StringComparison.Ordinal);
+
+        // Must NOT go back to the narrow allow-list that dropped locale folders.
+        Assert.DoesNotContain(
+            @"foreach ($dir in @(""Images"", ""Assets"", ""Localization"", ""engine"", ""Installer""))",
+            script,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PublishLayoutDoc_ListsRequiredWinUiArtifacts()
     {
         var doc = File.ReadAllText(FindRepoFile(Path.Combine("docs", "WINUI3_PUBLISH_LAYOUT.md")));
@@ -47,6 +67,7 @@ public sealed class WinUiPublishLayoutContractTests
                      @"Assets\Flags",
                      @"engine\engine.exe",
                      @"Installer\DataGateWin.Installer.exe",
+                     @"en-us\Microsoft.ui.xaml.dll.mui",
                  })
         {
             Assert.Contains(token, doc, StringComparison.Ordinal);
