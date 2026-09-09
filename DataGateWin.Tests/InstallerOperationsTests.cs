@@ -38,6 +38,29 @@ public sealed class InstallerOperationsTests
     }
 
     [Fact]
+    public void ResolveUpdateInstallDir_ProgramFilesStyle_WalksOutOfInstallerSubfolder()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var installDir = Path.Combine(root, "DataGate");
+            var installerDir = Path.Combine(installDir, "Installer");
+            Directory.CreateDirectory(installerDir);
+            File.WriteAllText(Path.Combine(installDir, "DataGateWin.exe"), "app");
+
+            var resolved = InstallerOperations.ResolveUpdateInstallDir(
+                installerDir,
+                "DataGateWin.exe");
+
+            Assert.Equal(Path.GetFullPath(installDir), Path.GetFullPath(resolved));
+        }
+        finally
+        {
+            DeleteDirectoryBestEffort(root);
+        }
+    }
+
+    [Fact]
     public void ResolveUpdateInstallDir_ThrowsWhenExecutableIsNotFound()
     {
         var root = CreateTempDirectory();

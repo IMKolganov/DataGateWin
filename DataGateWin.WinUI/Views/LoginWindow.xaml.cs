@@ -19,6 +19,8 @@ public sealed partial class LoginWindow : Window
     public LoginWindow(AuthStateStore authState)
     {
         InitializeComponent();
+        if (Content is FrameworkElement root)
+            UiThemeBrushes.ApplyMissingCardChrome(root);
         AppIcon.TryAssignBrandMark(LoginBrandMark, decodePixelWidth: 56);
         WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);
         WindowChrome.ApplyDefault(this, width: 520, height: 620);

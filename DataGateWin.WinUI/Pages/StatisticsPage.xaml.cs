@@ -18,6 +18,8 @@ public sealed partial class StatisticsPage : Page
     {
         Vm = new StatisticsViewModel(new StatisticsApiClient(authedApiHttp), session);
         InitializeComponent();
+        UiThemeBrushes.ApplyMissingCardChrome(this);
+        UiThemeBrushes.ApplyCardBackground(ChartCard);
         Vm.PropertyChanged += (_, _) =>
             UiDispatch.Run(DispatcherQueue, ApplyVmChrome, "StatisticsPage.ApplyVm");
         ActualThemeChanged += (_, _) =>
@@ -31,6 +33,7 @@ public sealed partial class StatisticsPage : Page
 
     public void ApplyOnShown()
     {
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         ApplyLocalizedChrome();
         ApplyVmChrome();
     }

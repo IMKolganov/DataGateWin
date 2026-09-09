@@ -129,7 +129,6 @@
                             Height="40"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
-                            Background="{ThemeResource ControlFillColorSecondaryBrush}"
                             CornerRadius="20">
                             <Grid>
                                 <Ellipse Width="40" Height="40">

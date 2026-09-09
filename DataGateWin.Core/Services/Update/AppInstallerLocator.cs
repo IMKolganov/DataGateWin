@@ -12,22 +12,47 @@ public static class AppInstallerLocator
     public const string DownloadPageUrl = "https://datagateapp.com/download";
 
     public static string? TryFindInstallerExe()
+        => TryFindInstallerExe(AppContext.BaseDirectory);
+
+    /// <summary>
+    /// Probes <c>{base}/Installer|installer|./DataGateWin.Installer.exe</c>.
+    /// Returns the first existing path, or null.
+    /// </summary>
+    public static string? TryFindInstallerExe(string? baseDirectory)
     {
-        var baseDir = AppContext.BaseDirectory;
+        if (string.IsNullOrWhiteSpace(baseDirectory))
+            return null;
 
-        var candidates = new[]
+        string root;
+        try
         {
-            Path.Combine(baseDir, "Installer", InstallerExeName),
-            Path.Combine(baseDir, "installer", InstallerExeName),
-            Path.Combine(baseDir, InstallerExeName)
-        };
+            root = Path.GetFullPath(baseDirectory);
+        }
+        catch
+        {
+            return null;
+        }
 
-        foreach (var candidate in candidates)
+        foreach (var candidate in EnumerateCandidatePaths(root))
         {
-            if (File.Exists(candidate))
-                return candidate;
+            try
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+            catch
+            {
+                // ignore inaccessible candidate
+            }
         }
 
         return null;
+    }
+
+    public static IEnumerable<string> EnumerateCandidatePaths(string baseDirectory)
+    {
+        yield return Path.Combine(baseDirectory, "Installer", InstallerExeName);
+        yield return Path.Combine(baseDirectory, "installer", InstallerExeName);
+        yield return Path.Combine(baseDirectory, InstallerExeName);
     }
 }

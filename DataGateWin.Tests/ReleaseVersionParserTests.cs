@@ -33,6 +33,8 @@ public sealed class ReleaseVersionParserTests
     [InlineData("1.0.8", "1.0.8", false)]
     [InlineData("1.0.8", "1.0.9", false)]
     [InlineData("2.0.0", "1.9.9", true)]
+    [InlineData("1.0.19", "1.0.18", true)]
+    [InlineData("v1.0.19", "1.0.19", false)]
     public void IsUpgradeAvailable_ComparesReleaseTags(string latest, string current, bool expected)
     {
         var result = ReleaseVersionParser.IsUpgradeAvailable(
@@ -41,6 +43,17 @@ public sealed class ReleaseVersionParserTests
 
         Assert.Equal(expected, result);
     }
+
+    [Theory]
+    [InlineData("1.0.19-beta")]
+    [InlineData("release-1.0.19")]
+    public void ParseTag_NonSemverJunk_ReturnsZero(string tag)
+        => Assert.Equal(new Version(0, 0, 0), ReleaseVersionParser.ParseTag(tag));
+
+    [Fact]
+    public void ParseTag_TrimsWhitespace()
+        => Assert.Equal(new Version(1, 0, 19), ReleaseVersionParser.ParseTag("  v1.0.19  "));
+
 
     [Fact]
     public void FormatForDisplay_UsesThreePartVersion()

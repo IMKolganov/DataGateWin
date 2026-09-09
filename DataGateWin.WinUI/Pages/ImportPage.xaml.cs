@@ -18,6 +18,7 @@ public sealed partial class ImportPage : Page
     public ImportPage(HomeController homeController)
     {
         InitializeComponent();
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         _vm = new ImportViewModel(homeController);
         _vm.PropertyChanged += (_, e) =>
         {
@@ -38,6 +39,7 @@ public sealed partial class ImportPage : Page
 
     public void ApplyOnShown()
     {
+        UiThemeBrushes.ApplyMissingCardChrome(this);
         ApplyLocalizedChrome();
         FillProtocolCombo();
         RebuildProfileList();
