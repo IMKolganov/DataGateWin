@@ -81,7 +81,7 @@ public sealed partial class HomePage : Page
         Traffic.SetChartTheme(ActualTheme == ElementTheme.Dark);
         ActualThemeChanged -= HomePage_OnActualThemeChanged;
         ActualThemeChanged += HomePage_OnActualThemeChanged;
-        StartTrafficTimer();
+        ApplyTrafficVisibility(UiState.Idle);
 
         _controller.AttachUi(
             statusTextSetter: s => DispatchUi(() => StatusText.Text = s),
@@ -313,13 +313,14 @@ public sealed partial class HomePage : Page
 
             var isBusy = state is UiState.Connecting or UiState.Disconnecting;
             var idle = state == UiState.Idle;
-            ConnectButton.IsEnabled = !isBusy && idle;
-            DisconnectButton.IsEnabled = !isBusy && state is UiState.Connected or UiState.Connecting;
+            ConnectButton.IsEnabled = HomeSessionUiPolicy.IsHomeConnectEnabled(state);
+            DisconnectButton.IsEnabled = HomeSessionUiPolicy.IsHomeDisconnectEnabled(state);
             var canPickServer = !isBusy && idle;
             ServerModeCombo.IsEnabled = canPickServer;
             ManualServerCombo.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 1;
             RefreshServersButton.IsEnabled = canPickServer;
             ApplyNetworkInfo(network);
+            ApplyTrafficVisibility(state);
         }
         catch (Exception ex)
         {
@@ -506,6 +507,38 @@ public sealed partial class HomePage : Page
                 CrashReporter.ReportNonFatal(ex, "HomePage.BringEngineLogIntoView");
             }
         });
+    }
+
+    /// <summary>Live traffic chart only while Connected — hidden on start / disconnect / connecting.</summary>
+    private void ApplyTrafficVisibility(UiState state)
+    {
+        var show = HomeSessionUiPolicy.IsHomeTrafficVisible(state);
+        try
+        {
+            TrafficPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomePage.ApplyTrafficVisibility");
+        }
+
+        if (show)
+        {
+            StartTrafficTimer();
+            return;
+        }
+
+        StopTrafficTimer();
+        try
+        {
+            _trafficRates.Reset();
+            Traffic.ResetSeries();
+            _trafficFaultReported = false;
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomePage.ResetTraffic");
+        }
     }
 
     private void StartTrafficTimer()

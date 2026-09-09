@@ -568,7 +568,7 @@ namespace datagate::session
         }
         else
         {
-            _impl->store.PublishLogLine("[session] useWssBridge=false — direct OpenVPN (imported profile)");
+            _impl->store.PublishLogLine("[session] useWssBridge=false — direct OpenVPN");
             _impl->store.SetPhase(SessionPhase::Connecting);
             _impl->store.PublishStateSnapshot();
         }
