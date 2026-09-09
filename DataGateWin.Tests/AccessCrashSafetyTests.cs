@@ -262,11 +262,28 @@ public sealed class WinUiAccessCrashContractTests
     }
 
     [Fact]
-    public void App_InstallsDispatcherQueueSyncContext()
+    public void App_DoesNotInstallCustomSynchronizationContext()
     {
         var cs = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "App.xaml.cs")));
-        Assert.Contains("DispatcherQueueSyncContext", cs, StringComparison.Ordinal);
-        Assert.Contains("SetSynchronizationContext", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetSynchronizationContext", cs, StringComparison.Ordinal);
+        Assert.DoesNotContain("DispatcherQueueSyncContext", cs, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unpackaged_images_load_from_stream_not_file_uri()
+    {
+        var flag = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Services", "Ui", "ServerNameUi.cs")));
+        var avatar = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Services", "Ui", "UserAvatarCache.cs")));
+        var helper = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Services", "Ui", "UiFileBitmap.cs")));
+        Assert.DoesNotContain("UriSource =", flag, StringComparison.Ordinal);
+        Assert.DoesNotContain("UriSource =", avatar, StringComparison.Ordinal);
+        Assert.Contains("SetSource", helper, StringComparison.Ordinal);
+        Assert.Contains("0x80073B01", helper, StringComparison.Ordinal);
+        var assign = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Services", "Ui", "UiSafeImage.cs")));
+        Assert.Contains("TryAssign", assign, StringComparison.Ordinal);
+        var home = File.ReadAllText(FindRepoFile(Path.Combine("DataGateWin.WinUI", "Pages", "Home", "HomePage.xaml.cs")));
+        Assert.Contains("Home_Error_UiImage", home, StringComparison.Ordinal);
+        Assert.Contains("NetworkServerFlag_OnImageFailed", home, StringComparison.Ordinal);
     }
 
     [Fact]

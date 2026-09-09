@@ -102,17 +102,16 @@ public static class CrashReporter
         LogStructured("crash_handlers_installed", ("domain", "true"), ("unobserved_task", "true"));
     }
 
-    /// <summary>WPF: call from <c>Application.DispatcherUnhandledException</c> before other logic.</summary>
+    /// <summary>
+    /// WinUI/WPF dispatcher catch: the app usually continues (<c>e.Handled = true</c>).
+    /// Do not treat as fatal or block the UI thread on ingest flush.
+    /// </summary>
     public static void HandleDispatcherUnhandled(Exception exception)
     {
-        if (!IsEnabled())
+        if (exception is null || !IsEnabled())
             return;
 
-        SuppressNextAppDomainFatal = true;
-        ScheduleReport(exception, CrashReportKind.Fatal, "UI Thread", tag: null);
-        _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(
-            _ => SuppressNextAppDomainFatal = false,
-            TaskScheduler.Default);
+        ScheduleReport(exception, CrashReportKind.NonFatal, "UI Thread", tag: "DispatcherUnhandled");
     }
 
     /// <summary>Manual non-fatal report (same endpoint, kind=nonfatal).</summary>

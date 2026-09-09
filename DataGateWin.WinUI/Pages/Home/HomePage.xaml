@@ -129,7 +129,8 @@
                             Height="16.5"
                             Stretch="Uniform"
                             VerticalAlignment="Center"
-                            Visibility="Collapsed" />
+                            Visibility="Collapsed"
+                            ImageFailed="NetworkServerFlag_OnImageFailed" />
                         <TextBlock
                             x:Name="NetworkServerName"
                             TextWrapping="Wrap"

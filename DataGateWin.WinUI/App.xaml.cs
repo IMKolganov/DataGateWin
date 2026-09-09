@@ -117,15 +117,6 @@ public partial class App : Application
 
             CrashReporter.InstallDomainHandlers();
             UiDispatcher = DispatcherQueue.GetForCurrentThread();
-            try
-            {
-                SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSyncContext(UiDispatcher));
-                File.AppendAllText(boot, "DispatcherQueueSyncContext OK\n");
-            }
-            catch (Exception ex)
-            {
-                File.AppendAllText(boot, "DispatcherQueueSyncContext WARN: " + ex + "\n");
-            }
 
             try
             {

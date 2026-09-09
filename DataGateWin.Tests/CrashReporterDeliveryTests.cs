@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using DataGateWin.CrashReporting;
 using Xunit;
@@ -100,7 +101,7 @@ public sealed class CrashReporterDeliveryTests
     }
 
     [Fact]
-    public async Task HandleDispatcherUnhandled_QueuesAndPostsFatalException()
+    public async Task HandleDispatcherUnhandled_PostsNonFatalWithoutBlockingFlush()
     {
         var queueDir = CreateTempQueueDirectory();
         var queue = new CrashReportQueue(queueDir);
@@ -125,9 +126,46 @@ public sealed class CrashReporterDeliveryTests
             Assert.Equal("/api/v1/windows/crash-ingest", request.Path);
             Assert.Equal("test.ui", request.Headers["X-Crash-Process"]);
             Assert.StartsWith("win_crash_", request.Headers["X-Crash-Filename"], StringComparison.Ordinal);
-            Assert.Contains("kind=fatal", request.Body, StringComparison.Ordinal);
+            Assert.Contains("kind=nonfatal", request.Body, StringComparison.Ordinal);
+            Assert.Contains("tag=DispatcherUnhandled", request.Body, StringComparison.Ordinal);
             Assert.Contains("thread=UI Thread", request.Body, StringComparison.Ordinal);
             Assert.Contains("fatal dispatcher probe", request.Body, StringComparison.Ordinal);
+            Assert.Empty(queue.ReadPending());
+        }
+        finally
+        {
+            CrashReporter.ResetForTests();
+            DeleteDirectoryBestEffort(queueDir);
+        }
+    }
+
+    [Fact]
+    public async Task HandleDispatcherUnhandled_MuiComExceptionAndNull_DoNotThrow_StayNonFatal()
+    {
+        var queueDir = CreateTempQueueDirectory();
+        var queue = new CrashReportQueue(queueDir);
+        await using var server = new LoopbackCrashServer();
+
+        try
+        {
+            CrashReporter.UseQueueForTests(queue);
+            CrashReporter.Configure(new CrashReportingConfiguration
+            {
+                Enabled = true,
+                BaseUrl = server.BaseUrl,
+                ProcessName = "test.ui",
+            });
+
+            CrashReporter.HandleDispatcherUnhandled(null!);
+            CrashReporter.HandleDispatcherUnhandled(new COMException(
+                "The resource loader cache doesn't have loaded MUI entry.",
+                unchecked((int)0x80073B01)));
+
+            var request = await server.WaitForRequestAsync();
+            await WaitForQueueToDrainAsync(queue);
+            Assert.Contains("kind=nonfatal", request.Body, StringComparison.Ordinal);
+            Assert.Contains("tag=DispatcherUnhandled", request.Body, StringComparison.Ordinal);
+            Assert.Contains("resource loader cache", request.Body, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(queue.ReadPending());
         }
         finally
