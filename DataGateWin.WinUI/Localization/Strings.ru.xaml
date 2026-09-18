@@ -35,7 +35,9 @@
     <x:String x:Key="Home_VpnServer">VPN-сервер</x:String>
     <x:String x:Key="Home_ModeAuto">Автоматически (лучший сервер)</x:String>
     <x:String x:Key="Home_ModeManual">Выбрать сервер…</x:String>
+    <x:String x:Key="Home_ModeImported">Импортированный профиль…</x:String>
     <x:String x:Key="Home_Server">Сервер</x:String>
+    <x:String x:Key="Home_ImportedProfile">Профиль</x:String>
     <x:String x:Key="Home_Refresh">Обновить</x:String>
     <x:String x:Key="Home_ReportEmail">Электронная почта</x:String>
     <x:String x:Key="Home_ReportEmailSubject">DataGate Windows</x:String>
@@ -58,6 +60,9 @@
     <x:String x:Key="Home_Traffic_Error_Unavailable">Трафик VPN-адаптера временно недоступен</x:String>
     <x:String x:Key="Msg_ChooseServerTitle">DataGate</x:String>
     <x:String x:Key="Msg_ChooseServerBody">Выберите VPN-сервер или нажмите «Обновить», чтобы загрузить список.</x:String>
+    <x:String x:Key="Msg_ChooseImportedTitle">DataGate</x:String>
+    <x:String x:Key="Msg_ChooseImportedBody">Выберите импортированный профиль или добавьте его на вкладке «Импорт».</x:String>
+    <x:String x:Key="Home_ImportedRowFmt">{0}  ·  {1}</x:String>
     <x:String x:Key="Home_ServerRowFmt">{0}  ·  {1} клиентов  ·  {2}</x:String>
     <x:String x:Key="Home_ServerFallbackFmt">Сервер №{0}</x:String>
     <x:String x:Key="Common_Online">онлайн</x:String>
@@ -94,6 +99,8 @@
     <x:String x:Key="Home_Error_Generic">Что-то пошло не так. Попробуйте снова.</x:String>
     <x:String x:Key="Home_Error_Network">Нет связи с сервером. Проверьте интернет и попробуйте снова.</x:String>
     <x:String x:Key="Home_Error_Permission">Нет доступа. Запустите DataGate от имени администратора.</x:String>
+    <x:String x:Key="Home_Error_OpenVpnAuth">Этот OpenVPN-сервер требует логин, пароль или код 2FA.</x:String>
+    <x:String x:Key="Home_Error_OpenVpnAuthFailed">Ошибка входа OpenVPN. Проверьте логин, пароль и код 2FA.</x:String>
     <x:String x:Key="Home_Status_Disconnecting">Отключение…</x:String>
     <x:String x:Key="Home_Status_Idle">Ожидание</x:String>
     <x:String x:Key="Home_Status_IdleDisconnected">Ожидание (отключено)</x:String>
@@ -323,4 +330,11 @@
     <x:String x:Key="Import_Log_ProfileMissing">Импортированный профиль не найден.</x:String>
     <x:String x:Key="Import_Log_XrayNotReady">Не удалось запустить Xray-профиль.</x:String>
     <x:String x:Key="Import_Log_ConnectingFmt">Запуск импортированного профиля: {0}</x:String>
+    <x:String x:Key="Import_Auth_Title">Вход OpenVPN</x:String>
+    <x:String x:Key="Import_Auth_User">Логин</x:String>
+    <x:String x:Key="Import_Auth_Password">Пароль</x:String>
+    <x:String x:Key="Import_Auth_Otp">Одноразовый код (2FA)</x:String>
+    <x:String x:Key="Import_Auth_OtpHint">Код из приложения или SMS</x:String>
+    <x:String x:Key="Import_Auth_OtpOptional">Если сервер просит 2FA, введите код тоже.</x:String>
+    <x:String x:Key="Import_Auth_Connect">Продолжить</x:String>
 </ResourceDictionary>

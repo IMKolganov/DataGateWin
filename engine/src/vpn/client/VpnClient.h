@@ -41,6 +41,7 @@ namespace datagate::vpn
         ~VpnClient();
 
         EvalResult Eval(const std::string& ovpnContent, const std::string& guiVersion = "");
+        bool ProvideCreds(const std::string& username, const std::string& password, const std::string& response, const std::string& cookie, std::string& outError);
         StatusResult Connect();
 
         void Stop();

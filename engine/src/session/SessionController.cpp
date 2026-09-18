@@ -659,9 +659,21 @@ namespace datagate::session
             if (guiVer.empty())
                 guiVer = "3.11.7_datagate_windows_1.0.14";
 
-            if (!_impl->vpn.Start(built.config, guiVer, vpnErr))
+            datagate::vpn::VpnRunner::AuthCreds creds{};
+            if (opt.hasOpenVpnCreds)
             {
-                const std::string code = "vpn_start_failed";
+                creds.present = true;
+                creds.username = opt.openVpnUsername;
+                creds.password = opt.openVpnPassword;
+                creds.response = opt.openVpnResponse;
+                creds.cookie = opt.openVpnChallengeCookie;
+            }
+
+            if (!_impl->vpn.Start(built.config, guiVer, creds, vpnErr))
+            {
+                const std::string code = (vpnErr == "openvpn_auth_required")
+                    ? "openvpn_auth_required"
+                    : "vpn_start_failed";
                 const std::string msg = vpnErr.empty() ? std::string("VPN start failed") : vpnErr;
 
                 _impl->store.SetError(code, msg);

@@ -35,7 +35,9 @@
     <x:String x:Key="Home_VpnServer">VPN server</x:String>
     <x:String x:Key="Home_ModeAuto">Automatic (best server)</x:String>
     <x:String x:Key="Home_ModeManual">Choose server…</x:String>
+    <x:String x:Key="Home_ModeImported">Imported profile...</x:String>
     <x:String x:Key="Home_Server">Server</x:String>
+    <x:String x:Key="Home_ImportedProfile">Profile</x:String>
     <x:String x:Key="Home_Refresh">Refresh</x:String>
     <x:String x:Key="Home_ReportEmail">Ríomhphost</x:String>
     <x:String x:Key="Home_ReportEmailSubject">DataGate Windows</x:String>
@@ -58,6 +60,9 @@
     <x:String x:Key="Home_Traffic_Error_Unavailable">VPN adapter traffic is temporarily unavailable</x:String>
     <x:String x:Key="Msg_ChooseServerTitle">DataGate</x:String>
     <x:String x:Key="Msg_ChooseServerBody">Choose a VPN server or press Refresh to load the list.</x:String>
+    <x:String x:Key="Msg_ChooseImportedTitle">DataGate</x:String>
+    <x:String x:Key="Msg_ChooseImportedBody">Choose an imported profile or add one on the Import tab.</x:String>
+    <x:String x:Key="Home_ImportedRowFmt">{0}  ·  {1}</x:String>
     <x:String x:Key="Home_ServerRowFmt">{0}  ·  {1} clients  ·  {2}</x:String>
     <x:String x:Key="Home_ServerFallbackFmt">Server #{0}</x:String>
     <x:String x:Key="Common_Online">online</x:String>
@@ -94,6 +99,8 @@
     <x:String x:Key="Home_Error_Generic">Something went wrong. Try again.</x:String>
     <x:String x:Key="Home_Error_Network">Cannot reach the server. Check your internet connection and try again.</x:String>
     <x:String x:Key="Home_Error_Permission">Access denied. Try running DataGate as administrator.</x:String>
+    <x:String x:Key="Home_Error_OpenVpnAuth">This OpenVPN server needs a username, password, or 2FA code.</x:String>
+    <x:String x:Key="Home_Error_OpenVpnAuthFailed">OpenVPN authentication failed. Check username, password, and 2FA code.</x:String>
     <x:String x:Key="Home_Status_Disconnecting">Ag dícheangal…</x:String>
     <x:String x:Key="Home_Status_Idle">Idle</x:String>
     <x:String x:Key="Home_Status_IdleDisconnected">Idle (disconnected)</x:String>
@@ -323,4 +330,11 @@
     <x:String x:Key="Import_Log_ProfileMissing">Imported profile not found.</x:String>
     <x:String x:Key="Import_Log_XrayNotReady">Xray profile could not be started.</x:String>
     <x:String x:Key="Import_Log_ConnectingFmt">Starting imported profile: {0}</x:String>
+    <x:String x:Key="Import_Auth_Title">OpenVPN sign-in</x:String>
+    <x:String x:Key="Import_Auth_User">Username</x:String>
+    <x:String x:Key="Import_Auth_Password">Password</x:String>
+    <x:String x:Key="Import_Auth_Otp">One-time code (2FA)</x:String>
+    <x:String x:Key="Import_Auth_OtpHint">Authenticator or SMS code</x:String>
+    <x:String x:Key="Import_Auth_OtpOptional">If this server asks for 2FA, enter the code too.</x:String>
+    <x:String x:Key="Import_Auth_Connect">Continue</x:String>
 </ResourceDictionary>

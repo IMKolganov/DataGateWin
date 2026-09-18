@@ -22,7 +22,17 @@ namespace datagate::vpn
         VpnRunner();
         ~VpnRunner();
 
+        struct AuthCreds
+        {
+            std::string username;
+            std::string password;
+            std::string response;
+            std::string cookie;
+            bool present = false;
+        };
+
         bool Start(const std::string& ovpnContentUtf8, const std::string& guiVersion, std::string& outError);
+        bool Start(const std::string& ovpnContentUtf8, const std::string& guiVersion, const AuthCreds& creds, std::string& outError);
         void Stop();
 
         bool IsConnected() const;

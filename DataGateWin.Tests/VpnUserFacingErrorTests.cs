@@ -50,6 +50,39 @@ public sealed class VpnUserFacingErrorTests
     }
 
     [Fact]
+    public void OpenVpnAuthRequired_IsMapped()
+    {
+        Assert.Equal("Home_Error_OpenVpnAuth", VpnUserFacingError.FromMessage("openvpn_auth_required"));
+    }
+
+    [Fact]
+    public void OpenVpnAuthFailed_IsMapped()
+    {
+        Assert.Equal("Home_Error_OpenVpnAuthFailed", VpnUserFacingError.FromMessage("AUTH_FAILED"));
+    }
+
+    [Fact]
+    public void OpenVpnDynamicChallenge_IsMapped()
+    {
+        Assert.Equal("Home_Error_OpenVpnAuth", VpnUserFacingError.FromMessage("DYNAMIC_CHALLENGE CRV1:R:x::code"));
+        Assert.Equal("Home_Error_OpenVpnAuth", VpnUserFacingError.FromMessage("CRV1:R:state::Enter token"));
+        Assert.Equal("Home_Error_OpenVpnAuth", VpnUserFacingError.FromMessage("provide_creds failed"));
+    }
+
+    [Fact]
+    public void OpenVpnAuthFailedTemp_IsMapped()
+    {
+        Assert.Equal("Home_Error_OpenVpnAuthFailed", VpnUserFacingError.FromMessage("AUTH_FAILED_TEMP"));
+    }
+
+    [Fact]
+    public void ServerPollTimeout_IsTimeout_NotAuth()
+    {
+        Assert.Equal("Home_Error_Timeout", VpnUserFacingError.FromMessage(
+            "Server poll timeout, trying next remote entry..."));
+    }
+
+    [Fact]
     public void HresultDump_IsGeneric()
     {
         Assert.Equal("Home_Error_Generic", VpnUserFacingError.FromException(
