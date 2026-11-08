@@ -5,7 +5,10 @@ namespace DataGateWin.Services.Profiles;
 
 public static class ImportedOpenVpnPayloadBuilder
 {
-    public static JObject Build(ImportedVpnProfile profile, InstallationIdService installationIdService)
+    public static JObject Build(
+        ImportedVpnProfile profile,
+        InstallationIdService installationIdService,
+        OpenVpnAuthCredentials? credentials = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         if (profile.Protocol != ImportedVpnProtocol.OpenVpn)
@@ -14,7 +17,7 @@ public static class ImportedOpenVpnPayloadBuilder
         if (!ImportedOpenVpnValidator.TryValidate(profile.ConfigText, out var err))
             throw new InvalidOperationException("Invalid OpenVPN profile: " + err);
 
-        return new JObject
+        var payload = new JObject
         {
             ["installationId"] = installationIdService.GetOrCreate(),
             ["cn"] = "imported-" + profile.Id.ToString("N")[..12],
@@ -24,5 +27,26 @@ public static class ImportedOpenVpnPayloadBuilder
             ["ovpnContent"] = profile.ConfigText,
             ["useWssBridge"] = false,
         };
+
+        if (credentials is null
+            && OpenVpnAuthDetector.TryGetInlineCredentials(profile.ConfigText, out var inlineUser, out var inlinePass))
+        {
+            credentials = new OpenVpnAuthCredentials
+            {
+                Username = inlineUser,
+                Password = inlinePass,
+            };
+        }
+
+        if (credentials is not null)
+        {
+            payload["openVpnUsername"] = credentials.Username ?? "";
+            payload["openVpnPassword"] = credentials.Password ?? "";
+            payload["openVpnResponse"] = credentials.Response ?? "";
+            if (!string.IsNullOrWhiteSpace(credentials.DynamicChallengeCookie))
+                payload["openVpnChallengeCookie"] = credentials.DynamicChallengeCookie;
+        }
+
+        return payload;
     }
 }

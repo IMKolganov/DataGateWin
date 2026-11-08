@@ -2,11 +2,12 @@ using DataGateWin.Controllers;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Services.Ui;
+using DataGateWin.Services.Profiles;
 using DataGateWin.ViewModels;
+using DataGateWin.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
+using Microsoft.Windows.Storage.Pickers;
 
 namespace DataGateWin.Pages;
 
@@ -159,10 +160,14 @@ public sealed partial class ImportPage : Page
     {
         try
         {
-            var picker = new FileOpenPicker();
             var window = App.CurrentMainWindow ?? throw new InvalidOperationException("No main window");
-            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(window));
-            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+            // WASDK pickers: designed for elevated desktop apps (unlike Windows.Storage.Pickers).
+            // https://learn.microsoft.com/windows/apps/develop/files/using-file-folder-pickers
+            var picker = new FileOpenPicker(window.AppWindow.Id)
+            {
+                Title = Loc.T("Import_Browse"),
+                CommitButtonText = Loc.T("Import_Browse"),
+            };
             if (_vm.IsXraySelected)
             {
                 picker.FileTypeFilter.Add(".txt");
@@ -176,12 +181,12 @@ public sealed partial class ImportPage : Page
                 picker.FileTypeFilter.Add(".txt");
             }
 
-            var file = await picker.PickSingleFileAsync();
-            if (file is null)
+            var result = await picker.PickSingleFileAsync();
+            if (result is null || string.IsNullOrWhiteSpace(result.Path))
                 return;
 
-            var text = await Windows.Storage.FileIO.ReadTextAsync(file);
-            _vm.ImportText(text, file.Name);
+            var text = await File.ReadAllTextAsync(result.Path);
+            _vm.ImportText(text, Path.GetFileName(result.Path));
             RebuildProfileList();
             ApplyVmChrome();
         }
@@ -230,7 +235,26 @@ public sealed partial class ImportPage : Page
     {
         if (sender is not Button { Tag: Guid id })
             return;
-        await _vm.ConnectProfileCommand.ExecuteAsync(id);
+
+        var profile = _vm.GetProfile(id);
+        if (profile is null)
+        {
+            ApplyVmChrome();
+            return;
+        }
+
+        var (proceed, creds) = await OpenVpnAuthDialog.TryPromptAsync(XamlRoot, profile);
+        if (!proceed)
+            return;
+
+        if (creds is not null)
+            _vm.RememberAuthUsername(id, creds.Username);
+
+        _vm.RememberHomeSelection(id);
+        if (App.CurrentMainWindow is MainWindow main)
+            main.NavigateToHome();
+
+        await _vm.ConnectProfileAsync(id, creds);
         RebuildProfileList();
         ApplyVmChrome();
     }

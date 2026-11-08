@@ -147,8 +147,11 @@ public static class VpnUserFacingError
                 "no_wss"))
             return Loc.T("Home_Log_NoWss");
 
-        if (ContainsAny(m, "Cannot start Google sign-in listener", "Could not open the browser"))
-            return Loc.T("Home_Error_Permission");
+        if (ContainsAny(m, "openvpn_auth_required", "provide_creds", "DYNAMIC_CHALLENGE", "CRV1:"))
+            return Loc.T("Home_Error_OpenVpnAuth");
+
+        if (ContainsAny(m, "AUTH_FAILED", "auth failed", "AUTH_FAILED_TEMP"))
+            return Loc.T("Home_Error_OpenVpnAuthFailed");
 
         if (ContainsAny(m, "access_denied", "access-denied"))
             return Loc.T("Home_Error_Canceled");

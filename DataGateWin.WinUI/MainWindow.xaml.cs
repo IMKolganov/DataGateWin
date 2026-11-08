@@ -6,6 +6,7 @@ using DataGateWin.Pages;
 using DataGateWin.Pages.Home;
 using DataGateWin.Services.Auth;
 using DataGateWin.Services.Identity;
+using DataGateWin.Services.Profiles;
 using DataGateWin.Services.Security;
 using DataGateWin.Services.Support;
 using DataGateWin.Services.Tray;
@@ -47,6 +48,7 @@ public sealed partial class MainWindow : Window
 
         _authState = authState;
         _authedApiHttp = authedApiHttp;
+        _homeController.PromptOpenVpnAuthAsync = PromptOpenVpnAuthOnUiAsync;
         _freeTierAccessApi = new FreeTierAccessApiClient(authedApiHttp);
         _torrentClientMonitor = new TorrentClientMonitor(
             DispatcherQueue,
@@ -200,6 +202,46 @@ public sealed partial class MainWindow : Window
             NavigateTo(item.Tag?.ToString());
     }
 
+    public void NavigateToHome()
+    {
+        if (!ReferenceEquals(NavView.SelectedItem, NavHome))
+            NavHome.IsSelected = true;
+        else
+            NavigateTo("home");
+    }
+
+    private async Task<OpenVpnAuthCredentials?> PromptOpenVpnAuthOnUiAsync(OpenVpnAuthRequirement requirement)
+    {
+        var tcs = new TaskCompletionSource<OpenVpnAuthCredentials?>();
+        if (!DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    AppWindow.Show();
+                    Activate();
+                    NavigateToHome();
+                    var root = (Content as FrameworkElement)?.XamlRoot;
+                    if (root is null)
+                    {
+                        tcs.TrySetResult(null);
+                        return;
+                    }
+
+                    tcs.TrySetResult(await OpenVpnAuthDialog.ShowAsync(root, requirement));
+                }
+                catch (Exception ex)
+                {
+                    CrashReporter.ReportNonFatal(ex, "MainWindow.PromptOpenVpnAuth");
+                    tcs.TrySetResult(null);
+                }
+            }))
+        {
+            tcs.TrySetResult(null);
+        }
+
+        return await tcs.Task.ConfigureAwait(false);
+    }
+
     private void NavigateTo(string? tag)
     {
         // Architecture: every nav target is built through SafeUiContent. Managed failures
@@ -330,13 +372,38 @@ public sealed partial class MainWindow : Window
         {
             try
             {
+                var importedId = App.Settings.HomeVpnImportedProfileId;
+                if (importedId is Guid profileId && profileId != Guid.Empty)
+                {
+                    var profile = _homeController.ListImportedProfiles().FirstOrDefault(p => p.Id == profileId);
+                    if (profile is null
+                        || (profile.Protocol == ImportedVpnProtocol.OpenVpn
+                            && OpenVpnAuthDetector.ForConnect(profile.ConfigText, profile.LastAuthUsername).NeedsPrompt))
+                    {
+                        AppWindow.Show();
+                        Activate();
+                        NavigateToHome();
+                        return;
+                    }
+
+                    var okImported = await _homeController.ConnectImportedProfileAsync(profileId).ConfigureAwait(true);
+                    if (!okImported)
+                    {
+                        AppWindow.Show();
+                        Activate();
+                        NavigateToHome();
+                    }
+
+                    return;
+                }
+
                 var auto = App.Settings.HomeVpnAutoPickServer;
                 int? manualId = auto ? null : App.Settings.HomeVpnManualServerId;
                 if (!auto && (manualId is null or <= 0))
                 {
                     AppWindow.Show();
                     Activate();
-                    NavigateTo("home");
+                    NavigateToHome();
                     return;
                 }
 
@@ -345,7 +412,7 @@ public sealed partial class MainWindow : Window
                 {
                     AppWindow.Show();
                     Activate();
-                    NavigateTo("home");
+                    NavigateToHome();
                 }
             }
             catch (Exception ex)
@@ -353,7 +420,7 @@ public sealed partial class MainWindow : Window
                 CrashReporter.ReportNonFatal(ex, "MainWindow.RequestConnectFromTray");
                 AppWindow.Show();
                 Activate();
-                NavigateTo("home");
+                NavigateToHome();
             }
         });
     }

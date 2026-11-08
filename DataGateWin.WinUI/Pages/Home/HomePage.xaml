@@ -77,6 +77,40 @@
                 </Grid>
 
                 <Grid
+                    x:Name="ImportedProfileRow"
+                    ColumnSpacing="8"
+                    Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ImportedProfileLabel" VerticalAlignment="Center" />
+                    <ComboBox
+                        x:Name="ImportedProfileCombo"
+                        Grid.Column="1"
+                        SelectionChanged="ImportedProfileCombo_OnSelectionChanged">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock
+                                    Text="{Binding Label}"
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button
+                        x:Name="RefreshImportedButton"
+                        Grid.Column="2"
+                        Click="RefreshImportedButton_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                            <TextBlock x:Name="RefreshImportedButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <Grid
                     x:Name="ManualServerRow"
                     ColumnSpacing="8"
                     Visibility="Collapsed">

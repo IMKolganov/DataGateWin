@@ -122,6 +122,8 @@ find_package(jsoncpp CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
 find_package(Boost REQUIRED)
+find_package(boost_beast CONFIG REQUIRED)
+find_package(asio CONFIG REQUIRED)
 
 set(O3_DIR_RAW "${CMAKE_CURRENT_LIST_DIR}/../openvpn3")
 get_filename_component(O3_DIR "${O3_DIR_RAW}" REALPATH)
@@ -170,25 +172,26 @@ target_compile_definitions(ovpn3-core PRIVATE
         ASIO_STANDALONE
 )
 
-# Optional TAP-Windows support
+# OpenVPN3 tunutil.hpp always includes tap-windows.h (header only; TAP driver is optional).
 set(_vcpkg_inc "")
 if (DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
     set(_vcpkg_inc "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
 endif()
 
+find_path(TAP_HEADERS_DIR
+        NAMES tap-windows.h
+        PATHS
+        "${_vcpkg_inc}"
+        "D:/C++/vcpkg/installed/x64-windows/include"
+        "F:/C++/vcpkg/installed/x64-windows/include"
+)
+
+if (NOT TAP_HEADERS_DIR)
+    message(FATAL_ERROR "tap-windows.h not found (install vcpkg tap-windows6:x64-windows)")
+endif()
+
+target_include_directories(ovpn3-core PRIVATE "${TAP_HEADERS_DIR}")
 if (ENGINE_ENABLE_TAP)
-    find_path(TAP_HEADERS_DIR
-            NAMES tap-windows.h
-            PATHS
-            "${_vcpkg_inc}"
-            "F:/C++/vcpkg/installed/x64-windows/include"
-    )
-
-    if (NOT TAP_HEADERS_DIR)
-        message(FATAL_ERROR "ENGINE_ENABLE_TAP=ON but tap-windows.h not found")
-    endif()
-
-    target_include_directories(ovpn3-core PRIVATE "${TAP_HEADERS_DIR}")
     target_compile_definitions(ovpn3-core PRIVATE TAP_WIN_COMPONENT_ID=tap0901)
 endif()
 
@@ -199,6 +202,7 @@ target_link_libraries(ovpn3-core PUBLIC
         JsonCpp::JsonCpp
         lz4::lz4
         xxHash::xxhash
+        asio::asio
 )
 
 target_link_libraries(ovpn3-core PRIVATE
@@ -218,6 +222,7 @@ target_link_libraries(engine PRIVATE
         Dbghelp
         Ws2_32
         Boost::boost
+        Boost::beast
 )
 
 if (ENGINE_WIN7 AND MSVC)

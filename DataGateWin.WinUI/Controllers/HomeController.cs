@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using DataGateWin.Configuration;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using DataGateWin.Models.Ipc;
@@ -26,6 +27,11 @@ public sealed class HomeController : IDisposable
     private bool _connectAutoPick = true;
     private int? _connectManualId;
     private Guid? _connectImportedProfileId;
+    private OpenVpnAuthCredentials? _connectImportedCreds;
+    private int _dynamicChallengeBusy;
+
+    /// <summary>UI host shows username / password / OTP. Dynamic CRV1 uses this after connect.</summary>
+    public Func<OpenVpnAuthRequirement, Task<OpenVpnAuthCredentials?>>? PromptOpenVpnAuthAsync { get; set; }
 
     private readonly EngineSessionService _engine;
     private readonly InstallationIdService _installation = new();
@@ -79,6 +85,27 @@ public sealed class HomeController : IDisposable
 
     /// <summary>Last humanized start failure (for Import/tray status).</summary>
     public string? LastConnectErrorHuman => _engine.LastStartErrorHuman;
+
+    public IReadOnlyList<ImportedVpnProfile> ListImportedProfiles() => _importedProfiles.List();
+
+    public void RememberImportedHomeSelection(Guid profileId)
+    {
+        var s = App.Settings;
+        s.HomeVpnAutoPickServer = false;
+        s.HomeVpnImportedProfileId = profileId;
+        AppSettingsStore.SaveSafe(s);
+    }
+
+    public void RememberImportedAuthUsername(Guid profileId, string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return;
+        var profile = _importedProfiles.Get(profileId);
+        if (profile is null)
+            return;
+        profile.LastAuthUsername = username.Trim();
+        _importedProfiles.Upsert(profile);
+    }
 
     public void AttachUi(
         Action<string> statusTextSetter,
@@ -161,21 +188,24 @@ public sealed class HomeController : IDisposable
         _connectAutoPick = autoPickServer;
         _connectManualId = manualVpnServerId;
         _connectImportedProfileId = null;
+        _connectImportedCreds = null;
         return await EnsureConnectedAsync();
     }
 
     /// <returns>True when a start was accepted (or the desired session was already up).</returns>
-    public async Task<bool> ConnectImportedProfileAsync(Guid profileId)
+    public async Task<bool> ConnectImportedProfileAsync(Guid profileId, OpenVpnAuthCredentials? credentials = null)
     {
         _desiredConnected = true;
         _connectImportedProfileId = profileId;
         _connectManualId = null;
+        _connectImportedCreds = credentials;
         return await EnsureConnectedAsync();
     }
 
     public async Task DisconnectAsync()
     {
         _desiredConnected = false;
+        _connectImportedCreds = null;
         CancelConnectWatchdog();
         try { _connectCts?.Cancel(); } catch { /* ignore */ }
         await EnsureDisconnectedAsync(userInitiated: true);
@@ -200,8 +230,7 @@ public sealed class HomeController : IDisposable
                 Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage("GetStatus failed")));
                 ApplyUiState(UiState.Idle, () =>
                     Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage("GetStatus failed")));
-                if (_desiredConnected)
-                    _ = ScheduleReconnectAsync();
+                TryScheduleReconnect();
                 return false;
             }
 
@@ -232,8 +261,7 @@ public sealed class HomeController : IDisposable
                     Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage("StopSession incomplete")));
                     ApplyUiState(UiState.Idle, () =>
                         Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage("StopSession incomplete")));
-                    if (_desiredConnected)
-                        _ = ScheduleReconnectAsync();
+                    TryScheduleReconnect();
                     return false;
                 }
 
@@ -260,6 +288,10 @@ public sealed class HomeController : IDisposable
                     Log(Loc.T("Home_Log_NoWss"));
                     _desiredConnected = false;
                 }
+
+                // Imported start failed: do not retry (2FA codes expire; user must click Connect).
+                if (_connectImportedProfileId is not null)
+                    _desiredConnected = false;
 
                 ApplyUiState(UiState.Idle, ComposeStartFailedStatus);
                 if (_desiredConnected)
@@ -296,8 +328,7 @@ public sealed class HomeController : IDisposable
                 Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
             Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
 
-            if (_desiredConnected)
-                _ = ScheduleReconnectAsync();
+            TryScheduleReconnect();
             return false;
         }
         finally
@@ -347,7 +378,7 @@ public sealed class HomeController : IDisposable
         {
             var payload = profile.Protocol switch
             {
-                ImportedVpnProtocol.OpenVpn => ImportedOpenVpnPayloadBuilder.Build(profile, _installation),
+                ImportedVpnProtocol.OpenVpn => ImportedOpenVpnPayloadBuilder.Build(profile, _installation, _connectImportedCreds),
                 ImportedVpnProtocol.Xray => ImportedXrayPayloadBuilder.Build(profile, _installation),
                 _ => throw new InvalidOperationException("Unsupported imported protocol: " + profile.Protocol),
             };
@@ -456,12 +487,96 @@ public sealed class HomeController : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// OpenVPN TOTP / static-challenge / CRV1 must not be replayed by auto-reconnect.
+    /// </summary>
+    private bool ShouldSkipImportedAuthReconnect()
+    {
+        if (_dynamicChallengeBusy != 0)
+            return true;
+        if (_connectImportedProfileId is not Guid id)
+            return false;
+        if (!string.IsNullOrWhiteSpace(_connectImportedCreds?.Response)
+            || !string.IsNullOrWhiteSpace(_connectImportedCreds?.DynamicChallengeCookie))
+            return true;
+        var profile = _importedProfiles.Get(id);
+        return profile is not null && OpenVpnAuthDetector.Analyze(profile.ConfigText).NeedsPrompt;
+    }
+
+    private bool TryBeginOpenVpnDynamicChallenge(string? raw)
+    {
+        if (!OpenVpnDynamicChallengeParser.TryParse(raw, out var challenge) || challenge is null)
+            return false;
+
+        if (Interlocked.CompareExchange(ref _dynamicChallengeBusy, 1, 0) != 0)
+            return true;
+
+        _desiredConnected = false;
+        CancelConnectWatchdog();
+        ClearSessionInfo();
+        Log(Loc.T("Home_Error_OpenVpnAuth"));
+        ApplyKeyed(UiState.Idle, "Home_Error_OpenVpnAuth");
+        _ = ContinueOpenVpnDynamicChallengeAsync(challenge);
+        return true;
+    }
+
+    private async Task ContinueOpenVpnDynamicChallengeAsync(OpenVpnDynamicChallenge challenge)
+    {
+        try
+        {
+            var prompt = PromptOpenVpnAuthAsync;
+            if (prompt is null)
+                return;
+
+            var creds = await prompt(challenge.ToRequirement()).ConfigureAwait(false);
+            if (creds is null)
+            {
+                ApplyKeyed(UiState.Idle, "Home_Error_Canceled");
+                return;
+            }
+
+            if (_connectImportedProfileId is not Guid id)
+                return;
+
+            RememberImportedAuthUsername(id, creds.Username);
+            await ConnectImportedProfileAsync(id, creds).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.DynamicChallenge");
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _dynamicChallengeBusy, 0);
+        }
+    }
+
+    private bool TryScheduleReconnect()
+    {
+        if (!_desiredConnected)
+            return false;
+        if (ShouldSkipImportedAuthReconnect())
+        {
+            _desiredConnected = false;
+            return false;
+        }
+
+        _ = ScheduleReconnectAsync();
+        return true;
+    }
+
     private async Task ScheduleReconnectAsync()
     {
         var ct = _lifetimeCts?.Token ?? CancellationToken.None;
 
-        if (!_desiredConnected)
+        if (!_desiredConnected || ShouldSkipImportedAuthReconnect())
+        {
+            _desiredConnected = false;
             return;
+        }
 
         _reconnectAttempt++;
         var delay = ReconnectPolicy.GetDelay(_reconnectAttempt);
@@ -491,9 +606,14 @@ public sealed class HomeController : IDisposable
 
                 if (_desiredConnected)
                 {
-                    ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
-                    _ = ScheduleReconnectAsync();
-                    return;
+                    if (ShouldSkipImportedAuthReconnect())
+                        _desiredConnected = false;
+                    else
+                    {
+                        ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+                        _ = ScheduleReconnectAsync();
+                        return;
+                    }
                 }
 
                 CancelConnectWatchdog();
@@ -528,6 +648,9 @@ public sealed class HomeController : IDisposable
         if (ev.Kind == EngineEventKind.Disconnected)
         {
             var rawReason = ev.Reason;
+            if (TryBeginOpenVpnDynamicChallenge(rawReason))
+                return;
+
             Log(Loc.T("Home_Log_DisconnectedLineFmt",
                 string.IsNullOrWhiteSpace(rawReason)
                     ? Loc.T("Common_Unknown")
@@ -543,10 +666,15 @@ public sealed class HomeController : IDisposable
 
             if (_desiredConnected)
             {
-                // Keep footer identity while ScheduleReconnect rebuilds the session.
-                ApplyUiState(UiState.Connecting, ComposeDisconnect);
-                _ = ScheduleReconnectAsync();
-                return;
+                if (ShouldSkipImportedAuthReconnect())
+                    _desiredConnected = false;
+                else
+                {
+                    // Keep footer identity while ScheduleReconnect rebuilds the session.
+                    ApplyUiState(UiState.Connecting, ComposeDisconnect);
+                    _ = ScheduleReconnectAsync();
+                    return;
+                }
             }
 
             CancelConnectWatchdog();
@@ -557,13 +685,15 @@ public sealed class HomeController : IDisposable
 
         if (ev.Kind == EngineEventKind.Error)
         {
+            if (TryBeginOpenVpnDynamicChallenge(ev.Message) || TryBeginOpenVpnDynamicChallenge(ev.Code))
+                return;
+
             CancelConnectWatchdog();
             var raw = ev.Message;
             Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage(raw)));
             ApplyUiState(UiState.Idle, () =>
                 Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage(raw)));
-            if (_desiredConnected)
-                _ = ScheduleReconnectAsync();
+            TryScheduleReconnect();
             return;
         }
 
@@ -573,8 +703,7 @@ public sealed class HomeController : IDisposable
             ClearSessionInfo();
             ApplyUiState(UiState.Idle, () =>
                 Loc.T("Home_Status_IdleErrorFmt", Loc.T("Home_Error_EngineExit")));
-            if (_desiredConnected)
-                _ = ScheduleReconnectAsync();
+            TryScheduleReconnect();
         }
     }
 

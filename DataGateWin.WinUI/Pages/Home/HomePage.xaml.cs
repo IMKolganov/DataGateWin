@@ -6,7 +6,9 @@ using DataGateWin.Models.Ipc;
 using DataGateWin.Services.Traffic;
 using DataGateWin.Services.Ui;
 using DataGateWin.Services.VpnServers;
+using DataGateWin.Services.Profiles;
 using DataGateWin.ViewModels;
+using DataGateWin.Views;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -57,8 +59,10 @@ public sealed partial class HomePage : Page
         ConnectionStatusLabel.Text = Loc.T("Home_ConnectionStatus");
         VpnServerLabel.Text = Loc.T("Home_VpnServer");
         ServerLabel.Text = Loc.T("Home_Server");
+        ImportedProfileLabel.Text = Loc.T("Home_ImportedProfile");
         NetworkServerLabel.Text = Loc.T("Home_Network_Server") + ":";
         RefreshServersButtonText.Text = Loc.T("Home_Refresh");
+        RefreshImportedButtonText.Text = Loc.T("Home_Refresh");
         ConnectButtonText.Text = Loc.T("Home_Connect");
         DisconnectButtonText.Text = Loc.T("Home_Disconnect");
         TrafficTitle.Text = Loc.T("Home_Traffic_Title");
@@ -70,7 +74,8 @@ public sealed partial class HomePage : Page
         ServerModeCombo.Items.Clear();
         ServerModeCombo.Items.Add(Loc.T("Home_ModeAuto"));
         ServerModeCombo.Items.Add(Loc.T("Home_ModeManual"));
-        ServerModeCombo.SelectedIndex = prev < 0 ? 0 : prev;
+        ServerModeCombo.Items.Add(Loc.T("Home_ModeImported"));
+        ServerModeCombo.SelectedIndex = prev < 0 ? 0 : Math.Min(prev, 2);
     }
 
     private async void HomePage_OnLoaded(object sender, RoutedEventArgs e)
@@ -101,6 +106,7 @@ public sealed partial class HomePage : Page
         try
         {
             RestoreVpnHomeSettingsFromStore();
+            RebuildImportedProfileCombo();
             UpdateManualRowVisibility();
         }
         finally
@@ -131,7 +137,10 @@ public sealed partial class HomePage : Page
     public async Task RefreshOnShownAsync()
     {
         ApplyLocalizedChrome();
+        RestoreVpnHomeSettingsFromStore();
         RebuildServerComboFromCache();
+        RebuildImportedProfileCombo();
+        UpdateManualRowVisibility();
         _controller.ReapplyUiToLastState();
 
         if (!IsLoaded)
@@ -173,6 +182,7 @@ public sealed partial class HomePage : Page
             {
                 ApplyLocalizedChrome();
                 RelocalizeServerComboLabels();
+                RebuildImportedProfileCombo();
                 WinUiLanguageService.ForceChartsLeftToRight(this);
                 Traffic.ApplyChrome();
                 _controller.ReapplyUiToLastState();
@@ -185,6 +195,12 @@ public sealed partial class HomePage : Page
 
     private async void ConnectButton_OnClick(object sender, RoutedEventArgs e)
     {
+        if (ServerModeCombo.SelectedIndex == 2)
+        {
+            await ConnectImportedFromHomeAsync();
+            return;
+        }
+
         var autoPick = ServerModeCombo.SelectedIndex <= 0;
         int? manualId = null;
         if (!autoPick)
@@ -227,6 +243,56 @@ public sealed partial class HomePage : Page
         }
     }
 
+    private async Task ConnectImportedFromHomeAsync()
+    {
+        if (ImportedProfileCombo.SelectedItem is not HomeImportedProfileListItem item || item.Id == Guid.Empty)
+        {
+            if (Content?.XamlRoot is { } root)
+            {
+                await new ContentDialog
+                {
+                    Title = Loc.T("Msg_ChooseImportedTitle"),
+                    Content = Loc.T("Msg_ChooseImportedBody"),
+                    CloseButtonText = Loc.T("Action_Ok"),
+                    XamlRoot = root,
+                }.ShowAsync();
+            }
+            return;
+        }
+
+        var profile = _controller.ListImportedProfiles().FirstOrDefault(p => p.Id == item.Id);
+        if (profile is null)
+        {
+            StatusText.Text = Loc.T("Import_Log_ProfileMissing");
+            return;
+        }
+
+        var (proceed, creds) = await OpenVpnAuthDialog.TryPromptAsync(XamlRoot, profile);
+        if (!proceed)
+            return;
+
+        if (creds is not null)
+            _controller.RememberImportedAuthUsername(profile.Id, creds.Username);
+
+        SaveVpnHomeSettingsFromUi();
+        ConnectButton.IsEnabled = false;
+        try
+        {
+            await _controller.ConnectImportedProfileAsync(profile.Id, creds).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomePage.ConnectImported");
+            var human = VpnUserFacingError.FromException(ex);
+            StatusText.Text = Loc.T("Home_Status_IdleErrorFmt", human);
+            AppendLog(Loc.T("Home_Log_ErrorFmt", human));
+        }
+        finally
+        {
+            _controller.ReapplyUiToLastState();
+        }
+    }
+
     private async void DisconnectButton_OnClick(object sender, RoutedEventArgs e)
     {
         DisconnectButton.IsEnabled = false;
@@ -252,10 +318,10 @@ public sealed partial class HomePage : Page
         UpdateManualRowVisibility();
         SaveVpnHomeSettingsFromUi();
 
-        // ApplyUiState leaves ManualServerCombo disabled while mode is Auto.
-        // Switching to Manual must re-apply so the combo becomes enabled even when
-        // the server list is already cached (otherwise Refresh looks "required").
         _controller.ReapplyUiToLastState();
+
+        if (!_suppressSettingsSave && ServerModeCombo.SelectedIndex == 2)
+            RebuildImportedProfileCombo();
 
         var hasCache = _cachedServerRows is { Count: > 0 };
         if (ServerModeCombo.SelectedIndex == 1 && hasCache && ManualServerCombo.Items.Count == 0)
@@ -273,6 +339,12 @@ public sealed partial class HomePage : Page
 
     private void ManualServerCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         => SaveVpnHomeSettingsFromUi();
+
+    private void ImportedProfileCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        => SaveVpnHomeSettingsFromUi();
+
+    private void RefreshImportedButton_OnClick(object sender, RoutedEventArgs e)
+        => RebuildImportedProfileCombo();
 
     private async void RefreshServersButton_OnClick(object sender, RoutedEventArgs e)
         => await EnsureManualServerListReadyAsync(forceRefresh: true);
@@ -335,7 +407,9 @@ public sealed partial class HomePage : Page
             var canPickServer = !isBusy && idle;
             ServerModeCombo.IsEnabled = canPickServer;
             ManualServerCombo.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 1;
-            RefreshServersButton.IsEnabled = canPickServer;
+            ImportedProfileCombo.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 2;
+            RefreshServersButton.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 1;
+            RefreshImportedButton.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 2;
             ApplyNetworkInfo(network);
             ApplyTrafficVisibility(state);
         }
@@ -492,7 +566,10 @@ public sealed partial class HomePage : Page
     }
 
     private void UpdateManualRowVisibility()
-        => ManualServerRow.Visibility = ServerModeCombo.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+    {
+        ManualServerRow.Visibility = ServerModeCombo.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        ImportedProfileRow.Visibility = ServerModeCombo.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void ShowEngineLogsToggle_OnToggled(object sender, RoutedEventArgs e)
     {
@@ -648,7 +725,10 @@ public sealed partial class HomePage : Page
         try
         {
             var s = App.Settings;
-            ServerModeCombo.SelectedIndex = s.HomeVpnAutoPickServer ? 0 : 1;
+            if (s.HomeVpnImportedProfileId is Guid importedId && importedId != Guid.Empty)
+                ServerModeCombo.SelectedIndex = 2;
+            else
+                ServerModeCombo.SelectedIndex = s.HomeVpnAutoPickServer ? 0 : 1;
             _suppressEngineLogsToggle = true;
             ShowEngineLogsToggle.IsOn = s.HomeShowEngineLogs;
             _suppressEngineLogsToggle = false;
@@ -667,12 +747,22 @@ public sealed partial class HomePage : Page
             return;
 
         var s = App.Settings;
-        s.HomeVpnAutoPickServer = ServerModeCombo.SelectedIndex <= 0;
         s.HomeShowEngineLogs = ShowEngineLogsToggle.IsOn;
-        if (ManualServerCombo.SelectedItem is HomeVpnServerListItem mid && mid.Id > 0)
-            s.HomeVpnManualServerId = mid.Id;
-        else if (!s.HomeVpnAutoPickServer && ManualServerCombo.SelectedItem is not null)
-            s.HomeVpnManualServerId = 0;
+        if (ServerModeCombo.SelectedIndex == 2)
+        {
+            s.HomeVpnAutoPickServer = false;
+            if (ImportedProfileCombo.SelectedItem is HomeImportedProfileListItem imported)
+                s.HomeVpnImportedProfileId = imported.Id;
+        }
+        else
+        {
+            s.HomeVpnImportedProfileId = null;
+            s.HomeVpnAutoPickServer = ServerModeCombo.SelectedIndex <= 0;
+            if (ManualServerCombo.SelectedItem is HomeVpnServerListItem mid && mid.Id > 0)
+                s.HomeVpnManualServerId = mid.Id;
+            else if (!s.HomeVpnAutoPickServer && ManualServerCombo.SelectedItem is not null)
+                s.HomeVpnManualServerId = 0;
+        }
 
         AppSettingsStore.SaveSafe(s);
     }
@@ -849,6 +939,47 @@ public sealed partial class HomePage : Page
         };
     }
 
+    private void RebuildImportedProfileCombo()
+    {
+        _suppressSettingsSave = true;
+        try
+        {
+            var keep = (ImportedProfileCombo.SelectedItem as HomeImportedProfileListItem)?.Id
+                ?? App.Settings.HomeVpnImportedProfileId;
+            ImportedProfileCombo.Items.Clear();
+            foreach (var p in _controller.ListImportedProfiles())
+            {
+                var proto = p.Protocol == ImportedVpnProtocol.Xray
+                    ? Loc.T("Import_Protocol_Xray")
+                    : Loc.T("Import_Protocol_OpenVpn");
+                ImportedProfileCombo.Items.Add(new HomeImportedProfileListItem
+                {
+                    Id = p.Id,
+                    Label = Loc.T("Home_ImportedRowFmt", p.Name, proto),
+                });
+            }
+
+            if (keep is Guid id && id != Guid.Empty)
+            {
+                foreach (HomeImportedProfileListItem item in ImportedProfileCombo.Items)
+                {
+                    if (item.Id == id)
+                    {
+                        ImportedProfileCombo.SelectedItem = item;
+                        break;
+                    }
+                }
+            }
+
+            if (ImportedProfileCombo.SelectedIndex < 0 && ImportedProfileCombo.Items.Count > 0)
+                ImportedProfileCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _suppressSettingsSave = false;
+        }
+    }
+
     private sealed class CachedVpnServerRow
     {
         public int Id { get; init; }
@@ -862,6 +993,13 @@ public sealed partial class HomePage : Page
     private sealed class HomeVpnServerListItem
     {
         public int Id { get; init; }
+        public string Label { get; set; } = "";
+        public override string ToString() => Label;
+    }
+
+    private sealed class HomeImportedProfileListItem
+    {
+        public Guid Id { get; init; }
         public string Label { get; set; } = "";
         public override string ToString() => Label;
     }

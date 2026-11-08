@@ -123,40 +123,53 @@ public sealed partial class ImportViewModel : ObservableObject
         }
     }
 
+    public ImportedVpnProfile? GetProfile(Guid id) => _store.Get(id);
+
+    public void RememberAuthUsername(Guid id, string? username)
+        => _home.RememberImportedAuthUsername(id, username);
+
+    public void RememberHomeSelection(Guid id)
+        => _home.RememberImportedHomeSelection(id);
+
     [RelayCommand]
     private async Task ConnectProfile(Guid? id)
+        => await ConnectProfileAsync(id, null);
+
+    public async Task<bool> ConnectProfileAsync(Guid? id, OpenVpnAuthCredentials? credentials)
     {
         if (id is null || id == Guid.Empty || IsBusy)
-            return;
+            return false;
 
         var profile = _store.Get(id.Value);
         if (profile is null)
         {
             StatusText = Loc.T("Import_Log_ProfileMissing");
-            return;
+            return false;
         }
 
         IsBusy = true;
         try
         {
             StatusText = Loc.T("Import_Status_ConnectingFmt", profile.Name);
-            var started = await _home.ConnectImportedProfileAsync(profile.Id);
+            _home.RememberImportedHomeSelection(profile.Id);
+            var started = await _home.ConnectImportedProfileAsync(profile.Id, credentials);
             if (started)
             {
                 StatusText = Loc.T("Import_Status_ConnectStartedFmt", profile.Name);
+                return true;
             }
-            else
-            {
-                var human = _home.LastConnectErrorHuman;
-                StatusText = !string.IsNullOrWhiteSpace(human)
-                    ? Loc.T("Home_Status_IdleErrorFmt", human!)
-                    : Loc.T("Import_Status_ConnectFailedFmt", profile.Name);
-            }
+
+            var human = _home.LastConnectErrorHuman;
+            StatusText = !string.IsNullOrWhiteSpace(human)
+                ? Loc.T("Home_Status_IdleErrorFmt", human!)
+                : Loc.T("Import_Status_ConnectFailedFmt", profile.Name);
+            return false;
         }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "ImportViewModel.ConnectProfile");
             StatusText = Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex));
+            return false;
         }
         finally
         {
