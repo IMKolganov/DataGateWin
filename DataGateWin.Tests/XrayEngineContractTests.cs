@@ -11,7 +11,7 @@ public sealed class XrayEngineContractTests
     public void FetchScript_PinsLibXrayRelease()
     {
         var script = File.ReadAllText(FindRepoFile(Path.Combine("scripts", "libxray", "fetch-windows.ps1")));
-        Assert.Contains("v26.7.28", script, StringComparison.Ordinal);
+        Assert.Contains("v26.10.31", script, StringComparison.Ordinal);
         Assert.Contains("libxray-windows-x64.zip", script, StringComparison.Ordinal);
         Assert.Contains("engine\\third_party\\libxray", script, StringComparison.Ordinal);
         Assert.Contains("VERSION.txt", script, StringComparison.Ordinal);
@@ -73,7 +73,7 @@ public sealed class XrayEngineContractTests
 
         var runtime = File.ReadAllText(FindRepoFile(Path.Combine("engine", "src", "xray", "XrayRuntime.cpp")));
         Assert.Contains("convertShareLinksToXrayJson", runtime, StringComparison.Ordinal);
-        Assert.Contains("runXrayFromJson", runtime, StringComparison.Ordinal);
+        Assert.Contains("runXray", runtime, StringComparison.Ordinal);
         Assert.Contains("stopXray", runtime, StringComparison.Ordinal);
         Assert.Contains("getXrayState", runtime, StringComparison.Ordinal);
         Assert.Contains("CGoInvoke", runtime, StringComparison.Ordinal);

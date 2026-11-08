@@ -261,6 +261,8 @@ namespace datagate::xray
                 const auto& settings = ob["settings"];
                 if (!settings.isObject())
                     continue;
+                // API 3 share conversion emits flat VLESS/VMess settings.
+                addHost(settings.get("address", "").asString());
                 if (settings.isMember("vnext") && settings["vnext"].isArray())
                 {
                     for (const auto& n : settings["vnext"])

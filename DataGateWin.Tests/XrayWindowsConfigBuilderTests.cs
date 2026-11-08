@@ -289,6 +289,26 @@ public sealed class XrayWindowsConfigBuilderTests
     }
 
     [Fact]
+    public void Build_Api3FlatEndpoints_RemainDirectBypasses()
+    {
+        const string config = """
+            {"outbounds":[
+              {"protocol":"vless","settings":{"address":"203.0.113.7","port":443,"id":"11111111-1111-1111-1111-111111111111","encryption":"none"}},
+              {"protocol":"vmess","settings":{"address":"[2001:db8::7]","port":443}},
+              {"protocol":"vless","settings":{"address":"example.com","port":443}}
+            ]}
+            """;
+        Assert.Equal(["203.0.113.7/32", "2001:db8::7/128"],
+            XrayWindowsConfigBuilder.CollectProxyEndpointCidrs(XrayWindowsConfigBuilder.ExtractOutbounds(config)));
+        var root = JObject.Parse(XrayWindowsConfigBuilder.BuildWindowsTunClientConfig(config));
+        var directIps = ((JArray)root["routing"]!["rules"]!).OfType<JObject>()
+            .Where(r => r.Value<string>("outboundTag") == "direct" && r["ip"] is JArray)
+            .SelectMany(r => ((JArray)r["ip"]!).Values<string>()).ToArray();
+        Assert.Contains("203.0.113.7/32", directIps);
+        Assert.Contains("2001:db8::7/128", directIps);
+    }
+
+    [Fact]
     public void PrivateDirectIps_ContainsAndroidParitySet()
     {
         foreach (var cidr in new[]

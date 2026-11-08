@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>DataGateWin.CrashReporting</RootNamespace>
     <AssemblyName>DataGateWin.CrashReporting</AssemblyName>
+    <AssemblyVersion>1.0.24</AssemblyVersion>
+    <FileVersion>1.0.24</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

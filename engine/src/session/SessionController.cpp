@@ -447,7 +447,7 @@ namespace datagate::session
                 outboundsJson, fullConfig, buildErr, bypass, tunnelDns))
             return failIdle("xray_config_failed", buildErr.empty() ? "BuildWindowsTunClientConfig failed" : buildErr);
 
-        _impl->store.PublishLogLine("[xray] runXrayFromJson configBytes=" + std::to_string(fullConfig.size())
+        _impl->store.PublishLogLine("[xray] runXray configBytes=" + std::to_string(fullConfig.size())
                                     + " bypassCidrs=" + std::to_string(bypass.size())
                                     + " tunnelDns=" + std::to_string(tunnelDns.size()));
 
@@ -468,7 +468,7 @@ namespace datagate::session
             _impl->CleanupXray0Adapter();
             runErr.clear();
             if (!_impl->xray.RunFromJson(fullConfig, runErr))
-                return failIdle("xray_start_failed", runErr.empty() ? "runXrayFromJson failed" : runErr);
+                return failIdle("xray_start_failed", runErr.empty() ? "runXray failed" : runErr);
         }
 
         {
@@ -476,7 +476,7 @@ namespace datagate::session
             if (!_impl->xray.IsRunning(stateErr))
             {
                 const std::string msg = stateErr.empty()
-                    ? "libXray reported not running after runXrayFromJson"
+                    ? "libXray reported not running after runXray"
                     : stateErr;
                 return failIdle("xray_not_running", msg);
             }
@@ -657,7 +657,7 @@ namespace datagate::session
 
             std::string guiVer = opt.guiVersion;
             if (guiVer.empty())
-                guiVer = "3.11.7_datagate_windows_1.0.14";
+                guiVer = "3.11.8_datagate_windows_1.0.24";
 
             datagate::vpn::VpnRunner::AuthCreds creds{};
             if (opt.hasOpenVpnCreds)

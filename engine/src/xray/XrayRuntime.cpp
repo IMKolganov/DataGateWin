@@ -118,7 +118,7 @@ namespace datagate::xray
         outSuccess = false;
 
         Json::Value req(Json::objectValue);
-        req["apiVersion"] = 1;
+        req["apiVersion"] = 3;
         req["method"] = method;
         {
             Json::CharReaderBuilder b;
@@ -189,12 +189,12 @@ namespace datagate::xray
     bool XrayRuntime::RunFromJson(const std::string& configJson, std::string& outError)
     {
         Json::Value payload(Json::objectValue);
-        payload["configJSON"] = configJson;
+        payload["xrayJson"] = configJson;
         Json::StreamWriterBuilder wb;
         wb["indentation"] = "";
         std::string data;
         bool ok = false;
-        return InvokeMethod("runXrayFromJson", Json::writeString(wb, payload), data, ok, outError) && ok;
+        return InvokeMethod("runXray", Json::writeString(wb, payload), data, ok, outError) && ok;
     }
 
     bool XrayRuntime::Stop(std::string& outError)

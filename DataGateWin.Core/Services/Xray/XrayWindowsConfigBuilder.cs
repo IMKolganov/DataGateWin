@@ -164,6 +164,7 @@ public static class XrayWindowsConfigBuilder
                 }
             }
 
+            AddHost(ob["settings"]?.Value<string>("address"));
             if (ob["settings"]?["vnext"] is JArray vnext)
             {
                 foreach (var n in vnext.OfType<JObject>())

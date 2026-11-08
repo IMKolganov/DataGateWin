@@ -123,7 +123,7 @@ public static class VpnUserFacingError
                 "xray_not_running",
                 "xray_config_failed",
                 "Failed to load libXray",
-                "runXrayFromJson"))
+                "runXray"))
             return Loc.T("Home_Error_XrayStart");
 
         if (ContainsAny(m,
