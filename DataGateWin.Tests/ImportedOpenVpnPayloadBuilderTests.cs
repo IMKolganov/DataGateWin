@@ -106,6 +106,59 @@ public sealed class ImportedOpenVpnPayloadBuilderTests
     }
 
     [Fact]
+    public void Build_InlineCredentialsWithStaticChallenge_KeepsPasswordAndResponse()
+    {
+        var profile = new ImportedVpnProfile
+        {
+            ConfigText = "client\nremote vpn.example.com 1194 udp\nstatic-challenge \"OTP\" 0\n<auth-user-pass>\nbob\nhidden\n</auth-user-pass>\n",
+        };
+        var requirement = OpenVpnAuthDetector.ForConnect(profile.ConfigText, null);
+        Assert.False(requirement.NeedUsernamePassword);
+        Assert.True(requirement.NeedChallenge);
+
+        var payload = ImportedOpenVpnPayloadBuilder.Build(profile, new InstallationIdService(),
+            new OpenVpnAuthCredentials { Username = requirement.PrefillUsername!, Response = "123456" });
+
+        Assert.Equal("bob", payload.Value<string>("openVpnUsername"));
+        Assert.Equal("hidden", payload.Value<string>("openVpnPassword"));
+        Assert.Equal("123456", payload.Value<string>("openVpnResponse"));
+    }
+
+    [Fact]
+    public void Build_DynamicChallenge_DoesNotRestoreInlinePassword()
+    {
+        var profile = new ImportedVpnProfile
+        {
+            ConfigText = "client\nremote vpn.example.com 1194 udp\n<auth-user-pass>\nbob\nhidden\n</auth-user-pass>\n",
+        };
+        var payload = ImportedOpenVpnPayloadBuilder.Build(profile, new InstallationIdService(),
+            new OpenVpnAuthCredentials
+            {
+                Username = "bob",
+                Response = "123456",
+                DynamicChallengeCookie = "CRV1:R:state:Ym9i:OTP",
+            });
+
+        Assert.Equal("", payload.Value<string>("openVpnPassword"));
+        Assert.Equal("123456", payload.Value<string>("openVpnResponse"));
+        Assert.Equal("CRV1:R:state:Ym9i:OTP", payload.Value<string>("openVpnChallengeCookie"));
+    }
+
+    [Fact]
+    public void Build_ExplicitCredentials_DoNotUseAnotherUsersInlinePassword()
+    {
+        var profile = new ImportedVpnProfile
+        {
+            ConfigText = "client\nremote vpn.example.com 1194 udp\n<auth-user-pass>\nbob\nhidden\n</auth-user-pass>\n",
+        };
+        var payload = ImportedOpenVpnPayloadBuilder.Build(profile, new InstallationIdService(),
+            new OpenVpnAuthCredentials { Username = "alice", Response = "123456" });
+
+        Assert.Equal("alice", payload.Value<string>("openVpnUsername"));
+        Assert.Equal("", payload.Value<string>("openVpnPassword"));
+    }
+
+    [Fact]
     public void Build_CertOnlyWithoutCredentials_DoesNotAddAuthFields()
     {
         var profile = new ImportedVpnProfile

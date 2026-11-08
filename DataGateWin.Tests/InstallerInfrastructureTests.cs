@@ -57,6 +57,32 @@ public sealed class InstallerInfrastructureTests
     }
 
     [Fact]
+    public void OfflinePackage_InstalledUninstallerSurvivesRemovingSourcePackage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DataGateOffline_" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "DataGateWinBuild.test");
+        var destination = Path.Combine(root, "installed");
+        var sourceInstaller = Path.Combine(source, InstallerConstants.BundledInstallerRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceInstaller)!);
+        File.WriteAllText(Path.Combine(source, InstallerConstants.ExeName), "app");
+        File.WriteAllText(sourceInstaller, "installer");
+        try
+        {
+            InstallerOperations.CopyDirectoryWithProgress(source, destination, null,
+                new Progress<double>(), CancellationToken.None);
+            Directory.Delete(source, recursive: true);
+
+            var bundledInstaller = Path.Combine(destination, InstallerConstants.BundledInstallerRelativePath);
+            Assert.Equal(bundledInstaller, InstallRegistry.ResolveUninstallExecutable(destination));
+            Assert.Equal("installer", File.ReadAllText(bundledInstaller));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
     public void LocalBuildPackage_IgnoresFolderWithoutMainExe()
     {
         var root = Path.Combine(Path.GetTempPath(), "DataGateLocalBuild_" + Guid.NewGuid().ToString("N"));

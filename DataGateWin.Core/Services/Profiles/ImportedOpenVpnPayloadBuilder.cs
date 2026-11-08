@@ -28,13 +28,17 @@ public static class ImportedOpenVpnPayloadBuilder
             ["useWssBridge"] = false,
         };
 
-        if (credentials is null
-            && OpenVpnAuthDetector.TryGetInlineCredentials(profile.ConfigText, out var inlineUser, out var inlinePass))
+        if (OpenVpnAuthDetector.TryGetInlineCredentials(profile.ConfigText, out var inlineUser, out var inlinePass)
+            && (credentials is null
+                || (string.IsNullOrEmpty(credentials.DynamicChallengeCookie)
+                    && string.IsNullOrEmpty(credentials.Password)
+                    && (string.IsNullOrEmpty(credentials.Username) || credentials.Username == inlineUser))))
         {
             credentials = new OpenVpnAuthCredentials
             {
                 Username = inlineUser,
                 Password = inlinePass,
+                Response = credentials?.Response ?? "",
             };
         }
 
