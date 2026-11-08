@@ -26,7 +26,7 @@ public static class CrashReporter
 
     static HttpClient CreateHttpClient()
     {
-        var handler = new HttpClientHandler();
+        var handler = new ClientIdentityHandler(new HttpClientHandler());
         return new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(30),
@@ -419,7 +419,7 @@ public static class CrashReporter
     static string ResolveProcessName(CrashReportingConfiguration cfg)
         => string.IsNullOrWhiteSpace(cfg.ProcessName) ? DefaultProcessName : cfg.ProcessName.Trim();
 
-    static void LogStructured(string eventName, params (string Key, string Value)[] pairs)
+    internal static void LogStructured(string eventName, params (string Key, string Value)[] pairs)
     {
         var sb = new StringBuilder();
         sb.Append("[CrashReporting] event=");

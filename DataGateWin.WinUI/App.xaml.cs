@@ -312,6 +312,7 @@ public partial class App : Application
                 throw new InvalidOperationException("Api:BaseUrl is missing.");
 
             ConfigureCrashReporting(apiSettings.BaseUrl);
+            ClientOutdatedUi.Install();
             _ = CrashReporter.FlushPendingAsync(CancellationToken.None);
 
             var googleSettings = AppConfiguration.GetSection("GoogleAuth").Get<GoogleAuthSettings>()
@@ -328,11 +329,16 @@ public partial class App : Application
             var baseUri = new Uri(apiSettings.BaseUrl, UriKind.Absolute);
             var startupHttpTimeout = TimeSpan.FromSeconds(30);
 
-            AuthApi = new AuthApiClient(new HttpClient { BaseAddress = baseUri, Timeout = startupHttpTimeout });
+            AuthApi = new AuthApiClient(new HttpClient(new ClientIdentityHandler(new HttpClientHandler()))
+            {
+                BaseAddress = baseUri,
+                Timeout = startupHttpTimeout
+            });
             Session = new AuthSession(AuthApi, new FileTokenStore("DataGateWin"), deviceId, userAgent);
             await Session.InitializeAsync(CancellationToken.None);
 
-            AuthedApiHttp = new HttpClient(new AuthenticatedHttpHandler(Session, new HttpClientHandler()))
+            AuthedApiHttp = new HttpClient(
+                new AuthenticatedHttpHandler(Session, new ClientIdentityHandler(new HttpClientHandler())))
             {
                 BaseAddress = baseUri,
                 Timeout = TimeSpan.FromMinutes(2)

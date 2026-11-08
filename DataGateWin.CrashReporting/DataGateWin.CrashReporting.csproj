@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="DataGateMonitor.SharedModels" Version="1.0.90" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="DataGateWin.Tests" />
   </ItemGroup>
 

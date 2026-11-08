@@ -100,7 +100,7 @@ public static class EngineMissingUi
         });
     }
 
-    private static void OpenDownloadPage()
+    internal static void OpenDownloadPage()
     {
         Process.Start(new ProcessStartInfo
         {

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
+using DataGateMonitor.SharedModels.ClientIdentity;
 using DataGateWin.Localization;
 using DataGateWin.Services.Auth;
 using Newtonsoft.Json.Linq;
@@ -59,6 +60,10 @@ public static class VpnUserFacingError
     {
         if (string.IsNullOrWhiteSpace(message))
             return Loc.T("Home_Error_Generic");
+
+        if (ContainsAny(message, ClientIdentityRules.ErrorCodeMissingName, ClientIdentityRules.ErrorCodeUnknownName,
+                ClientIdentityRules.ErrorCodeMissingVersion, ClientIdentityRules.ErrorCodeInvalidVersion))
+            return Loc.T("Msg_ClientOutdatedBody");
 
         var m = StripNoise(message);
 
