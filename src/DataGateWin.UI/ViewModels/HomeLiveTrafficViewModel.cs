@@ -6,6 +6,8 @@ using DataGateWin.Localization;
 using DataGateWin.Services.Traffic;
 using LiveChartsCore;
 using LiveChartsCore.Defaults;
+using LiveChartsCore.Measure;
+using LiveChartsCore.SkiaSharpView.Painting.Effects;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
@@ -18,7 +20,7 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
     public const int WindowSize = 60;
 
     private static readonly SKColor InColor = new(0x3D, 0xC0, 0x5C);
-    private static readonly SKColor OutColor = new(0xE0, 0x54, 0x54);
+    private static readonly SKColor OutColor = new(0xFF, 0xA3, 0x36);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -45,8 +47,8 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
         {
             Values = _inValues,
             GeometrySize = 0,
-            LineSmoothness = 0,
-            Fill = new SolidColorPaint(InColor.WithAlpha(70)),
+            LineSmoothness = 0.15,
+            Fill = new LinearGradientPaint([InColor.WithAlpha(65), InColor.WithAlpha(0)], new SKPoint(0, 0), new SKPoint(0, 1)),
             Stroke = new SolidColorPaint(InColor) { StrokeThickness = 2 },
             YToolTipLabelFormatter = p =>
             {
@@ -58,8 +60,8 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
         {
             Values = _outValues,
             GeometrySize = 0,
-            LineSmoothness = 0,
-            Fill = new SolidColorPaint(OutColor.WithAlpha(50)),
+            LineSmoothness = 0.15,
+            Fill = new LinearGradientPaint([OutColor.WithAlpha(35), OutColor.WithAlpha(0)], new SKPoint(0, 0), new SKPoint(0, 1)),
             Stroke = new SolidColorPaint(OutColor) { StrokeThickness = 2 },
             YToolTipLabelFormatter = p =>
             {
@@ -73,6 +75,8 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
     }
 
     public ISeries[] Series { get; }
+    public double[] InSamples => _inValues.Select(v => v.Value ?? 0).ToArray();
+    public double[] OutSamples => _outValues.Select(v => v.Value ?? 0).ToArray();
 
     public ICartesianAxis[] XAxes { get; private set; } = [];
 
@@ -206,7 +210,7 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
     {
         try
         {
-            var fg = _darkTheme ? new SKColor(0xE0, 0xE0, 0xE0) : new SKColor(0x20, 0x20, 0x20);
+            var fg = _darkTheme ? new SKColor(0xA9, 0xB1, 0xBE) : new SKColor(0x5A, 0x62, 0x70);
             var grid = _darkTheme
                 ? new SKColor(0xE0, 0xE0, 0xE0, 40)
                 : new SKColor(0x20, 0x20, 0x20, 40);
@@ -228,8 +232,10 @@ public sealed class HomeLiveTrafficViewModel : INotifyPropertyChanged
                 new Axis
                 {
                     MinLimit = 0,
+                    Position = AxisPosition.End,
+                    TextSize = 11,
                     LabelsPaint = new SolidColorPaint(fg),
-                    SeparatorsPaint = new SolidColorPaint(grid) { StrokeThickness = 1 },
+                    SeparatorsPaint = new SolidColorPaint(grid) { StrokeThickness = 1, PathEffect = new DashEffect([4, 6]) },
                     Labeler = value =>
                     {
                         try

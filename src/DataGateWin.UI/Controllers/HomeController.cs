@@ -24,6 +24,9 @@ public sealed class HomeController : IDisposable
     private int _connectWatchdogGeneration;
     private bool _desiredConnected;
     private int _reconnectAttempt;
+    private int _reconnectScheduled;
+    private VpnConnectionSessionInfo? _networkInfoRefreshTarget;
+    private VpnConnectionSessionInfo? _rememberedSelection;
     private bool _connectAutoPick = true;
     private int? _connectManualId;
     private Guid? _connectImportedProfileId;
@@ -190,7 +193,7 @@ public sealed class HomeController : IDisposable
         _connectManualId = manualVpnServerId;
         _connectImportedProfileId = null;
         _connectImportedCreds = null;
-        return await EnsureConnectedAsync();
+        return await Task.Run(EnsureConnectedAsync).ConfigureAwait(false);
     }
 
     /// <returns>True when a start was accepted (or the desired session was already up).</returns>
@@ -200,7 +203,7 @@ public sealed class HomeController : IDisposable
         _connectImportedProfileId = profileId;
         _connectManualId = null;
         _connectImportedCreds = credentials;
-        return await EnsureConnectedAsync();
+        return await Task.Run(EnsureConnectedAsync).ConfigureAwait(false);
     }
 
     public async Task DisconnectAsync()
@@ -390,6 +393,7 @@ public sealed class HomeController : IDisposable
             {
                 ServerId = 0,
                 ServerName = profile.Name,
+                PreferredAdapterName = profile.Protocol == ImportedVpnProtocol.Xray ? "xray0" : "DataGate",
                 ExternalIp = null,
                 DnsServers = profile.Protocol == ImportedVpnProtocol.Xray
                     ? XrayWindowsConfigBuilder.ExtractExplicitDnsServers(profile.ConfigText)
@@ -574,28 +578,24 @@ public sealed class HomeController : IDisposable
 
     private async Task ScheduleReconnectAsync()
     {
-        var ct = _lifetimeCts?.Token ?? CancellationToken.None;
-
-        if (!_desiredConnected || ShouldSkipImportedAuthReconnect())
-        {
-            _desiredConnected = false;
+        if (Interlocked.CompareExchange(ref _reconnectScheduled, 1, 0) != 0)
             return;
+        var ct = _connectCts?.Token ?? _lifetimeCts?.Token ?? CancellationToken.None;
+        try
+        {
+            if (!_desiredConnected || ShouldSkipImportedAuthReconnect())
+                return;
+            _reconnectAttempt++;
+            var delay = ReconnectPolicy.GetDelay(_reconnectAttempt);
+            var seconds = delay.TotalSeconds.ToString("0", CultureInfo.InvariantCulture);
+            ApplyUiState(UiState.Connecting, () => Loc.T("Home_Status_ReconnectingFmt", seconds));
+            Log(Loc.T("Home_Log_ReconnectScheduledFmt", _reconnectAttempt.ToString(CultureInfo.InvariantCulture), seconds));
+            await Task.Delay(delay, ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) { return; }
+        finally { Interlocked.Exchange(ref _reconnectScheduled, 0); }
 
-        _reconnectAttempt++;
-        var delay = ReconnectPolicy.GetDelay(_reconnectAttempt);
-
-        var seconds = delay.TotalSeconds.ToString("0", CultureInfo.InvariantCulture);
-        ApplyUiState(UiState.Connecting, () => Loc.T("Home_Status_ReconnectingFmt", seconds));
-        Log(Loc.T(
-            "Home_Log_ReconnectScheduledFmt",
-            _reconnectAttempt.ToString(CultureInfo.InvariantCulture),
-            seconds));
-
-        try { await Task.Delay(delay, ct).ConfigureAwait(false); }
-        catch (OperationCanceledException) { ApplyKeyed(UiState.Idle, "Home_Status_Idle"); return; }
-
-        if (_desiredConnected)
+        if (_desiredConnected && !ct.IsCancellationRequested)
             await EnsureConnectedAsync().ConfigureAwait(false);
     }
 
@@ -694,6 +694,11 @@ public sealed class HomeController : IDisposable
 
             CancelConnectWatchdog();
             var raw = ev.Message;
+            if (VpnUserFacingError.FromMessage(raw) == Loc.T("Home_Error_Permission"))
+            {
+                _desiredConnected = false;
+                try { _connectCts?.Cancel(); } catch { /* ignore */ }
+            }
             Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage(raw)));
             ApplyUiState(UiState.Idle, () =>
                 Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage(raw)));
@@ -714,24 +719,27 @@ public sealed class HomeController : IDisposable
     private void RememberSelectionFromEngine()
     {
         var sel = _engine.LastSelection;
-        if (sel == null)
+        if (sel == null || ReferenceEquals(sel, _rememberedSelection))
             return;
+        _rememberedSelection = sel;
 
-        // Preserve tunnel IP across payload rebuilds during reconnect.
-        var previousVpnIp = _sessionInfo?.VpnIp;
+        // A new payload/connection must not inherit the old tunnel address or DNS.
         _sessionInfo = new VpnConnectionSessionInfo
         {
             ServerId = sel.ServerId,
             ServerName = sel.ServerName,
             ExternalIp = sel.ExternalIp,
-            VpnIp = !string.IsNullOrWhiteSpace(sel.VpnIp) ? sel.VpnIp : previousVpnIp,
-            DnsServers = sel.DnsServers ?? _sessionInfo?.DnsServers,
+            PreferredAdapterName = sel.PreferredAdapterName,
+            VpnIp = sel.VpnIp,
+            DnsServers = sel.DnsServers,
         };
     }
 
     private void ClearSessionInfo()
     {
         _sessionInfo = null;
+        _rememberedSelection = null;
+        _networkInfoRefreshTarget = null;
         _engine.ClearLastSelection();
     }
 
@@ -744,7 +752,40 @@ public sealed class HomeController : IDisposable
     }
 
     private void ApplyConnected(string? engineState)
-        => ApplyUiState(UiState.Connected, () => ConnectedStatusText(engineState));
+    {
+        ApplyUiState(UiState.Connected, () => ConnectedStatusText(engineState));
+        var target = _sessionInfo;
+        if (target is not null && !ReferenceEquals(_networkInfoRefreshTarget, target))
+        {
+            _networkInfoRefreshTarget = target;
+            _ = RefreshConnectedNetworkInfoAsync(target);
+        }
+    }
+
+    private async Task RefreshConnectedNetworkInfoAsync(VpnConnectionSessionInfo target)
+    {
+        var ct = _connectCts?.Token ?? _lifetimeCts?.Token ?? CancellationToken.None;
+        try
+        {
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                if (_lastUiState != UiState.Connected || !ReferenceEquals(_sessionInfo, target)) return;
+                var adapter = await Task.Run(() => DataGateWin.Services.Traffic.VpnAdapterNetworkInfoReader.Read(
+                    target.PreferredAdapterName, target.VpnIp), ct).ConfigureAwait(false);
+                if (_lastUiState != UiState.Connected || !ReferenceEquals(_sessionInfo, target)) return;
+                if (adapter is not null)
+                {
+                    if (!string.IsNullOrWhiteSpace(adapter.VpnIp)) target.VpnIp = adapter.VpnIp;
+                    if (adapter.DnsServers.Count > 0) target.DnsServers = adapter.DnsServers;
+                    ApplyUiState(UiState.Connected, () => ConnectedStatusText(null));
+                    if (!string.IsNullOrWhiteSpace(target.VpnIp) && target.DnsServers is { Count: > 0 }) return;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomeController.ReadTunnelNetworkInfo"); }
+    }
 
     private void ApplyKeyed(UiState state, string key)
         => ApplyUiState(state, () => Loc.T(key));
@@ -786,10 +827,9 @@ public sealed class HomeController : IDisposable
 
     private void Log(string line)
     {
-        lock (_uiLock)
-        {
-            _log?.Invoke(line);
-        }
+        Action<string>? sink;
+        lock (_uiLock) { sink = _log; }
+        sink?.Invoke(line);
     }
 
     private void BeginConnectCts(CancellationToken lifetime)

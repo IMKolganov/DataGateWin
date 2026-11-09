@@ -96,23 +96,21 @@ struct TcpWsSession : public std::enable_shared_from_this<TcpWsSession>
         {
             boost::system::error_code ec;
 
-            if (sp->ws && sp->ws->is_open())
+            // Cancel the transport instead of synchronously closing WebSocket while
+            // async read/write operations still own Beast/TLS state and queue buffers.
+            if (sp->ws)
             {
-                sp->ws->close(bws::close_code::normal, ec);
-                LogEc(sp->opt.log, sp->globalMask, sp->opt.logMask, "tcp ws.close", ec);
+                auto& socket = bbeast::get_lowest_layer(*sp->ws).socket();
+                socket.cancel(ec);
+                socket.shutdown(btcp::socket::shutdown_both, ec);
+                socket.close(ec);
             }
 
             boost::system::error_code sec;
             sp->client.shutdown(btcp::socket::shutdown_both, sec);
             sp->client.close(sec);
 
-            sp->wsOutQ.clear();
-            sp->wsOutBytes = 0;
-            sp->wsWriteInProgress = false;
-
-            sp->tcpOutQ.clear();
-            sp->tcpOutBytes = 0;
-            sp->tcpWriteInProgress = false;
+            // Pending completion handlers retain the session and its write buffers.
 
             sp->activeSessions.fetch_sub(1);
 
@@ -377,8 +375,10 @@ void TcpWssBridge::Stop()
 void TcpWssBridge::DoAccept()
 {
     acceptor_.async_accept(
-        [this](bbeast::error_code ec, btcp::socket socket)
+        [this, lifetime = callbackLifetime_](bbeast::error_code ec, btcp::socket socket)
         {
+            // Cancellation completion may be delivered after the bridge was destroyed.
+            if (!lifetime->load()) return;
             if (ec)
             {
                 if (!stopped_.load())

@@ -410,7 +410,7 @@ public sealed class SettingsPage : Page
         logoutBtn.Content = Row(IconButtonContent.SignOut, _logoutButtonText, 14);
         logoutBtn.Click += LogoutButton_OnClick;
 
-        var root = new StackPanel { Margin = new Thickness(32, 24, 32, 32), Spacing = 20, MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var root = new StackPanel { Margin = new Thickness(32, 24, 32, 32), Spacing = 20, HorizontalAlignment = HorizontalAlignment.Stretch };
         root.Children.Add(_titleText);
         root.Children.Add(Card(
             _languageHeader,
@@ -453,13 +453,14 @@ public sealed class SettingsPage : Page
         foreach (var child in children)
             panel.Children.Add(child);
 
-        return new Border
+        var card = new Border
         {
             Padding = new Thickness(20),
             CornerRadius = new CornerRadius(12),
-            Background = UiThemeBrushes.CardBackground(),
             Child = panel,
         };
+        UiThemeBrushes.ApplyCardBackground(card);
+        return card;
     }
 
     private static StackPanel Row(string glyph, FrameworkElement label, double iconSize)

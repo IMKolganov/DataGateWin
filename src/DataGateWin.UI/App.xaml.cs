@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Security.Principal;
@@ -194,6 +194,9 @@ public partial class App : Application
         var resolved = theme ?? ResolveElementTheme();
         if (window.Content is FrameworkElement root)
             root.RequestedTheme = resolved;
+        UiThemeBrushes.RefreshTheme(resolved);
+        // Reapply after inherited theme notifications and Loaded handlers have completed.
+        window.DispatcherQueue.TryEnqueue(() => UiThemeBrushes.RefreshTheme(resolved));
         WindowChrome.ApplyTheme(window, resolved);
     }
 

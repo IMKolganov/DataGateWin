@@ -7,11 +7,13 @@ public sealed class VpnConnectionSessionInfo
     public string ServerName { get; init; } = "";
     /// <summary>Egress IP from API status log (<c>ServerRemoteIp</c>) — VPN server public IP, not a live client STUN lookup.</summary>
     public string? ExternalIp { get; init; }
-    /// <summary>Tunnel address from OpenVPN Connected event (<c>vpnIpv4</c>).</summary>
+    /// <summary>Tunnel address from the engine or active VPN adapter.</summary>
     public string? VpnIp { get; set; }
 
-    /// <summary>DNS from issued/imported Xray profile (<c>dnsServers</c>), when present.</summary>
-    public IReadOnlyList<string>? DnsServers { get; init; }
+    public string? PreferredAdapterName { get; init; }
+
+    /// <summary>DNS from the active VPN adapter or issued profile.</summary>
+    public IReadOnlyList<string>? DnsServers { get; set; }
 
     public bool HasIdentity =>
         !string.IsNullOrWhiteSpace(ServerName)

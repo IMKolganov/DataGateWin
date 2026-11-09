@@ -101,7 +101,7 @@ public sealed class EngineSessionService(
         await _connectionOps.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            EnsureClientCreated();
+            await Task.Run(EnsureClientCreated, ct).ConfigureAwait(false);
             AttachHandlersOnce();
 
             if (_client!.IsConnected)
@@ -125,7 +125,7 @@ public sealed class EngineSessionService(
         await _connectionOps.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            EnsureClientCreated();
+            await Task.Run(EnsureClientCreated, ct).ConfigureAwait(false);
             AttachHandlersOnce();
 
             if (_client!.IsConnected)
@@ -159,7 +159,7 @@ public sealed class EngineSessionService(
 
     public async Task<bool> IsAttachedAsync(CancellationToken ct)
     {
-        EnsureClientCreated();
+        await Task.Run(EnsureClientCreated, ct).ConfigureAwait(false);
         return _client!.IsConnected;
     }
 
@@ -211,6 +211,13 @@ public sealed class EngineSessionService(
             LastStartPreparationTimedOut = true;
             RememberStartErrorHuman("VPN preparation timed out after 60 seconds. Check the API connection and IP-list sources, then retry.");
             log("[connect] ERROR: VPN preparation timed out after 60s; StartSession was not sent. See the last [connect] stage above.");
+            return false;
+        }
+        catch (TimeoutException ex)
+        {
+            LastStartPreparationTimedOut = true;
+            RememberStartError(ex);
+            log("[connect] ERROR: VPN profile preparation timed out; automatic retries stopped. Retry after the server issue is resolved.");
             return false;
         }
         catch (Exception ex)
@@ -489,6 +496,11 @@ public sealed class EngineSessionService(
 
         _client.EngineExited += (_, code) =>
         {
+            // A dead client's canceled lifetime cannot be reused for reconnection.
+            var exitedClient = _client;
+            _client = null;
+            _handlersAttached = false;
+            exitedClient?.Dispose();
             FlushNoiseSummary();
             log($"Engine exited with code: {code}");
             if (code != 0)

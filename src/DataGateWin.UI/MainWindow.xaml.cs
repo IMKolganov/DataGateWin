@@ -128,7 +128,7 @@ public sealed partial class MainWindow : Window
         var rowAlign = expanded ? HorizontalAlignment.Left : HorizontalAlignment.Center;
         TelegramRowButton.HorizontalContentAlignment = rowAlign;
         ReportRowButton.HorizontalContentAlignment = rowAlign;
-        UserDisplayName.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        UserIdentityPanel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         UserAvatarBorder.HorizontalAlignment = expanded ? HorizontalAlignment.Left : HorizontalAlignment.Center;
         if (expanded)
             Grid.SetColumnSpan(UserAvatarBorder, 1);
@@ -148,6 +148,11 @@ public sealed partial class MainWindow : Window
         var token = App.Session.Current?.Token;
         var displayName = AccountDisplay.TryResolveDisplayName(token) ?? Loc.T("Common_Unknown");
         UserDisplayName.Text = displayName;
+        ToolTipService.SetToolTip(UserDisplayName, displayName);
+        var email = JwtClaimReader.GetEmailFromBearerToken(token);
+        UserEmail.Text = email ?? string.Empty;
+        UserEmail.Visibility = string.IsNullOrWhiteSpace(email) ? Visibility.Collapsed : Visibility.Visible;
+        ToolTipService.SetToolTip(UserEmail, email);
         UserAvatarInitials.Text = AccountDisplay.GetInitials(displayName);
 
         var picUrl = JwtClaimReader.GetProfileImageUrlFromBearerToken(token);

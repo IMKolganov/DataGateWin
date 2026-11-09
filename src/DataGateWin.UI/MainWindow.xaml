@@ -124,13 +124,23 @@
                                     FontWeight="SemiBold" />
                             </Grid>
                         </Border>
-                        <TextBlock
-                            x:Name="UserDisplayName"
+                        <StackPanel
+                            x:Name="UserIdentityPanel"
                             Grid.Column="1"
                             Margin="12,0,0,0"
                             VerticalAlignment="Center"
-                            FontWeight="SemiBold"
-                            TextTrimming="CharacterEllipsis" />
+                            Spacing="2">
+                            <TextBlock
+                                x:Name="UserDisplayName"
+                                FontWeight="SemiBold"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                x:Name="UserEmail"
+                                FontSize="12"
+                                Opacity="0.7"
+                                TextTrimming="CharacterEllipsis"
+                                Visibility="Collapsed" />
+                        </StackPanel>
                     </Grid>
                 </StackPanel>
             </NavigationView.PaneFooter>
@@ -138,3 +148,4 @@
         </NavigationView>
     </Grid>
 </Window>
+

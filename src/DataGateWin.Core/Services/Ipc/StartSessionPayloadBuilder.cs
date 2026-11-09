@@ -99,6 +99,7 @@ public sealed class StartSessionPayloadBuilder(
             LastSelection = new VpnConnectionSessionInfo
             {
                 ServerId = LastSelection.ServerId,
+                PreferredAdapterName = LastSelection.PreferredAdapterName,
                 ServerName = LastSelection.ServerName,
                 ExternalIp = LastSelection.ExternalIp,
                 VpnIp = LastSelection.VpnIp,

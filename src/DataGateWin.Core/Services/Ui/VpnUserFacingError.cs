@@ -154,6 +154,9 @@ public static class VpnUserFacingError
         if (ContainsAny(m, "AUTH_FAILED", "auth failed", "AUTH_FAILED_TEMP"))
             return Loc.T("Home_Error_OpenVpnAuthFailed");
 
+        if (ContainsAny(m, "Access is denied", "ACCESS_DENIED", "requires elevation", "run as Administrator"))
+            return Loc.T("Home_Error_Permission");
+
         if (ContainsAny(m, "access_denied", "access-denied"))
             return Loc.T("Home_Error_Canceled");
 

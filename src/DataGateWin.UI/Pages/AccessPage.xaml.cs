@@ -66,6 +66,8 @@ public sealed partial class AccessPage : Page
         ColOut.Text = Loc.T("Access_Col_Out");
         ColOnline.Text = Loc.T("Access_Col_Online");
         ColPlan.Text = Loc.T("Access_Col_PlanAccess");
+        foreach (var (header, label) in new[] { (HdrServer, ColServer), (HdrClients, ColClients), (HdrIn, ColIn), (HdrOut, ColOut), (HdrOnline, ColOnline), (HdrPlan, ColPlan) })
+            ToolTipService.SetToolTip(header, label.Text);
         UpdateSortIndicators();
     }
 
@@ -208,21 +210,17 @@ public sealed partial class AccessPage : Page
 
         var grid = new Grid
         {
-            Padding = new Thickness(16, 10, 16, 10),
+            Padding = new Thickness(8, 10, 8, 10),
             MinHeight = 60,
             BorderThickness = new Thickness(0, 0, 0, 1),
             BorderBrush = UiThemeBrushes.CardStroke(),
-            ColumnSpacing = 16,
+            ColumnSpacing = 4,
             CornerRadius = new CornerRadius(0),
             Background = new SolidColorBrush(Colors.Transparent),
         };
 
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 230 });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(88) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(112) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) });
+        foreach (var (weight, minimum) in new (double, double)[] { (3, 120), (0.7, 40), (1, 54), (1, 54), (1.1, 64), (0.9, 50) })
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weight, GridUnitType.Star), MinWidth = minimum });
 
         void Add(int col, string text, bool muted = false)
         {

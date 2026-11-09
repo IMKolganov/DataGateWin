@@ -7,27 +7,8 @@ public static class JwtClaimReader
 {
     public static string? GetClaimFromBearerToken(string? bearerToken, string claimName)
     {
-        if (string.IsNullOrWhiteSpace(bearerToken))
-            return null;
-
-        var parts = bearerToken.Split('.');
-        if (parts.Length < 2)
-            return null;
-
-        var payload = parts[1]
-            .Replace('-', '+')
-            .Replace('_', '/');
-
-        switch (payload.Length % 4)
-        {
-            case 2: payload += "=="; break;
-            case 3: payload += "="; break;
-        }
-
-        var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
-        var obj = JObject.Parse(json);
-
-        return obj.Value<string>(claimName);
+        var value = TryParsePayload(bearerToken)?[claimName];
+        return value?.Type == JTokenType.String ? value.Value<string>() : null;
     }
 
     /// <summary>Linux parity: <c>nameid</c> then WS-Federation nameidentifier claim (numeric user id for quota APIs).</summary>
@@ -43,8 +24,10 @@ public static class JwtClaimReader
     /// </summary>
     public static string? GetDisplayNameFromBearerToken(string? bearerToken)
     {
-        var given = GetClaimFromBearerToken(bearerToken, "given_name");
-        var family = GetClaimFromBearerToken(bearerToken, "family_name");
+        var given = FirstNonEmptyClaim(bearerToken, "given_name",
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname");
+        var family = FirstNonEmptyClaim(bearerToken, "family_name",
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname");
         if (!string.IsNullOrWhiteSpace(given) && !string.IsNullOrWhiteSpace(family))
             return $"{given.Trim()} {family.Trim()}";
 
@@ -54,10 +37,8 @@ public static class JwtClaimReader
         if (!string.IsNullOrWhiteSpace(family))
             return family.Trim();
 
-        var firstAlt = GetClaimFromBearerToken(bearerToken, "first_name")
-            ?? GetClaimFromBearerToken(bearerToken, "firstName");
-        var lastAlt = GetClaimFromBearerToken(bearerToken, "last_name")
-            ?? GetClaimFromBearerToken(bearerToken, "lastName");
+        var firstAlt = FirstNonEmptyClaim(bearerToken, "first_name", "firstName");
+        var lastAlt = FirstNonEmptyClaim(bearerToken, "last_name", "lastName");
         if (!string.IsNullOrWhiteSpace(firstAlt) && !string.IsNullOrWhiteSpace(lastAlt))
             return $"{firstAlt.Trim()} {lastAlt.Trim()}";
 
@@ -67,7 +48,8 @@ public static class JwtClaimReader
         if (!string.IsNullOrWhiteSpace(lastAlt))
             return lastAlt.Trim();
 
-        var name = GetClaimFromBearerToken(bearerToken, "name");
+        var name = FirstNonEmptyClaim(bearerToken, "name", "displayName", "display_name",
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name");
         if (!string.IsNullOrWhiteSpace(name))
             return name.Trim();
 
@@ -79,6 +61,21 @@ public static class JwtClaimReader
         if (!string.IsNullOrWhiteSpace(preferred))
             return preferred.Trim();
 
+        return null;
+    }
+
+    public static string? GetEmailFromBearerToken(string? bearerToken) =>
+        FirstNonEmptyClaim(bearerToken, "email",
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
+
+    private static string? FirstNonEmptyClaim(string? bearerToken, params string[] claimNames)
+    {
+        foreach (var claimName in claimNames)
+        {
+            var value = GetClaimFromBearerToken(bearerToken, claimName);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
         return null;
     }
 

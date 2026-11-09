@@ -18,6 +18,8 @@ public static class VpnConnectionSessionInfoFactory
             ServerId = server.Id,
             ServerName = ServerNameFlag.WithFlagPrefix(server.ServerName),
             ExternalIp = remote,
+            PreferredAdapterName = server.ServerType == DataGateMonitor.SharedModels.Enums.VpnServerType.Xray
+                ? "xray0" : "DataGate",
         };
     }
 }

@@ -8,7 +8,7 @@ public static class AccountDisplay
         if (!string.IsNullOrWhiteSpace(fromJwt))
             return fromJwt.Trim();
 
-        var email = JwtClaimReader.GetClaimFromBearerToken(bearerToken, "email");
+        var email = JwtClaimReader.GetEmailFromBearerToken(bearerToken);
         if (string.IsNullOrWhiteSpace(email))
             return null;
 

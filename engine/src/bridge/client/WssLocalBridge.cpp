@@ -237,8 +237,6 @@ void WssLocalBridge::Stop()
     if (impl_->udp)
         impl_->udp->Stop();
 
-    impl_->tcp.reset();
-    impl_->udp.reset();
 
     if (impl_->work.has_value())
         impl_->work.reset();
@@ -247,6 +245,14 @@ void WssLocalBridge::Stop()
 
     if (impl_->worker.joinable())
         impl_->worker.join();
+
+    // Acceptor callbacks capture bridge instances. Drain cancellations with owners
+    // alive after the worker exits, before destroying those instances.
+    impl_->ioc.restart();
+    impl_->ioc.poll();
+    impl_->ioc.stop();
+    impl_->tcp.reset();
+    impl_->udp.reset();
 
     impl_->started.store(false);
 

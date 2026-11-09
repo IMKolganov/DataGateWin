@@ -26,13 +26,15 @@ public sealed partial class HomePage : Page
     private List<CachedVpnServerRow>? _cachedServerRows;
     private bool _suppressSettingsSave;
     private bool _suppressServerListFetch;
-    private bool _suppressEngineLogsToggle;
+    private string? _heroServerName;
     private bool _languageHookAttached;
     private readonly List<string> _logLines = new();
     private readonly object _logUiLock = new();
     private bool _logFlushScheduled;
     private bool _logDirty;
     private string? _renderedLogText;
+    private ElementTheme? _renderedLogTheme;
+    private readonly System.Collections.ObjectModel.ObservableCollection<string> _visibleLogLines = new();
     private DispatcherQueueTimer? _trafficTimer;
     private readonly LiveTrafficRateTracker _trafficRates = new();
     private readonly VpnAdapterTrafficSampler _trafficSampler = new();
@@ -44,9 +46,11 @@ public sealed partial class HomePage : Page
     {
         Traffic = new HomeLiveTrafficViewModel();
         InitializeComponent();
-        LogTextBox.ActualThemeChanged += (_, _) =>
+        LogContent.ActualThemeChanged += (_, _) =>
         {
             _renderedLogText = null;
+            _visibleLogLines.Clear();
+            LogContent.Blocks.Clear();
             if (LogTextBox.Visibility == Visibility.Visible)
             {
                 string text;
@@ -56,15 +60,15 @@ public sealed partial class HomePage : Page
             }
         };
         UiThemeBrushes.ApplyMissingCardChrome(this);
-        UiThemeBrushes.ApplyCardBackground(TrafficLogsCard);
+        ApplyHomeCardTheme();
         _controller = controller;
         try
         {
             TrafficChart.FlowDirection = FlowDirection.LeftToRight;
-            TrafficChart.AnimationsSpeed = TimeSpan.Zero;
         }
         catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomePage.TrafficChartInit"); }
         ApplyLocalizedChrome();
+        ApplyTrafficColors();
     }
 
     private void ApplyLocalizedChrome()
@@ -80,7 +84,6 @@ public sealed partial class HomePage : Page
         ConnectButtonText.Text = Loc.T("Home_Connect");
         DisconnectButtonText.Text = Loc.T("Home_Disconnect");
         TrafficTitle.Text = Loc.T("Home_Traffic_Title");
-        EngineLogsLabel.Text = Loc.T("Home_ShowEngineLogs");
         DetailsHeaderText.Text = Loc.T("Home_Details");
         StatusHeadline.Text = Loc.T("Home_Status_Idle");
         Traffic.ApplyChrome();
@@ -97,6 +100,8 @@ public sealed partial class HomePage : Page
     private async void HomePage_OnLoaded(object sender, RoutedEventArgs e)
     {
         UiThemeBrushes.ApplyMissingCardChrome(this);
+        ApplyHomeCardTheme();
+        ApplyTrafficColors();
         if (!_languageHookAttached)
         {
             WinUiLanguageService.LanguageChanged += OnUiLanguageChanged;
@@ -110,7 +115,7 @@ public sealed partial class HomePage : Page
         Traffic.SetChartTheme(ActualTheme == ElementTheme.Dark);
         ActualThemeChanged -= HomePage_OnActualThemeChanged;
         ActualThemeChanged += HomePage_OnActualThemeChanged;
-        ApplyTrafficVisibility(UiState.Idle);
+        ApplyTrafficVisibility(_controller.LastUiState);
 
         _controller.AttachUi(
             statusTextSetter: s => DispatchUi(() => SetStatusDetail(s)),
@@ -189,7 +194,31 @@ public sealed partial class HomePage : Page
     }
 
     private void HomePage_OnActualThemeChanged(FrameworkElement sender, object args)
-        => Traffic.SetChartTheme(ActualTheme == ElementTheme.Dark);
+    {
+        Traffic.SetChartTheme(ActualTheme == ElementTheme.Dark);
+        // Theme propagation to descendants completes after the page notification.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ApplyHomeCardTheme();
+            ApplyTrafficColors();
+        });
+    }
+
+    private void ApplyHomeCardTheme()
+    {
+        UiThemeBrushes.ApplyCardBackground(ConnectionCard);
+        UiThemeBrushes.ApplyCardBackground(TrafficLogsCard);
+    }
+
+    private void ApplyTrafficColors()
+    {
+        var dark = ActualTheme == ElementTheme.Dark;
+        var incoming = new SolidColorBrush(LiveTrafficChart.IncomingColor(dark));
+        var outgoing = new SolidColorBrush(LiveTrafficChart.OutgoingColor(dark));
+        TrafficInText.Foreground = TrafficInIcon.Foreground = incoming;
+        TrafficOutText.Foreground = TrafficOutIcon.Foreground = outgoing;
+        TrafficErrorText.Foreground = new SolidColorBrush(dark ? Microsoft.UI.Colors.LightCoral : Microsoft.UI.Colors.Firebrick);
+    }
 
     private void OnUiLanguageChanged(object? sender, EventArgs e)
         => DispatcherQueue.TryEnqueue(() =>
@@ -410,6 +439,9 @@ public sealed partial class HomePage : Page
 
     private void ApplyUiState(UiState state, string statusText, VpnConnectionSessionInfo? network)
     {
+        // Traffic visibility depends only on connection state, never on protocol or VPN IP.
+        // Keep it independent of server metadata, icons and other optional UI updates.
+        ApplyTrafficVisibility(state);
         try
         {
             // Plain Text — SetTextEnlargingFlags builds one Inline per grapheme and
@@ -428,7 +460,6 @@ public sealed partial class HomePage : Page
             RefreshServersButton.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 1;
             RefreshImportedButton.IsEnabled = canPickServer && ServerModeCombo.SelectedIndex == 2;
             ApplyNetworkInfo(network);
-            ApplyTrafficVisibility(state);
         }
         catch (Exception ex)
         {
@@ -472,7 +503,7 @@ public sealed partial class HomePage : Page
         var s = text ?? "";
         StatusText.Text = s;
         var head = StatusHeadline.Text ?? "";
-        StatusText.Visibility = string.IsNullOrWhiteSpace(s)
+        StatusText.Visibility = _controller.LastUiState == UiState.Connected || string.IsNullOrWhiteSpace(s)
             || string.Equals(s.Trim(), head.Trim(), StringComparison.OrdinalIgnoreCase)
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -484,11 +515,17 @@ public sealed partial class HomePage : Page
         {
             var show = network is { HasIdentity: true };
             NetworkInfoPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            HeroServerHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
             if (!show)
                 return;
 
             var dash = Loc.T("Home_Network_Unavailable");
             var server = string.IsNullOrWhiteSpace(network!.ServerName) ? dash : network.ServerName;
+            if (_heroServerName != server)
+            {
+                HeroServerHost.Content = ServerNameUi.CreateRow(server, nameFontSize: 16);
+                _heroServerName = server;
+            }
             NetworkServerLabel.Text = Loc.T("Home_Network_Server") + ":";
             NetworkServerName.Text = ServerNameFlag.TrySplit(server, out _, out var rest) && !string.IsNullOrEmpty(rest)
                 ? rest
@@ -622,21 +659,9 @@ public sealed partial class HomePage : Page
         ImportedProfileRow.Visibility = ServerModeCombo.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void ShowEngineLogsToggle_OnToggled(object sender, RoutedEventArgs e)
-    {
-        if (_suppressEngineLogsToggle)
-            return;
-        ApplyEngineLogVisibility();
-        SaveVpnHomeSettingsFromUi();
-    }
-
     private void ApplyEngineLogVisibility()
     {
-        var show = ShowEngineLogsToggle.IsOn;
-        LogTextBox.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-
-        if (!show)
-            return;
+        LogTextBox.Visibility = Visibility.Visible;
 
         string text;
         lock (_logUiLock)
@@ -656,115 +681,50 @@ public sealed partial class HomePage : Page
         });
     }
 
-    private static readonly Regex LogErrorPattern = new(
-        @"\b(fatal|failed|failure|exception|auth_failed|access_denied)\b|\berror\b(?!""?\s*[:=]\s*(?:null|false|0)\b)|\berr\s*=\s*[1-9]\d*\b|ошибк|не удалось",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex LogTagPattern = new(
-        @"\G\s*\[[a-z][a-z0-9_-]*\]",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex LogWarningPattern = new(
-        @"\b(warn|warning|retry|retrying|timeout|timed out)\b|предупрежд",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex LogSuccessPattern = new(
-        @"\b(UI attached|Engine connected|connect OK|client connected|Initialization Sequence Completed|success|succeeded)\b",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex LogFieldPattern = new(
-        @"\b[a-zA-Z][a-zA-Z0-9_]*(?==)",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
     private void RenderLogs(string text)
     {
-        if (text == _renderedLogText)
+        var theme = LogContent.ActualTheme;
+        if (text == _renderedLogText && theme == _renderedLogTheme)
             return;
-
-        // RichEdit uses one CR per paragraph; use its offsets when coloring ranges.
-        var content = text.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\n', '\r');
-        var dark = LogTextBox.ActualTheme == ElementTheme.Dark;
-        var normal = dark ? Microsoft.UI.Colors.Gainsboro : Microsoft.UI.Colors.Black;
-        var timestamp = dark ? Microsoft.UI.Colors.CornflowerBlue : Microsoft.UI.Colors.RoyalBlue;
-        var success = dark ? Microsoft.UI.Colors.LightGreen : Microsoft.UI.Colors.DarkGreen;
-        var fieldColor = dark ? Microsoft.UI.Colors.Silver : Microsoft.UI.Colors.DimGray;
-        var engineColor = dark ? Microsoft.UI.Colors.Plum : Microsoft.UI.Colors.DarkMagenta;
-        var ipcColor = dark ? Microsoft.UI.Colors.Turquoise : Microsoft.UI.Colors.Teal;
-        var dnsColor = dark ? Microsoft.UI.Colors.PeachPuff : Microsoft.UI.Colors.SaddleBrown;
-        var error = dark ? Microsoft.UI.Colors.LightCoral : Microsoft.UI.Colors.Firebrick;
-        var warning = dark ? Microsoft.UI.Colors.Khaki : Microsoft.UI.Colors.SaddleBrown;
-        var tagColor = dark ? Microsoft.UI.Colors.LightSkyBlue : Microsoft.UI.Colors.SteelBlue;
-        var selection = LogTextBox.Document.Selection;
-        var selectionStart = selection.StartPosition;
-        var selectionEnd = selection.EndPosition;
-        // RichEdit protects formatting as well as text when IsReadOnly is set.
-        // Temporarily allow document edits on the UI thread, restoring protection
-        // even if a document operation throws. No input can interleave here.
-        var wasReadOnly = LogTextBox.IsReadOnly;
-        LogTextBox.IsReadOnly = false;
-        try
+        if (theme != _renderedLogTheme)
         {
-            LogTextBox.Document.SetText(TextSetOptions.None, content);
-            var format = LogTextBox.Document.GetRange(0, content.Length).CharacterFormat;
-            format.ForegroundColor = normal;
-            format.Bold = FormatEffect.Off;
-
-            var offset = 0;
-            foreach (var line in content.Split('\r'))
-            {
-                // An explicit WARNING may describe a possible failure, not an actual one.
-                var isWarning = LogWarningPattern.IsMatch(line);
-                var isError = !isWarning && LogErrorPattern.IsMatch(line);
-                var isSuccess = !isWarning && !isError &&
-                    (LogSuccessPattern.IsMatch(line) || line.EndsWith(Loc.T("Home_Log_UiAttached"), StringComparison.Ordinal));
-                var color = isWarning ? warning : isError ? error : isSuccess ? success : normal;
-                if (line.Length > 0)
-                    LogTextBox.Document.GetRange(offset, offset + line.Length).CharacterFormat.ForegroundColor = color;
-                // The timestamp added by AppendLog is always [HH:mm:ss].
-                if (line.Length >= 10 && line[0] == '[' && line[9] == ']')
-                {
-                    var timeFormat = LogTextBox.Document.GetRange(offset, offset + 10).CharacterFormat;
-                    timeFormat.ForegroundColor = isSuccess ? success : timestamp;
-                    // Tags remain distinguishable even on warning/error lines.
-                    var tag = LogTagPattern.Match(line, 10);
-                    while (tag.Success)
-                    {
-                        var label = tag.Value.Trim();
-                        var tagFormat = LogTextBox.Document.GetRange(offset + tag.Index, offset + tag.Index + tag.Length).CharacterFormat;
-                        tagFormat.ForegroundColor = label.ToLowerInvariant() switch
-                        {
-                            "[engine]" => engineColor,
-                            "[ipc]" or "[control]" or "[events]" => ipcColor,
-                            "[dns]" => dnsColor,
-                            _ => tagColor,
-                        };
-                        tag = tag.NextMatch();
-                    }
-                }
-                if (isWarning || isError || isSuccess)
-                {
-                    var pattern = isWarning ? LogWarningPattern : isError ? LogErrorPattern : LogSuccessPattern;
-                    foreach (Match match in pattern.Matches(line))
-                        LogTextBox.Document.GetRange(offset + match.Index, offset + match.Index + match.Length)
-                            .CharacterFormat.Bold = FormatEffect.On;
-                }
-                else
-                {
-                    // Highlight metadata keys, leaving serialized payloads and paths intact.
-                    var metadataEnd = line.IndexOf('{');
-                    var metadata = metadataEnd >= 0 ? line[..metadataEnd] : line;
-                    foreach (Match field in LogFieldPattern.Matches(metadata))
-                        LogTextBox.Document.GetRange(offset + field.Index, offset + field.Index + field.Length)
-                            .CharacterFormat.ForegroundColor = fieldColor;
-                }
-                offset += line.Length + 1;
-            }
-            selection.SetRange(Math.Min(selectionStart, content.Length), Math.Min(selectionEnd, content.Length));
-            _renderedLogText = text;
+            _visibleLogLines.Clear();
+            LogContent.Blocks.Clear();
         }
-        finally
+        // Preserve realized rows instead of rebuilding and recoloring the entire log on every flush.
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n').Split('\n');
+        if (text.Length == 0) lines = [];
+        var overlap = 0;
+        var dropped = _visibleLogLines.Count;
+        for (var start = 0; start < _visibleLogLines.Count; start++)
         {
-            LogTextBox.IsReadOnly = wasReadOnly;
+            var count = _visibleLogLines.Count - start;
+            if (count > lines.Length) continue;
+            var matches = true;
+            for (var i = 0; i < count; i++)
+                if (_visibleLogLines[start + i] != lines[i]) { matches = false; break; }
+            if (!matches) continue;
+            dropped = start;
+            overlap = count;
+            break;
         }
+        if (dropped == _visibleLogLines.Count)
+        {
+            _visibleLogLines.Clear();
+            LogContent.Blocks.Clear();
+        }
+        else for (var i = 0; i < dropped; i++)
+        {
+            _visibleLogLines.RemoveAt(0);
+            LogContent.Blocks.RemoveAt(0);
+        }
+        for (var i = overlap; i < lines.Length; i++)
+        {
+            _visibleLogLines.Add(lines[i]);
+            LogContent.Blocks.Add(LogLineFormatter.CreateParagraph(lines[i], theme == ElementTheme.Dark));
+        }
+        _renderedLogText = text;
+        _renderedLogTheme = theme;
     }
 
     /// <summary>Live traffic chart only while Connected — hidden on start / disconnect / connecting.</summary>
@@ -773,7 +733,13 @@ public sealed partial class HomePage : Page
         var show = HomeSessionUiPolicy.IsHomeTrafficVisible(state);
         try
         {
-            TrafficPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            var visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (TrafficPanel.Visibility != visibility)
+            {
+                TrafficPanel.Visibility = visibility;
+                if (show)
+                    AppendLog("[ui][traffic] Chart visible; sampling local VPN adapter (DataGate/xray0).");
+            }
         }
         catch (Exception ex)
         {
@@ -791,6 +757,7 @@ public sealed partial class HomePage : Page
         {
             _trafficRates.Reset();
             Traffic.ResetSeries();
+            TrafficChart.Update(Traffic.InSamples, Traffic.OutSamples);
             _trafficFaultReported = false;
         }
         catch (Exception ex)
@@ -844,6 +811,7 @@ public sealed partial class HomePage : Page
             _trafficFaultReported = false;
             var tick = _trafficRates.Push(read.Counters, DateTime.UtcNow);
             Traffic.Push(tick);
+            TrafficChart.Update(Traffic.InSamples, Traffic.OutSamples);
         }
         catch (Exception ex)
         {
@@ -891,9 +859,6 @@ public sealed partial class HomePage : Page
                 ServerModeCombo.SelectedIndex = 2;
             else
                 ServerModeCombo.SelectedIndex = s.HomeVpnAutoPickServer ? 0 : 1;
-            _suppressEngineLogsToggle = true;
-            ShowEngineLogsToggle.IsOn = s.HomeShowEngineLogs;
-            _suppressEngineLogsToggle = false;
             ApplyEngineLogVisibility();
             UpdateManualRowVisibility();
         }
@@ -909,7 +874,6 @@ public sealed partial class HomePage : Page
             return;
 
         var s = App.Settings;
-        s.HomeShowEngineLogs = ShowEngineLogsToggle.IsOn;
         if (ServerModeCombo.SelectedIndex == 2)
         {
             s.HomeVpnAutoPickServer = false;

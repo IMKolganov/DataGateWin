@@ -66,6 +66,14 @@ public sealed class OpenVpnFilesApiClient(HttpClient http, Action<string>? log =
             if (IsNotFoundApiMessage(raw))
                 return null;
 
+            // Backend can issue a notification before the OVPN file is actually available.
+            // Do not create a second profile or keep retrying a server-side generation timeout.
+            if (IsOvpnGenerationTimeout(raw))
+            {
+                log?.Invoke($"[connect][download] ERROR: HTTP {(int)resp.StatusCode}; VPN server timed out waiting for the generated OVPN file.");
+                throw new TimeoutException("VPN server timed out waiting for the generated OVPN file.");
+            }
+            log?.Invoke($"[connect][download] ERROR: Profile download failed HTTP {(int)resp.StatusCode}.");
             throw new InvalidOperationException("profile_download_failed");
         }
 
@@ -106,6 +114,17 @@ public sealed class OpenVpnFilesApiClient(HttpClient http, Action<string>? log =
         log?.Invoke($"[connect][issue] HTTP {(int)resp.StatusCode}; proceeding to profile download.");
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException("profile_download_failed");
+    }
+
+    private static bool IsOvpnGenerationTimeout(string body)
+    {
+        try
+        {
+            var message = JObject.Parse(body).Value<string>("message") ?? "";
+            return message.Contains("Timed out", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("waiting for OVPN", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException) { return false; }
     }
 
     private static bool IsNotFoundApiMessage(string body)

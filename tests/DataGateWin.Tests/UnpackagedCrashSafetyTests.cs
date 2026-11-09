@@ -318,7 +318,7 @@ public sealed class WinUiFailSoftContractTests
         var cs = ReadWinUi("Pages", "SettingsPage.xaml.cs");
         Assert.DoesNotContain("InitializeComponent", cs, StringComparison.Ordinal);
         Assert.DoesNotContain("{ThemeResource", cs, StringComparison.Ordinal);
-        Assert.Contains("UiThemeBrushes.CardBackground", cs, StringComparison.Ordinal);
+        Assert.Contains("UiThemeBrushes.ApplyCardBackground(card)", cs, StringComparison.Ordinal);
         Assert.Contains("UiErrorPanel", cs, StringComparison.Ordinal);
     }
 

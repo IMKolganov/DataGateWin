@@ -5,10 +5,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <ScrollViewer
-        HorizontalScrollBarVisibility="Auto"
+        HorizontalScrollBarVisibility="Disabled"
         VerticalScrollBarVisibility="Auto" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
         <Grid HorizontalAlignment="Stretch">
-        <StackPanel Margin="{StaticResource PageMargin}" MinWidth="560" MaxWidth="{StaticResource ContentMaxWidth}" Spacing="20" HorizontalAlignment="Stretch">
+        <StackPanel Margin="{StaticResource PageMargin}"   Spacing="20" HorizontalAlignment="Stretch">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -69,19 +69,19 @@
             </StackPanel>
 
             <Border
-                MinWidth="900"
+                
                 Padding="0"
                 BorderThickness="1"
                 CornerRadius="{StaticResource CardCornerRadius}">
                 <StackPanel>
-                    <Grid x:Name="ServersHeaderRow" HorizontalAlignment="Left" Padding="16,4,16,4" ColumnSpacing="16">
+                    <Grid x:Name="ServersHeaderRow" HorizontalAlignment="Left" Padding="8,4,8,4" ColumnSpacing="4">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" MinWidth="230" />
-                            <ColumnDefinition Width="88" />
-                            <ColumnDefinition Width="104" />
-                            <ColumnDefinition Width="104" />
-                            <ColumnDefinition Width="112" />
-                            <ColumnDefinition Width="116" />
+                            <ColumnDefinition Width="3*" MinWidth="120" />
+                            <ColumnDefinition Width="0.7*" MinWidth="40" />
+                            <ColumnDefinition Width="1*" MinWidth="54" />
+                            <ColumnDefinition Width="1*" MinWidth="54" />
+                            <ColumnDefinition Width="1.1*" MinWidth="64" />
+                            <ColumnDefinition Width="0.9*" MinWidth="50" />
                         </Grid.ColumnDefinitions>
                         <Button
                             x:Name="HdrServer"

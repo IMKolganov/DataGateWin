@@ -25,6 +25,7 @@ public sealed class EngineIpcClient(string engineExePath, string sessionId) : ID
     private StreamReader? _eventsReader;
 
     private readonly ConcurrentDictionary<string, TaskCompletionSource<IpcReply>> _pending = new();
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     private CancellationTokenSource? _internalCts;
     private Task? _controlReadLoop;
@@ -187,8 +188,14 @@ public sealed class EngineIpcClient(string engineExePath, string sessionId) : ID
 
     private async Task StartEngineProcessAsync(CancellationToken ct)
     {
-        if (_process != null)
-            throw new InvalidOperationException("Engine already started.");
+        if (_process is not null)
+        {
+            if (!_process.HasExited)
+                throw new InvalidOperationException("Engine already started.");
+            _process.Dispose();
+            _process = null;
+            _ownsProcess = false;
+        }
 
         var engineDir = Path.GetDirectoryName(engineExePath)
             ?? throw new InvalidOperationException("Engine directory not resolved.");
@@ -227,10 +234,12 @@ public sealed class EngineIpcClient(string engineExePath, string sessionId) : ID
 
         _process.Exited += (_, _) =>
         {
-            EngineExited?.Invoke(this, _process?.ExitCode ?? -1);
-
+            var exitCode = _process?.ExitCode ?? -1;
             FailAllPending(new IOException("Engine process exited."));
             try { _internalCts?.Cancel(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "EngineIpcClient.ProcessExited.Cancel"); }
+            CleanupPipesOnly();
+            // Notify only after invalidating the dead transport.
+            EngineExited?.Invoke(this, exitCode);
         };
 
         if (!_process.Start())
@@ -299,50 +308,49 @@ public sealed class EngineIpcClient(string engineExePath, string sessionId) : ID
 
     public async Task<IpcReply> SendCommandAsync(string type, string payloadJson, CancellationToken ct)
     {
-        if (_controlWriter == null)
-            throw new InvalidOperationException("Not connected.");
-
-        if (_internalCts?.IsCancellationRequested == true)
-            throw new InvalidOperationException("Client lifetime is canceled.");
+        var writer = _controlWriter ?? throw new InvalidOperationException("Not connected.");
+        var lifetime = _internalCts?.Token ?? CancellationToken.None;
+        using var commandCts = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetime);
+        commandCts.CancelAfter(TimeSpan.FromSeconds(20));
+        var commandToken = commandCts.Token;
+        commandToken.ThrowIfCancellationRequested();
 
         var id = Guid.NewGuid().ToString("N");
-
+        var cmd = new IpcCommand
+        {
+            Id = id, Type = type,
+            Payload = string.IsNullOrWhiteSpace(payloadJson) ? new JObject() : JToken.Parse(payloadJson)
+        };
+        var line = JsonConvert.SerializeObject(cmd, JsonSettings);
         var tcs = new TaskCompletionSource<IpcReply>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!_pending.TryAdd(id, tcs))
             throw new InvalidOperationException("Failed to register pending request.");
 
-        var cmd = new IpcCommand
-        {
-            Id = id,
-            Type = type,
-            Payload = string.IsNullOrWhiteSpace(payloadJson) ? new JObject() : JToken.Parse(payloadJson)
-        };
-
-        var line = JsonConvert.SerializeObject(cmd, JsonSettings);
-
-        EngineLogReceived?.Invoke(this, $"[ipc][ui] control send id={id} type={type} bytes={line.Length}");
-
+        // Cancellation must cover waiting for the writer and blocked pipe writes, not just the reply.
+        using var registration = commandToken.Register(() => tcs.TrySetCanceled(commandToken));
         try
         {
-            await _controlWriter.WriteLineAsync(line).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            if (_pending.TryRemove(id, out var pendingTcs))
-                pendingTcs.TrySetException(ex);
-            throw;
-        }
-
-        using var reg = ct.Register(() =>
-        {
-            if (_pending.TryRemove(id, out var pendingTcs))
+            await _writeLock.WaitAsync(commandToken).ConfigureAwait(false);
+            try
             {
-                EngineLogReceived?.Invoke(this, $"[ipc][ui] pending canceled id={id} type={type}");
-                pendingTcs.TrySetCanceled(ct);
+                EngineLogReceived?.Invoke(this, $"[ipc][ui] control send id={id} type={type} bytes={line.Length}");
+                try
+                {
+                    await writer.WriteLineAsync(line.AsMemory(), commandToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // A partial JSON frame cannot be reused for another command.
+                    CleanupPipesOnly();
+                    _pending.TryRemove(id, out _);
+                    FailAllPending(new IOException("Control pipe write failed or was canceled."));
+                    throw;
+                }
             }
-        });
-
-        return await tcs.Task.ConfigureAwait(false);
+            finally { _writeLock.Release(); }
+            return await tcs.Task.ConfigureAwait(false);
+        }
+        finally { _pending.TryRemove(id, out _); }
     }
 
     private async Task ControlReadLoopAsync(CancellationToken ct)

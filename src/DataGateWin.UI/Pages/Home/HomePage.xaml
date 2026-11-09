@@ -20,7 +20,7 @@
         <StackPanel
             Margin="{StaticResource PageMargin}"
             Spacing="20"
-            MaxWidth="{StaticResource ContentMaxWidth}"
+            
             HorizontalAlignment="Stretch">
 
             <!-- Kept for the code that sets its text; the hero below replaces the page title. -->
@@ -28,9 +28,10 @@
 
             <!-- Hero: state at a glance, one primary action, server choice. -->
             <Border
+                x:Name="ConnectionCard"
                 Padding="32,36,32,32"
                 CornerRadius="{StaticResource CardCornerRadius}">
-                <StackPanel Spacing="22" HorizontalAlignment="Center" Width="520">
+                <StackPanel Spacing="22" HorizontalAlignment="Stretch">
 
                     <StackPanel Spacing="6" HorizontalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
@@ -42,13 +43,14 @@
                                 Fill="#8A8A8A" />
                             <TextBlock
                                 x:Name="StatusHeadline"
-                                Style="{StaticResource HeroStatusStyle}" />
+                                Style="{StaticResource HeroStatusStyle}" FontSize="20" />
                         </StackPanel>
                         <TextBlock
                             x:Name="StatusText"
                             Style="{StaticResource MutedTextStyle}"
                             HorizontalAlignment="Center"
                             TextAlignment="Center" />
+                        <ContentControl x:Name="HeroServerHost" HorizontalAlignment="Center" Visibility="Collapsed" />
                         <!-- Label kept for code; visually redundant next to the headline. -->
                         <TextBlock x:Name="ConnectionStatusLabel" Visibility="Collapsed" />
                     </StackPanel>
@@ -181,10 +183,41 @@
                             </Button>
                         </Grid>
                     </StackPanel>
+                    <Border x:Name="TrafficPanel" Padding="16" CornerRadius="12"
+                        BorderThickness="1" BorderBrush="#25808080" Background="#08808080" Visibility="Collapsed">
+                      <StackPanel Spacing="8">
+                        <TextBlock x:Name="TrafficTitle" Style="{StaticResource SectionTitleStyle}" />
+
+                        <TextBlock
+                            x:Name="TrafficErrorText"
+                            Foreground="OrangeRed"
+                            TextWrapping="Wrap"
+                            Text="{x:Bind Traffic.ErrorText, Mode=OneWay}" />
+
+                        <ui:LiveTrafficChart x:Name="TrafficChart" Height="190" />
+                        <StackPanel Orientation="Horizontal" Spacing="24">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon x:Name="TrafficInIcon" Glyph="&#xF151;" FontFamily="{StaticResource IconFont}" FontSize="12" />
+                                <TextBlock
+                                    x:Name="TrafficInText" FontSize="18" FontWeight="SemiBold"
+                                   
+                                    Text="{x:Bind Traffic.InRateText, Mode=OneWay}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon x:Name="TrafficOutIcon" Glyph="&#xF19C;" FontFamily="{StaticResource IconFont}" FontSize="12" />
+                                <TextBlock
+                                    x:Name="TrafficOutText" FontSize="18" FontWeight="SemiBold"
+                                   
+                                    Text="{x:Bind Traffic.OutRateText, Mode=OneWay}" />
+                            </StackPanel>
+                        </StackPanel>
+                      </StackPanel>
+                    </Border>
+
                 </StackPanel>
             </Border>
 
-            <!-- Technical details live behind one expander: network, traffic, engine logs. -->
+            <!-- Connection addresses and engine logs live in Details. -->
             <Expander
                 x:Name="TrafficLogsCard"
                 IsExpanded="False"
@@ -195,7 +228,6 @@
                     <TextBlock x:Name="DetailsHeaderText" Style="{StaticResource SectionTitleStyle}" />
                 </Expander.Header>
                 <StackPanel Spacing="16" Padding="4,8,4,4">
-
                     <StackPanel x:Name="NetworkInfoPanel" Spacing="6" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock x:Name="NetworkServerLabel" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}" />
@@ -217,68 +249,16 @@
                         <TextBlock x:Name="NetworkDnsText" FontFamily="Consolas" FontSize="13" TextWrapping="Wrap" />
                     </StackPanel>
 
-                    <StackPanel x:Name="TrafficPanel" Spacing="10" Visibility="Collapsed">
-                        <StackPanel Orientation="Horizontal" Spacing="16">
-                            <TextBlock x:Name="TrafficTitle" Style="{StaticResource SectionTitleStyle}" />
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xF151;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="#3DC05C" />
-                                <TextBlock
-                                    x:Name="TrafficInText"
-                                    Foreground="#3DC05C"
-                                    Text="{x:Bind Traffic.InRateText, Mode=OneWay}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xF19C;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="#5B9DFF" />
-                                <TextBlock
-                                    x:Name="TrafficOutText"
-                                    Foreground="#5B9DFF"
-                                    Text="{x:Bind Traffic.OutRateText, Mode=OneWay}" />
-                            </StackPanel>
-                        </StackPanel>
 
-                        <TextBlock
-                            x:Name="TrafficErrorText"
-                            Foreground="OrangeRed"
-                            TextWrapping="Wrap"
-                            Text="{x:Bind Traffic.ErrorText, Mode=OneWay}" />
-
-                        <lvc:CartesianChart
-                            x:Name="TrafficChart"
-                            Height="150"
-                            Background="Transparent"
-                            LegendPosition="Hidden"
-                            Series="{x:Bind Traffic.Series, Mode=OneWay}"
-                            TooltipPosition="Top"
-                            XAxes="{x:Bind Traffic.XAxes, Mode=OneWay}"
-                            YAxes="{x:Bind Traffic.YAxes, Mode=OneWay}" />
-                    </StackPanel>
-
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="EngineLogsLabel" VerticalAlignment="Center" />
-                        <ToggleSwitch
-                            x:Name="ShowEngineLogsToggle"
-                            Grid.Column="1"
-                            MinWidth="0"
-                            OnContent=""
-                            OffContent=""
-                            Toggled="ShowEngineLogsToggle_OnToggled" />
-                    </Grid>
-
-                <RichEditBox
-                        x:Name="LogTextBox"
-                        Height="240"
-                        MinHeight="180"
-                        FontFamily="Consolas"
-                        FontSize="12"
-                        IsReadOnly="True"
-                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                        ScrollViewer.VerticalScrollBarVisibility="Auto"
-                    TextWrapping="NoWrap"
-                        Visibility="Collapsed" />
+                    <ScrollViewer x:Name="LogTextBox" Padding="0,0,18,18"
+                        Height="240" MinHeight="180"
+                        HorizontalScrollBarVisibility="Auto"
+                        VerticalScrollBarVisibility="Auto">
+                        <RichTextBlock x:Name="LogContent"
+                            Padding="6,6,24,24" FontFamily="Consolas" FontSize="12"
+                            IsTextSelectionEnabled="True"
+                            TextWrapping="NoWrap" />
+                    </ScrollViewer>
                 </StackPanel>
             </Expander>
         </StackPanel>

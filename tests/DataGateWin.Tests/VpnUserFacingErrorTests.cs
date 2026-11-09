@@ -9,6 +9,11 @@ namespace DataGateWin.Tests;
 public sealed class VpnUserFacingErrorTests
 {
     [Fact]
+    public void XrayDeviceAccessDenied_MapsToPermissionError()
+        => Assert.Equal("Home_Error_Permission", VpnUserFacingError.FromMessage(
+            "app/proxyman/inbound: failed to start proxy > Access is denied."));
+
+    [Fact]
     public void TunBusy_FromWin32AlreadyExists()
     {
         Assert.Equal("Home_Error_TunBusy", VpnUserFacingError.FromMessage(
