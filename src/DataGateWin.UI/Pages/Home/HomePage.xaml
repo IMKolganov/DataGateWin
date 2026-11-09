@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DataGateWin.Pages.Home.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="using:DataGateWin.Services.Ui"
+    xmlns:lvc="using:LiveChartsCore.SkiaSharpView.WinUI"
+    Loaded="HomePage_OnLoaded"
+    Unloaded="HomePage_OnUnloaded">
+
+    <Page.Resources>
+        <ui:ServerPickerRowConverter x:Key="ServerPickerRowConverter" />
+    </Page.Resources>
+
+    <ScrollViewer
+        x:Name="HomeScroll"
+        HorizontalScrollBarVisibility="Disabled"
+        VerticalScrollBarVisibility="Auto" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
+        <Grid HorizontalAlignment="Stretch">
+        <StackPanel
+            Margin="{StaticResource PageMargin}"
+            Spacing="20"
+            MaxWidth="{StaticResource ContentMaxWidth}"
+            HorizontalAlignment="Stretch">
+
+            <!-- Kept for the code that sets its text; the hero below replaces the page title. -->
+            <TextBlock x:Name="WelcomeTitle" Visibility="Collapsed" />
+
+            <!-- Hero: state at a glance, one primary action, server choice. -->
+            <Border
+                Padding="32,36,32,32"
+                CornerRadius="{StaticResource CardCornerRadius}">
+                <StackPanel Spacing="22" HorizontalAlignment="Center" Width="520">
+
+                    <StackPanel Spacing="6" HorizontalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                            <Ellipse
+                                x:Name="StatusDot"
+                                Width="12"
+                                Height="12"
+                                VerticalAlignment="Center"
+                                Fill="#8A8A8A" />
+                            <TextBlock
+                                x:Name="StatusHeadline"
+                                Style="{StaticResource HeroStatusStyle}" />
+                        </StackPanel>
+                        <TextBlock
+                            x:Name="StatusText"
+                            Style="{StaticResource MutedTextStyle}"
+                            HorizontalAlignment="Center"
+                            TextAlignment="Center" />
+                        <!-- Label kept for code; visually redundant next to the headline. -->
+                        <TextBlock x:Name="ConnectionStatusLabel" Visibility="Collapsed" />
+                    </StackPanel>
+
+                    <!-- One action at a time: Connect while idle, Disconnect otherwise. -->
+                    <Grid HorizontalAlignment="Center">
+                        <Button
+                            x:Name="ConnectButton"
+                            Tag="hero"
+                            MinWidth="240"
+                            MinHeight="46"
+                            Padding="20,8"
+                            FontSize="15"
+                            FontWeight="SemiBold"
+                            HorizontalAlignment="Center"
+                            Click="ConnectButton_OnClick"
+                            Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <FontIcon Glyph="&#xE99A;" FontFamily="{StaticResource IconFont}" FontSize="18" />
+                                <TextBlock x:Name="ConnectButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            x:Name="DisconnectButton"
+                            Tag="hero"
+                            Visibility="Collapsed"
+                            MinWidth="240"
+                            MinHeight="46"
+                            Padding="20,8"
+                            FontSize="15"
+                            FontWeight="SemiBold"
+                            HorizontalAlignment="Center"
+                            Click="DisconnectButton_OnClick">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <FontIcon Glyph="&#xF60A;" FontFamily="{StaticResource IconFont}" FontSize="18" />
+                                <TextBlock x:Name="DisconnectButtonText" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- Server choice (secondary to the action above). -->
+                    <StackPanel Spacing="10" HorizontalAlignment="Stretch">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="36" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                x:Name="VpnServerLabel"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource MutedTextStyle}" />
+                            <ComboBox
+                                x:Name="ServerModeCombo"
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectionChanged="ServerModeCombo_OnSelectionChanged" />
+                        </Grid>
+
+                        <Grid
+                            x:Name="ImportedProfileRow"
+                            ColumnSpacing="12"
+                            Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="36" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                x:Name="ImportedProfileLabel"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource MutedTextStyle}" />
+                            <ComboBox
+                                x:Name="ImportedProfileCombo"
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectionChanged="ImportedProfileCombo_OnSelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock
+                                            Text="{Binding Label}"
+                                            TextTrimming="CharacterEllipsis"
+                                            VerticalAlignment="Center" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button
+                                x:Name="RefreshImportedButton"
+                                Grid.Column="2"
+                                Click="RefreshImportedButton_OnClick">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xF191;" FontFamily="{StaticResource IconFont}" FontSize="14" />
+                                    <TextBlock x:Name="RefreshImportedButtonText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <Grid
+                            x:Name="ManualServerRow"
+                            ColumnSpacing="12"
+                            Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="36" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                x:Name="ServerLabel"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource MutedTextStyle}" />
+                            <ComboBox
+                                x:Name="ManualServerCombo"
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectionChanged="ManualServerCombo_OnSelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <ContentPresenter Content="{Binding Converter={StaticResource ServerPickerRowConverter}}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button
+                                x:Name="RefreshServersButton"
+                                Grid.Column="2"
+                                Click="RefreshServersButton_OnClick">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xF191;" FontFamily="{StaticResource IconFont}" FontSize="14" />
+                                    <TextBlock x:Name="RefreshServersButtonText" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Technical details live behind one expander: network, traffic, engine logs. -->
+            <Expander
+                x:Name="TrafficLogsCard"
+                IsExpanded="False"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                CornerRadius="{StaticResource CardCornerRadius}">
+                <Expander.Header>
+                    <TextBlock x:Name="DetailsHeaderText" Style="{StaticResource SectionTitleStyle}" />
+                </Expander.Header>
+                <StackPanel Spacing="16" Padding="4,8,4,4">
+
+                    <StackPanel x:Name="NetworkInfoPanel" Spacing="6" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock x:Name="NetworkServerLabel" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}" />
+                            <Image
+                                x:Name="NetworkServerFlag"
+                                Width="22"
+                                Height="16.5"
+                                Stretch="Uniform"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed"
+                                ImageFailed="NetworkServerFlag_OnImageFailed" />
+                            <TextBlock
+                                x:Name="NetworkServerName"
+                                TextWrapping="Wrap"
+                                VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="NetworkVpnIpText" FontFamily="Consolas" FontSize="13" />
+                        <TextBlock x:Name="NetworkExternalIpText" FontFamily="Consolas" FontSize="13" />
+                        <TextBlock x:Name="NetworkDnsText" FontFamily="Consolas" FontSize="13" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="TrafficPanel" Spacing="10" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <TextBlock x:Name="TrafficTitle" Style="{StaticResource SectionTitleStyle}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xF151;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="#3DC05C" />
+                                <TextBlock
+                                    x:Name="TrafficInText"
+                                    Foreground="#3DC05C"
+                                    Text="{x:Bind Traffic.InRateText, Mode=OneWay}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xF19C;" FontFamily="{StaticResource IconFont}" FontSize="12" Foreground="#5B9DFF" />
+                                <TextBlock
+                                    x:Name="TrafficOutText"
+                                    Foreground="#5B9DFF"
+                                    Text="{x:Bind Traffic.OutRateText, Mode=OneWay}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <TextBlock
+                            x:Name="TrafficErrorText"
+                            Foreground="OrangeRed"
+                            TextWrapping="Wrap"
+                            Text="{x:Bind Traffic.ErrorText, Mode=OneWay}" />
+
+                        <lvc:CartesianChart
+                            x:Name="TrafficChart"
+                            Height="150"
+                            Background="Transparent"
+                            LegendPosition="Hidden"
+                            Series="{x:Bind Traffic.Series, Mode=OneWay}"
+                            TooltipPosition="Top"
+                            XAxes="{x:Bind Traffic.XAxes, Mode=OneWay}"
+                            YAxes="{x:Bind Traffic.YAxes, Mode=OneWay}" />
+                    </StackPanel>
+
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="EngineLogsLabel" VerticalAlignment="Center" />
+                        <ToggleSwitch
+                            x:Name="ShowEngineLogsToggle"
+                            Grid.Column="1"
+                            MinWidth="0"
+                            OnContent=""
+                            OffContent=""
+                            Toggled="ShowEngineLogsToggle_OnToggled" />
+                    </Grid>
+
+                <RichEditBox
+                        x:Name="LogTextBox"
+                        Height="240"
+                        MinHeight="180"
+                        FontFamily="Consolas"
+                        FontSize="12"
+                        IsReadOnly="True"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                    TextWrapping="NoWrap"
+                        Visibility="Collapsed" />
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Page>

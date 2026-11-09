@@ -20,7 +20,7 @@
 - **UI (WinUI 3)** handles Connect/Disconnect, status, settings, and logs; starts the Engine and attaches via IPC.
 - **Engine (native)** is the single source of truth for VPN state: tunnel (Wintun), routes, DNS, OpenVPN3 core.
 
-Details: [Architecture (UI ↔ Engine IPC)](ARCHITECTURE.md). DNS incident history and Android connect inventory: [docs/DNS_AND_CONNECT_HISTORY.md](docs/DNS_AND_CONNECT_HISTORY.md).
+Details: [Architecture (UI ↔ Engine IPC)](docs/ARCHITECTURE.md). DNS incident history and Android connect inventory: [docs/DNS_AND_CONNECT_HISTORY.md](docs/DNS_AND_CONNECT_HISTORY.md).
 
 ## Features
 
@@ -63,19 +63,23 @@ Initialize submodules and ensure Wintun is available (see `drivers/wintun/README
 
 ### 3. Build
 
-Build the solution (e.g. in Visual Studio) or use the project’s build scripts. The result includes the **UI** app and the **Engine** native process; the installer (in `DataGateWin.Installer`) can package them for distribution.
+Build the solution (e.g. in Visual Studio) or use the project’s build scripts. The result includes the **UI** app and the **Engine** native process; the installer (in `src/DataGateWin.Installer`) can package them for distribution.
 
 ## Project layout
 
 | Path | Description |
 |------|-------------|
-| **DataGateWin.WinUI/** | WinUI 3 application (shipping UI, IPC client). |
-| **DataGateWin.UI/** | Legacy WPF application (kept for reference). |
+| **src/DataGateWin.UI/** | The only UI: WinUI 3 app (builds `DataGateWin.exe`). Pages, view models, WinUI services. |
+| **src/DataGateWin.Core/** | UI-free logic shared by UI, installer and tests: auth, IPC client, VPN server APIs, profiles, IP lists, update policy. |
+| **src/DataGateWin.CrashReporting/** | Crash capture and ingest client. |
+| **src/DataGateWin.Installer/** | WPF installer (submodule): download release ZIP, install, shortcuts. |
+| **tests/DataGateWin.Tests/** | xUnit tests for Core, installer and source-level contract checks. |
 | **engine/** | Native Engine process (OpenVPN3, WSS bridge, Wintun). |
-| **docs/** | Architecture notes (e.g. DNS incident history). |
-| **openvpn3/** | OpenVPN3 core (submodule or vendored). |
+| **scripts/** | Build and release scripts (`Build-Engine.ps1`, `Build-Release.ps1`), libXray fetch, local deploy. |
+| **tools/** | Maintenance tools (locale generation and audit). |
+| **docs/** | Architecture, release notes (`docs/releases/`), protocol reference (`docs/reference/`). |
+| **openvpn3/** | OpenVPN3 core (submodule). |
 | **drivers/** | Wintun and related drivers. |
-| **DataGateWin.Installer/** | WPF installer (download release ZIP, install, shortcuts). |
 | **assets/** | Logo and images for the repo (e.g. README). |
 
 ## License
