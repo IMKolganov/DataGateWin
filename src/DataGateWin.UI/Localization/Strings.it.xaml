@@ -300,6 +300,10 @@
     <x:String x:Key="About_Description">Secure VPN client for the DataGate platform.</x:String>
     <x:String x:Key="About_WebsiteUrl">https://datagateapp.com</x:String>
     <x:String x:Key="About_Close">Chiudi</x:String>
+    <x:String x:Key="About_ContactTitle">Restiamo in contatto</x:String>
+    <x:String x:Key="About_DeveloperLocation">Cipro</x:String>
+    <x:String x:Key="About_DeveloperRole">Sviluppo VPN e backend · .NET / Python</x:String>
+    <x:String x:Key="About_ContactDescription">Disponibile a collaborare su sistemi backend, infrastrutture VPN e strumenti per sviluppatori. Contattami su LinkedIn o scopri i miei progetti su GitHub.</x:String>
     <x:String x:Key="Lang_Name_system">Predefinito di sistema</x:String>
     <x:String x:Key="Import_Title">Import profiles</x:String>
     <x:String x:Key="Import_Subtitle">Add your own OpenVPN (.ovpn) or Xray configs and connect without the catalog.</x:String>

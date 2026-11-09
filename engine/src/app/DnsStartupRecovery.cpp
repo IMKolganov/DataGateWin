@@ -41,10 +41,10 @@ namespace datagate::dns
 
             HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
             if (!proc)
-                return false;
+                return GetLastError() != ERROR_INVALID_PARAMETER; // Unknown is not proof of a dead owner.
 
             DWORD exitCode = 0;
-            const bool alive = GetExitCodeProcess(proc, &exitCode) && exitCode == STILL_ACTIVE;
+            const bool alive = !GetExitCodeProcess(proc, &exitCode) || exitCode == STILL_ACTIVE;
             CloseHandle(proc);
             return alive;
         }
@@ -252,6 +252,42 @@ namespace datagate::dns
             return true;
         }
 
+        bool HasRecoveryArtifacts(bool& accessDenied)
+        {
+            bool found = false;
+            for (const REGSAM view : kRegistryViews)
+            {
+                for (const auto* path : kNrptSubkeys)
+                {
+                    HKEY key = nullptr;
+                    const LONG rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ | view, &key);
+                    if (rc == ERROR_ACCESS_DENIED) accessDenied = true;
+                    if (rc != ERROR_SUCCESS) continue;
+                    for (DWORD index = 0;; ++index)
+                    {
+                        wchar_t name[256]{};
+                        DWORD length = static_cast<DWORD>(std::size(name));
+                        if (RegEnumKeyExW(key, index, name, &length, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
+                            break;
+                        if (StartsWithPrefix(name)) found = true;
+                    }
+                    RegCloseKey(key);
+                }
+                for (const auto* path : kSearchListSubkeys)
+                {
+                    HKEY key = nullptr;
+                    const LONG rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ | view, &key);
+                    if (rc == ERROR_ACCESS_DENIED) accessDenied = true;
+                    if (rc != ERROR_SUCCESS) continue;
+                    std::wstring value;
+                    if (ReadRegString(key, L"OriginalSearchList", value)
+                        || ReadRegString(key, L"InitialSearchList", value)) found = true;
+                    RegCloseKey(key);
+                }
+            }
+            return found;
+        }
+
         bool RestoreSearchListUnderKey(HKEY root, REGSAM view, const wchar_t* subkeyPath, bool& accessDenied)
         {
             HKEY key = nullptr;
@@ -386,9 +422,17 @@ namespace datagate::dns
                 throw std::runtime_error("CreateProcessW(ipconfig /flushdns) failed");
             }
 
-            WaitForSingleObject(pi.hProcess, 15000);
+            const DWORD wait = WaitForSingleObject(pi.hProcess, 15000);
+            DWORD exitCode = 1;
+            const bool success = wait == WAIT_OBJECT_0
+                && GetExitCodeProcess(pi.hProcess, &exitCode) && exitCode == 0;
+            if (wait == WAIT_TIMEOUT)
+                TerminateProcess(pi.hProcess, 1);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
+
+            if (!success)
+                throw std::runtime_error("ipconfig /flushdns failed or timed out");
 
             std::cerr << "[engine][dns] startup: flushed DNS cache" << std::endl;
         }
@@ -411,7 +455,24 @@ namespace datagate::dns
                 return result;
             }
             if (probeAccessDenied)
+            {
                 result.accessDenied = true;
+                result.ok = false;
+                return result;
+            }
+        }
+
+        if (!HasRecoveryArtifacts(result.accessDenied))
+        {
+            result.ok = !result.accessDenied;
+            std::cerr << "[engine][dns] startup: no stale NRPT rules or SearchList backups; no changes"
+                      << std::endl;
+            return result;
+        }
+        if (result.accessDenied)
+        {
+            result.ok = false;
+            return result;
         }
 
         try
@@ -472,6 +533,12 @@ namespace datagate::dns
         {
             result.ok = false;
             std::cerr << "[engine][dns] startup: DNS cache flush failed: unknown error" << std::endl;
+        }
+
+        if (HasRecoveryArtifacts(result.accessDenied))
+        {
+            result.ok = false;
+            std::cerr << "[engine][dns] startup: recovery incomplete; stale DNS settings remain" << std::endl;
         }
 
         if (result.accessDenied)

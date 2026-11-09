@@ -281,6 +281,14 @@ public partial class App : Application
             }
 
             _engineExePath = _enginePathResolver.ResolveEngineExePath();
+            // Offline recovery must finish before token refresh, login or update requests.
+            // Do not kill an existing engine here: recovery refuses an active session.
+            await Task.Run(() => EngineDnsRecoveryRunner.TryRecover(
+                _engineExePath, line =>
+                {
+                    try { File.AppendAllText(boot, line + Environment.NewLine); }
+                    catch { /* logging must not prevent offline recovery or login */ }
+                }));
             var configDir = AppContext.BaseDirectory;
             var configPath = Path.Combine(configDir, "appsettings.json");
             File.AppendAllText(boot, $"config={configPath} engine={_engineExePath}\n");

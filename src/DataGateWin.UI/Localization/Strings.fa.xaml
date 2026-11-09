@@ -300,6 +300,10 @@
     <x:String x:Key="About_Description">Secure VPN client for the DataGate platform.</x:String>
     <x:String x:Key="About_WebsiteUrl">https://datagateapp.com</x:String>
     <x:String x:Key="About_Close">بستن</x:String>
+    <x:String x:Key="About_ContactTitle">در تماس باشیم</x:String>
+    <x:String x:Key="About_DeveloperLocation">قبرس</x:String>
+    <x:String x:Key="About_DeveloperRole">توسعهٔ VPN و بک‌اند · .NET / Python</x:String>
+    <x:String x:Key="About_ContactDescription">آمادهٔ همکاری در زمینهٔ سامانه‌های بک‌اند، زیرساخت VPN و ابزارهای توسعه‌دهندگان هستم. از طریق LinkedIn تماس بگیرید یا پروژه‌هایم را در GitHub ببینید.</x:String>
     <x:String x:Key="Lang_Name_system">پیش‌فرض سیستم</x:String>
     <x:String x:Key="Import_Title">Import profiles</x:String>
     <x:String x:Key="Import_Subtitle">Add your own OpenVPN (.ovpn) or Xray configs and connect without the catalog.</x:String>

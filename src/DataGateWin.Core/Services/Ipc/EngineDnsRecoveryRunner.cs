@@ -46,6 +46,9 @@ public static class EngineDnsRecoveryRunner
                 return;
             }
 
+            // Drain both pipes while the child runs; a full log pipe must not stall recovery.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(20000))
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
@@ -53,7 +56,10 @@ public static class EngineDnsRecoveryRunner
                 return;
             }
 
-            var stderr = process.StandardError.ReadToEnd();
+            var stderr = stderrTask.GetAwaiter().GetResult();
+            _ = stdoutTask.GetAwaiter().GetResult();
+            if (!string.IsNullOrWhiteSpace(stderr))
+                log?.Invoke(stderr.TrimEnd());
             if (process.ExitCode == 0)
             {
                 log?.Invoke("[ui][dns] recover-dns OK");

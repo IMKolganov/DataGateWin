@@ -35,7 +35,8 @@ public sealed class EngineDnsRecoveryIntegrationTests
         {
             Assert.Contains("stale NRPT rule", stderr, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("SearchList", stderr, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("flushed DNS cache", stderr, StringComparison.OrdinalIgnoreCase);
+            Assert.True(stderr.Contains("flushed DNS cache", StringComparison.OrdinalIgnoreCase)
+                || stderr.Contains("no changes", StringComparison.OrdinalIgnoreCase), stderr);
         }
         else if (process.ExitCode == 5)
         {

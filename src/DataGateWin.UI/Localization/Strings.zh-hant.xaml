@@ -300,6 +300,10 @@
     <x:String x:Key="About_Description">Secure VPN client for the DataGate platform.</x:String>
     <x:String x:Key="About_WebsiteUrl">https://datagateapp.com</x:String>
     <x:String x:Key="About_Close">關閉</x:String>
+    <x:String x:Key="About_ContactTitle">聯絡我</x:String>
+    <x:String x:Key="About_DeveloperLocation">賽普勒斯</x:String>
+    <x:String x:Key="About_DeveloperRole">VPN 與後端開發 · .NET / Python</x:String>
+    <x:String x:Key="About_ContactDescription">歡迎就後端系統、VPN 基礎設施和開發者工具展開合作。請透過 LinkedIn 聯絡我，或在 GitHub 查看我的專案。</x:String>
     <x:String x:Key="Lang_Name_system">跟隨系統</x:String>
     <x:String x:Key="Import_Title">Import profiles</x:String>
     <x:String x:Key="Import_Subtitle">Add your own OpenVPN (.ovpn) or Xray configs and connect without the catalog.</x:String>

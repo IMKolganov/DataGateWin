@@ -80,3 +80,4 @@ third_party/libxray/
 
 # Local UI verification build
 /artifacts/access-grid/
+/artifacts/about-dialog-check/
