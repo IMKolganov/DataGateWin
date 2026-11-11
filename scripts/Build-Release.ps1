@@ -3,6 +3,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Version = "1.0.23",
     [string]$VcpkgRoot = "F:\C++\vcpkg",
+    [string]$VcRedistDir = "",
     [switch]$SkipConfigure,
     [switch]$SkipInstaller
 )
@@ -17,11 +18,8 @@ $InstallerDir = Join-Path $Root "src\DataGateWin.Installer"
 $WintunDll = Join-Path $Root "drivers\wintun\wintun.dll"
 $VcpkgBin = Join-Path $VcpkgRoot "installed\x64-windows\bin"
 $Tfm = "net10.0-windows10.0.26100.0"
-# dotnet publish -r win-x64 writes here; bin\x64\... may hold a stale tiny PRI from smoke tests.
+# Publish to an explicit target so an older output cannot be selected accidentally.
 $OutDir = Join-Path $UiDir "bin\$Configuration\$Tfm\win-x64\publish"
-if (-not (Test-Path (Join-Path $OutDir "DataGateWin.exe"))) {
-    $OutDir = Join-Path $UiDir "bin\x64\$Configuration\$Tfm\win-x64\publish"
-}
 $EngineOut = Join-Path $OutDir "engine"
 $InstallerOut = Join-Path $OutDir "Installer"
 $ZipPath = Join-Path $OutDir "DataGateWin.v$Version.zip"
@@ -46,10 +44,12 @@ if (-not $SkipConfigure) {
     cmake -S $EngineDir -B $BuildDir `
         -DCMAKE_TOOLCHAIN_FILE="$VcpkgRoot\scripts\buildsystems\vcpkg.cmake" `
         -A x64
+    if ($LASTEXITCODE -ne 0) { throw "Engine configure failed: $LASTEXITCODE" }
 }
 
 Write-Host "=== Build engine ($Configuration) ===" -ForegroundColor Cyan
 cmake --build $BuildDir --config $Configuration --target engine -- /m
+if ($LASTEXITCODE -ne 0) { throw "Engine build failed: $LASTEXITCODE" }
 
 $EngineExe = Join-Path $BuildDir "$Configuration\engine.exe"
 Require-Path $EngineExe "engine.exe"
@@ -63,7 +63,8 @@ dotnet publish $UiProj `
     -p:WindowsPackageType=None `
     -p:WindowsAppSDKSelfContained=true `
     -p:SelfContained=true `
-    -p:PublishTrimmed=false
+    -p:PublishTrimmed=false `
+    -p:PublishDir="$OutDir\"
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish WinUI failed with exit $LASTEXITCODE"
 }
@@ -95,6 +96,22 @@ foreach ($dll in @(
 Copy-Item -Force $WintunDll (Join-Path $EngineOut "wintun.dll")
 Copy-Item -Force (Join-Path $Root "engine\third_party\libxray\libXray.dll") (Join-Path $EngineOut "libXray.dll")
 
+# Native /MD engine dependencies must also work on machines without a VC++ installation.
+if (-not $VcRedistDir) {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    Require-Path $vswhere "vswhere (or supply -VcRedistDir)"
+    $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    $crt = Get-ChildItem (Join-Path $vsInstall "VC\Redist\MSVC") -Recurse -File -Filter "msvcp140.dll" |
+        Where-Object { $_.Directory.Parent.Name -eq "x64" } |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if (-not $crt) { throw "VC++ x64 redistributable not found; supply -VcRedistDir." }
+    $VcRedistDir = $crt.DirectoryName
+}
+foreach ($requiredCrt in @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")) {
+    Require-Path (Join-Path $VcRedistDir $requiredCrt) "VC++ x64 runtime"
+}
+Copy-Item -Path (Join-Path $VcRedistDir "*.dll") -Destination $EngineOut -Force
+
 if (-not $SkipInstaller) {
     Write-Host "=== Publish installer (single-file) ===" -ForegroundColor Cyan
     dotnet publish (Join-Path $InstallerDir "DataGateWin.Installer.csproj") `
@@ -104,6 +121,7 @@ if (-not $SkipInstaller) {
         -p:EnableCompressionInSingleFile=true `
         -p:DebugType=None -p:DebugSymbols=false
 
+    if ($LASTEXITCODE -ne 0) { throw "Installer publish failed: $LASTEXITCODE" }
     $PublishedInstaller = Join-Path $InstallerDir "bin\$Configuration\net10.0-windows\win-x64\publish\DataGateWin.Installer.exe"
     Require-Path $PublishedInstaller "published installer"
     New-Item -ItemType Directory -Force -Path $InstallerOut | Out-Null

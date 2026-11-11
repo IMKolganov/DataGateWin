@@ -1,27 +1,29 @@
-# DataGate for Windows — release 1.0.23
+# DataGate for Windows — 1.0.23
 
-## Summary
+## Changes
 
-- Imported OpenVPN profiles that need a username/password (and dynamic challenge) can now connect.
-- Import → Browse file uses the Windows App SDK picker (`Microsoft.Windows.Storage.Pickers`) so the dialog can run in an elevated unpackaged process. The old `Windows.Storage.Pickers.FileOpenPicker` fails as Administrator with a generic “Something went wrong”.
-- Every request to the DataGate backend now says which app and build sent it (`X-Client-Name: windows`, `X-Client-Version: 1.0.23`).
+- Added a server map with server locations, status markers and IP location.
+- Improved statistics filters, date ranges and traffic charts.
+- Added manual update checking in Settings and corrected version comparisons.
+- Installer: project information and links, themed language picker, Back navigation and retry after failure.
+- New installer validates downloads and upgrade versions, restores files after copy failures, and stops only processes from the target installation.
+- Improved VPN connection preparation, imported OpenVPN credentials/challenges and startup DNS recovery.
+- Fixed elevated file import, startup sizing, account display and runtime themes.
+- Updated backend client identification and libXray to v26.10.31.
+- Removed WinRT build warnings.
 
-## For users
+## Downloads
 
-- **Import:** choosing a `.ovpn` / Xray file no longer dies immediately on Release (UAC / `requireAdministrator`). Uses WASDK 2.4 `FileOpenPicker(WindowId)` as documented for elevated desktop apps.
-- **Imported OpenVPN with login:** DataGate asks for the credentials (and the challenge response, when the server sends one) instead of failing.
-- **Unsupported build:** if the server stops supporting this build, DataGate shows **Update required** once (with a download link) instead of a generic error. You stay signed in.
-
-## Under the hood
-
-- `ClientIdentityHandler` (in `DataGateWin.CrashReporting`, shared by Core, WinUI, the WPF fallback and the installer) adds the headers to the auth client, the authenticated API client (including the retry after a token refresh) and crash ingest. Header names come from `DataGateMonitor.SharedModels` 1.0.90.
-- VPN node traffic (WSS `/api/proxy`), GitHub update checks, Google sign-in and avatars are not touched.
-
-## Artifacts
-
-- **DataGateWin.v1.0.23.zip**
-- **DataGateWin.Installer.exe**
+- **DataGateWin.Installer.exe** — Windows x64 installer.
+- **DataGateWin.v1.0.23.zip** — complete Windows x64 application, engine and bundled installer.
+- **SHA256SUMS.txt** — artifact checksums.
 
 ## Upgrade
 
-Install 1.0.23 over 1.0.22 (or earlier).
+Install over 1.0.22 or an earlier supported version, or accept the update in the app. Existing versions continue to use the numeric release tag and the `DataGateWin.v*.zip` asset.
+
+The old updater preserves its own running executable during an in-app update. Run the new standalone installer to replace that legacy helper and obtain the new installer behavior.
+
+The welcome screen is translated into Russian and English; other languages use English fallback. Back navigation is translated into all 40 supported locales.
+
+Windows 10/11 x64. The ZIP includes the required .NET/Windows App SDK runtime, WinUI language resources and VPN engine dependencies.

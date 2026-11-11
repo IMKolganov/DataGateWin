@@ -55,9 +55,8 @@ public sealed class GitHubUpdateChecker
         try
         {
             var currentVersion = AppUpdatePolicy.ResolveCurrentAppVersion(
-                Assembly.GetEntryAssembly()?.Location,
-                Assembly.GetEntryAssembly()?.GetName().Version,
-                AppContext.BaseDirectory);
+                assemblyVersion: Assembly.GetEntryAssembly()?.GetName().Version,
+                installDirectory: AppContext.BaseDirectory);
             var latest = await GetLatestReleaseAsync(ct).ConfigureAwait(false);
 
             if (latest == null)
