@@ -11,6 +11,7 @@ namespace datagate::dns
         int searchListKeysRestored = 0;
     };
 
+    // Detect leftover NRPT/SearchList first; healthy systems are left unchanged.
     // Order: NRPT wipe → SearchList restore → Dnscache PARAMCHANGE → ipconfig /flushdns.
     // Same safety net as ovpnagent / TunWin::Setup::destroy DNS teardown.
     //

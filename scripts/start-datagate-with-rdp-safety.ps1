@@ -14,7 +14,7 @@ if (-not (Test-Path -LiteralPath $killScript)) {
 
 $exe = Join-Path $InstallDir "DataGateWin.exe"
 if (-not (Test-Path -LiteralPath $exe)) {
-    throw "Missing $exe — deploy first (_local_deploy_elevated.ps1)"
+    throw "Missing $exe — deploy first (scripts/local-deploy-elevated.ps1)"
 }
 
 Write-Host "=== Arm RDP VPN safety ($Minutes min) ===" -ForegroundColor Cyan

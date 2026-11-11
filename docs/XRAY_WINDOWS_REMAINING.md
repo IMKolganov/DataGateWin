@@ -12,7 +12,7 @@ Branch: `feature/winui3-migration`.
 
 | Area | Notes |
 |------|--------|
-| libXray pin v26.7.28 | `scripts/libxray/fetch-windows.ps1`, `docs/BUILD_LIBXRAY_WINDOWS.md` |
+| libXray pin v26.10.31 | `scripts/libxray/fetch-windows.ps1`, `docs/BUILD_LIBXRAY_WINDOWS.md` |
 | `XrayRuntime` / TUN config | `engine/src/xray/*` |
 | IPC `protocol=xray` | Mutual exclusion via single session |
 | `XrayClientLinksApiClient` | Wired into `StartSessionPayloadBuilder` |

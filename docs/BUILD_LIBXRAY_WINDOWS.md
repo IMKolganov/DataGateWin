@@ -5,9 +5,9 @@
 | Item | Value |
 |------|--------|
 | Upstream | [XTLS/libXray](https://github.com/XTLS/libXray) |
-| Release tag | **v26.7.28** (matches Android AAR / Go mirror **v1.260728.0**) |
+| Release tag | **v26.10.31** (matches Android AAR / Go mirror **v1.261031.0**) |
 | Artifact | `libxray-windows-x64.zip` → `libXray.dll` + `libXray.h` |
-| API | `CGoInvoke` / `CGoFree` JSON bridge (`apiVersion` 1) |
+| API | `CGoInvoke` / `CGoFree` JSON bridge (`apiVersion` 3, `runXray` payload `xrayJson`) |
 
 No Go toolchain is required for the Windows client: we consume the official prebuilt DLL.
 
@@ -25,9 +25,9 @@ Stages into `engine\third_party\libxray\`:
 - `libXray.h`
 - `VERSION.txt`
 
-If `third_party\libxray\libxray-windows-x64.zip` already exists, the script uses that zip instead of downloading.
+Existing files are reused only when `VERSION.txt` matches the requested release. Cached archives must include the release in their name: `libxray-windows-x64-v26.10.31.zip`, in `third_party\libxray\` or the output directory. An unversioned archive is not reused.
 
-`Build-Engine.ps1` / `Build-Release.ps1` call the fetch script when the DLL is missing, then copy `libXray.dll` next to `engine.exe` (same folder as `wintun.dll`).
+`Build-Engine.ps1` / `Build-Release.ps1` call the fetch script before building, then copy `libXray.dll` next to `engine.exe` (same folder as `wintun.dll`).
 
 ## Runtime layout
 
@@ -53,7 +53,7 @@ engine\
 }
 ```
 
-4. Confirm logs: `[xray] convert…`, `runXrayFromJson`, `connected`.
+4. Confirm logs: `[xray] convert…`, `runXray`, `connected`.
 5. `StopSession` → Idle; optional `--recover-dns` still clean.
 6. Do **not** unlock Access/Import Xray UI until this path is green.
 
@@ -61,4 +61,4 @@ engine\
 
 - OpenVPN and Xray are mutually exclusive: one `SessionController` session at a time.
 - Default IPC protocol remains OpenVPN (`ovpnContent` + WSS bridge).
-- DLL is gitignored (`*.dll`); CI/dev machines fetch via the script.
+- The pinned DLL, header and version stamp are committed together; the fetch script refreshes them when the release changes.

@@ -158,14 +158,19 @@ struct UdpWsSession : public std::enable_shared_from_this<UdpWsSession>
             boost::system::error_code ec;
             sp->statsTimer.cancel();
 
-            if (sp->ws && sp->ws->is_open())
-                sp->ws->close(bws::close_code::normal, ec);
+            // Cancel the transport instead of synchronously closing WebSocket while
+            // async read/write operations still own Beast/TLS state and queue buffers.
+            if (sp->ws)
+            {
+                auto& socket = bbeast::get_lowest_layer(*sp->ws).socket();
+                socket.cancel(ec);
+                socket.shutdown(btcp::socket::shutdown_both, ec);
+                socket.close(ec);
+            }
 
-            LogEc(sp->opt.log, sp->globalMask, sp->opt.logMask, "udp session ws.close", ec);
 
-            sp->wsOutQ.clear();
-            sp->wsOutBytes = 0;
-            sp->wsWriteInProgress = false;
+            // Pending completion handlers retain the session and its write buffers.
+
         });
     }
 

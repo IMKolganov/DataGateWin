@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>DataGateWin.Tests</RootNamespace>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LiveChartsCore.SkiaSharpView" Version="2.0.5" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DataGateWin.CrashReporting\DataGateWin.CrashReporting.csproj" />
+    <ProjectReference Include="..\..\src\DataGateWin.Core\DataGateWin.Core.csproj" />
+    <ProjectReference Include="..\..\src\DataGateWin.Installer\DataGateWin.Installer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="TestData\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Exercise the production chart/filter view model without hosting unpackaged WinUI. -->
+    <Compile Include="..\..\src\DataGateWin.UI\ViewModels\StatisticsViewModel.cs" Link="Production\StatisticsViewModel.cs" />
+  </ItemGroup>
+
+</Project>

@@ -22,6 +22,12 @@ namespace datagate::vpn
 
     bool VpnRunner::Start(const std::string& ovpnContentUtf8, const std::string& guiVersion, std::string& outError)
     {
+        AuthCreds empty{};
+        return Start(ovpnContentUtf8, guiVersion, empty, outError);
+    }
+
+    bool VpnRunner::Start(const std::string& ovpnContentUtf8, const std::string& guiVersion, const AuthCreds& creds, std::string& outError)
+    {
         std::unique_ptr<VpnClient> client = std::make_unique<VpnClient>();
 
         client->OnConnected = [this](const VpnClient::ConnectedInfo& ci)
@@ -96,6 +102,45 @@ namespace datagate::vpn
 
         if (OnLog)
             OnLog("[vpn] Connect()...");
+
+        // autologin=1 (cert-only): no creds unless this is a CRV1 retry.
+        // autologin=0: username/password / static-challenge from ProvideCreds.
+        if (!eval.autologin)
+        {
+            if (!creds.present)
+            {
+                outError = "openvpn_auth_required";
+                std::lock_guard<std::mutex> lock(_mtx);
+                ResetClientLocked();
+                return false;
+            }
+
+            if (OnLog)
+                OnLog("[vpn] ProvideCreds()...");
+
+            std::string credErr;
+            if (!c->ProvideCreds(creds.username, creds.password, creds.response, creds.cookie, credErr))
+            {
+                outError = credErr.empty() ? std::string("openvpn_auth_required") : credErr;
+                std::lock_guard<std::mutex> lock(_mtx);
+                ResetClientLocked();
+                return false;
+            }
+        }
+        else if (creds.present)
+        {
+            if (OnLog)
+                OnLog("[vpn] ProvideCreds() (dynamic challenge)...");
+
+            std::string credErr;
+            if (!c->ProvideCreds(creds.username, creds.password, creds.response, creds.cookie, credErr))
+            {
+                outError = credErr.empty() ? std::string("openvpn_auth_required") : credErr;
+                std::lock_guard<std::mutex> lock(_mtx);
+                ResetClientLocked();
+                return false;
+            }
+        }
 
         auto status = c->Connect();
         if (status.error)

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop, 'sync/**']
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # openvpn3 is only needed for the native engine, which this job does not build.
+      - name: Fetch installer submodule
+        run: git submodule update --init --depth 1 src/DataGateWin.Installer
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test libXray release cache
+        run: pwsh -File scripts/libxray/test-fetch-cache.ps1
+
+      - name: Build UI app
+        run: dotnet build src/DataGateWin.UI/DataGateWin.UI.csproj -c Release -p:Platform=x64
+
+      - name: Test
+        run: dotnet test tests/DataGateWin.Tests/DataGateWin.Tests.csproj -c Release --logger "console;verbosity=normal"

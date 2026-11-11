@@ -16,7 +16,7 @@ namespace datagate::xray
         /// @param outboundsOrConfigJson share-convert result, `{outbounds:[...]}`, or raw outbounds array.
         /// @param directBypassCidrs extra CIDRs → direct (proxy endpoint /32, API hosts).
         /// @param tunnelDnsServers DNS IPs forced through proxy before private→direct.
-        /// @param fullConfigJson out — ready for runXrayFromJson
+        /// @param fullConfigJson out — ready for runXray
         static bool BuildWindowsTunClientConfig(
             const std::string& outboundsOrConfigJson,
             std::string& fullConfigJson,

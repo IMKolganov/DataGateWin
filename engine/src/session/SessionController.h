@@ -37,6 +37,12 @@ namespace datagate::session
         std::string guiVersion;
         BridgeOptions bridge;
 
+        std::string openVpnUsername;
+        std::string openVpnPassword;
+        std::string openVpnResponse;
+        std::string openVpnChallengeCookie;
+        bool hasOpenVpnCreds = false;
+
         // When false, OpenVPN talks to remotes in the .ovpn as-is (imported profiles).
         // Default true: DataGate catalog path via local WSS bridge.
         bool useWssBridge = true;

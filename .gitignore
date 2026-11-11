@@ -64,3 +64,29 @@ _local_install_stage/
 # Unsupported Win7 client build trees
 /build-win7/
 /win7/dist/
+
+# Downloaded via scripts/libxray/fetch-windows.ps1
+third_party/libxray/
+
+# Local scratch in repo root (logs, screenshots, dumps, previews)
+/_*.log
+/_*.txt
+/_*.png
+/_*.ps1
+/_preview_*/
+/_downloads/
+/_flag_probe/
+/_gh_install_*/
+
+# Local UI verification build
+/artifacts/access-grid/
+/artifacts/about-dialog-check/
+
+# Local verification outputs
+/artifacts/flag-check/
+/artifacts/installer-theme-check/
+/artifacts/installer-welcome-check/
+/artifacts/installer-welcome-layout/
+/artifacts/installer-welcome-tests/
+/artifacts/location-build/
+/artifacts/location-check/
