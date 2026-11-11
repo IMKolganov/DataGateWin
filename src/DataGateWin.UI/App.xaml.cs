@@ -498,16 +498,12 @@ public partial class App : Application
 
     private static bool ShouldElevateProcess()
     {
-#if DEBUG
-        return false;
-#else
         var skip = Environment.GetEnvironmentVariable("DATAGATE_WIN_SKIP_ADMIN_CHECK");
         if (string.Equals(skip, "1", StringComparison.Ordinal)
             || string.Equals(skip, "true", StringComparison.OrdinalIgnoreCase))
             return false;
 
         return !IsRunningAsAdministrator();
-#endif
     }
 
     private static bool TryRelaunchAsAdministrator()

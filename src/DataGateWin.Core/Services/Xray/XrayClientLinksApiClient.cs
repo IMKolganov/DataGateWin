@@ -1,3 +1,4 @@
+using DataGateWin.CrashReporting;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -56,7 +57,7 @@ public sealed class XrayClientLinksApiClient(HttpClient http)
                 "application/json")
         };
 
-        var resp = await _http.SendAsync(req, ct);
+        var resp = await _http.SendBackendAsync(req, ct);
         var raw = await resp.Content.ReadAsStringAsync(ct);
 
         if (resp.StatusCode == HttpStatusCode.NotFound)
@@ -100,7 +101,7 @@ public sealed class XrayClientLinksApiClient(HttpClient http)
                 "application/json")
         };
 
-        var resp = await _http.SendAsync(req, ct);
+        var resp = await _http.SendBackendAsync(req, ct);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException("profile_download_failed");
     }

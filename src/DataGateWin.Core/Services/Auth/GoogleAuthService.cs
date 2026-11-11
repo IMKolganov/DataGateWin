@@ -1,3 +1,4 @@
+using DataGateWin.CrashReporting;
 using System.Collections.Specialized;
 using System.Net;
 using System.Net.Http;
@@ -60,6 +61,12 @@ public sealed class GoogleAuthService(HttpClient http)
             RedirectUri = redirectUri
         };
 
+        return await ExchangeCodeAsync(dataGateApiBaseUrl, request, ct);
+    }
+
+    internal async Task<ApiResponse<GoogleLoginResponse>> ExchangeCodeAsync(
+        string dataGateApiBaseUrl, GoogleCodeLoginRequest request, CancellationToken ct)
+    {
         var apiUrl = $"{dataGateApiBaseUrl.TrimEnd('/')}/api/auth/google-code-login";
 
         using var content = new StringContent(
@@ -67,7 +74,7 @@ public sealed class GoogleAuthService(HttpClient http)
             Encoding.UTF8,
             "application/json");
 
-        using var resp = await _http.PostAsync(apiUrl, content, ct);
+        using var resp = await _http.PostBackendAsync(apiUrl, content, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
 
         if (!resp.IsSuccessStatusCode)

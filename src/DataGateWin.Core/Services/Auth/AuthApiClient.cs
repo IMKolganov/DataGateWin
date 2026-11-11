@@ -1,3 +1,4 @@
+using DataGateWin.CrashReporting;
 using System.Net.Http;
 using System.Text;
 using Newtonsoft.Json;
@@ -20,7 +21,7 @@ public sealed class AuthApiClient(HttpClient http)
             Encoding.UTF8,
             "application/json");
 
-        using var resp = await _http.PostAsync("/api/auth/google-login", content, ct)
+        using var resp = await _http.PostBackendAsync("/api/auth/google-login", content, ct)
             .ConfigureAwait(false);
 
         resp.EnsureSuccessStatusCode();
@@ -38,7 +39,7 @@ public sealed class AuthApiClient(HttpClient http)
             Encoding.UTF8,
             "application/json");
 
-        using var resp = await _http.PostAsync("/api/auth/refresh", content, ct)
+        using var resp = await _http.PostBackendAsync("/api/auth/refresh", content, ct)
             .ConfigureAwait(false);
 
         resp.EnsureSuccessStatusCode();
@@ -56,7 +57,7 @@ public sealed class AuthApiClient(HttpClient http)
             Encoding.UTF8,
             "application/json");
 
-        using var resp = await _http.PostAsync("/api/auth/totp/verify-login", content, ct)
+        using var resp = await _http.PostBackendAsync("/api/auth/totp/verify-login", content, ct)
             .ConfigureAwait(false);
 
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);

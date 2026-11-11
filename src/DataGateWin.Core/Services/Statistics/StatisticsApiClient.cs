@@ -1,6 +1,6 @@
+using DataGateWin.CrashReporting;
 using System.Globalization;
 using System.Net.Http;
-using System.Net.Http.Json;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServerClients.Requests;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServerClients.Responses;
 using DataGateMonitor.SharedModels.Responses;
@@ -20,7 +20,7 @@ public sealed class StatisticsApiClient(HttpClient http)
 
         var url = BuildOverviewSeriesUrl(request);
 
-        var apiResp = await _http.GetFromJsonAsync<ApiResponse<OverviewSeriesResponse>>(url, ct);
+        var apiResp = await _http.GetBackendFromJsonAsync<ApiResponse<OverviewSeriesResponse>>(url, ct);
         if (apiResp is null)
             throw new InvalidOperationException("Overview series response is empty.");
 

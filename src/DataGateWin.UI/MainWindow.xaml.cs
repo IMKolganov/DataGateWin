@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(AuthStateStore authState, HttpClient authedApiHttp)
     {
         InitializeComponent();
+        UiThemeBrushes.ApplyNeutralBackground(ShellRoot);
         AppIcon.TryAssignBrandMark(TitleBarBrandMark, decodePixelWidth: 40);
         UiThemeBrushes.ApplyCardBackground(UserAvatarBorder);
         WinUiLanguageService.ApplyFlowDirection(Content as FrameworkElement);

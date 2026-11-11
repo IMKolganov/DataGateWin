@@ -20,6 +20,8 @@ using SkiaSharp;
 
 namespace DataGateWin.ViewModels;
 
+public enum StatisticsMetric { Both, Incoming, Outgoing, Total }
+
 public sealed class StatisticsViewModel : INotifyPropertyChanged
 {
     private readonly StatisticsApiClient _api;
@@ -47,6 +49,11 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
         get => _totalUploadedText;
         private set { _totalUploadedText = value; OnPropertyChanged(); }
     }
+
+    public string TotalIncomingText => _lastData is null ? "—" : FormatBytes(_lastData.Summary.TotalTrafficInBytes);
+    public string TotalCombinedText => _lastData is null ? "—" : FormatBytes(
+        (double)_lastData.Summary.TotalTrafficInBytes + _lastData.Summary.TotalTrafficOutBytes);
+    public string ChartDescription => Loc.T("Stats_VolumeHint");
 
     private string _periodText = "—";
     public string PeriodText
@@ -82,6 +89,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
         get => _fromLocalDate;
         set
         {
+            _selectedPreset = null;
             _fromLocalDate = value;
             OnPropertyChanged();
             _loadedFromUtc = null;
@@ -96,6 +104,7 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
         get => _toLocalDate;
         set
         {
+            _selectedPreset = null;
             _toLocalDate = value;
             OnPropertyChanged();
             _loadedFromUtc = null;
@@ -130,6 +139,29 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     public IRelayCommand ResetFiltersCommand { get; }
     public IRelayCommand<string> SetGroupingCommand { get; }
     public IRelayCommand<string> SetLastDaysCommand { get; }
+
+    private string? _selectedPreset;
+    public string? SelectedPreset => _selectedPreset;
+    private OverviewGrouping _loadedGrouping = OverviewGrouping.Auto;
+    private StatisticsMetric _metric;
+    public StatisticsMetric Metric
+    {
+        get => _metric;
+        set { if (_metric == value) return; _metric = value; OnPropertyChanged(); RefreshChart(); }
+    }
+
+    public void ApplyPreset(string preset)
+    {
+        var (from, to) = StatisticsRangePolicy.Resolve(preset, DateTimeOffset.Now);
+        _selectedPreset = preset;
+        _fromLocalDate = from.ToLocalTime();
+        _toLocalDate = to.ToLocalTime();
+        _loadedFromUtc = _loadedToUtc = null;
+        OnPropertyChanged(nameof(SelectedPreset));
+        OnPropertyChanged(nameof(FromLocalDate));
+        OnPropertyChanged(nameof(ToLocalDate));
+        UpdatePeriodTextPreview();
+    }
 
     private OverviewSeriesResponse? _lastData;
     private DateTimeOffset? _loadedFromUtc;
@@ -182,8 +214,9 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     {
         ErrorText = null;
         _lastError = null;
-        var from = GetFromDateUtc();
-        var to = GetToDateUtc();
+        var (from, to) = _selectedPreset is { } preset
+            ? StatisticsRangePolicy.Resolve(preset, DateTimeOffset.Now)
+            : (GetFromDateUtc(), GetToDateUtc());
         if (to <= from)
         {
             ErrorText = Loc.T("Stats_InvalidPeriod");
@@ -222,7 +255,10 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
 
             var data = await _api.GetOverviewSeriesAsync(req, ct);
             _lastData = data;
+            _loadedGrouping = effectiveGrouping;
             TotalUploadedText = FormatBytes(data.Summary.TotalTrafficOutBytes);
+            OnPropertyChanged(nameof(TotalIncomingText));
+            OnPropertyChanged(nameof(TotalCombinedText));
             _loadedFromUtc = from;
             _loadedToUtc = to;
             ApplyLoadedPeriodText();
@@ -260,58 +296,98 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
 
     private void ApplySeriesChart(OverviewSeriesResponse data)
     {
-        var accent = new SKColor(0x4C, 0x9A, 0xFF);
-        var points = new List<DateTimePoint>();
-        foreach (var row in data.OverviewSeriesRows)
-            points.Add(new DateTimePoint(row.Ts.UtcDateTime, row.TrafficOutBytes));
-
+        var rows = data.OverviewSeriesRows.OrderBy(row => row.Ts).ToArray();
+        var incoming = new SKColor(0x42, 0xB8, 0xF5);
+        var outgoing = new SKColor(0xF4, 0xAB, 0x4A);
         Series =
         [
-            new LineSeries<DateTimePoint>
+            new LineSeries<ObservableValue>
             {
-                Name = Loc.T("Stats_Series_Upload"),
-                Values = points,
-                GeometrySize = 0,
-                Fill = new SolidColorPaint(accent.WithAlpha(80)),
-                Stroke = new SolidColorPaint(accent) { StrokeThickness = 2 },
-                LineSmoothness = 0
+                Name = Loc.T("Stats_Incoming"),
+                Values = rows.Select(row => new ObservableValue(row.TrafficInBytes)).ToArray(),
+                Fill = new SolidColorPaint(incoming.WithAlpha(22)),
+                Stroke = new SolidColorPaint(incoming) { StrokeThickness = 2.5f },
+                GeometrySize = 5,
+                GeometryFill = new SolidColorPaint(incoming),
+                GeometryStroke = null,
+                LineSmoothness = 0,
+                YToolTipLabelFormatter = point => FormatBytes(point.Coordinate.PrimaryValue),
+            },
+            new LineSeries<ObservableValue>
+            {
+                Name = Loc.T("Stats_Outgoing"),
+                Values = rows.Select(row => new ObservableValue(row.TrafficOutBytes)).ToArray(),
+                Fill = new SolidColorPaint(outgoing.WithAlpha(16)),
+                Stroke = new SolidColorPaint(outgoing) { StrokeThickness = 2.5f },
+                GeometrySize = 5,
+                GeometryFill = new SolidColorPaint(outgoing),
+                GeometryStroke = null,
+                LineSmoothness = 0,
+                YToolTipLabelFormatter = point => FormatBytes(point.Coordinate.PrimaryValue),
             }
         ];
-        ApplyAxes();
+        Series = Metric switch
+        {
+            StatisticsMetric.Incoming => [Series[0]],
+            StatisticsMetric.Outgoing => [Series[1]],
+            StatisticsMetric.Total =>
+            [
+                new LineSeries<ObservableValue>
+                {
+                    Name = Loc.T("Stats_Combined"),
+                    Values = rows.Select(row => new ObservableValue((double)row.TrafficInBytes + row.TrafficOutBytes)).ToArray(),
+                    Fill = new SolidColorPaint(incoming.WithAlpha(22)),
+                    Stroke = new SolidColorPaint(incoming) { StrokeThickness = 2.5f },
+                    GeometrySize = 5,
+                    GeometryFill = new SolidColorPaint(incoming),
+                    GeometryStroke = null,
+                    LineSmoothness = 0,
+                    YToolTipLabelFormatter = point => FormatBytes(point.Coordinate.PrimaryValue),
+                }
+            ],
+            _ => Series,
+        };
+        var grouping = _loadedGrouping;
+        var format = grouping switch
+        {
+            OverviewGrouping.Hours => "dd MMM HH:mm",
+            OverviewGrouping.Months => "MMM yyyy",
+            OverviewGrouping.Years => "yyyy",
+            _ => "dd MMM",
+        };
+        ApplyAxes(rows.Select(row => row.Ts.UtcDateTime.ToString(format, Loc.FormatCulture)).ToArray());
     }
 
-    private void ApplyAxes()
+    private void ApplyAxes(string[]? labels = null)
     {
-        var fg = _darkTheme ? new SKColor(0xE0, 0xE0, 0xE0) : new SKColor(0x20, 0x20, 0x20);
+        var fg = _darkTheme ? new SKColor(0xC8, 0xCD, 0xD5) : new SKColor(0x40, 0x48, 0x52);
         var grid = _darkTheme
-            ? new SKColor(0xE0, 0xE0, 0xE0, 60)
-            : new SKColor(0x20, 0x20, 0x20, 60);
-
+            ? new SKColor(0xFF, 0xFF, 0xFF, 24)
+            : new SKColor(0x20, 0x20, 0x20, 24);
         XAxes =
         [
             new Axis
             {
-                Labeler = value =>
-                {
-                    try { return new DateTime((long)value).ToString("dd MMM", CultureInfo.CurrentCulture); }
-                    catch { return ""; }
-                },
+                Labels = labels ?? Array.Empty<string>(),
                 LabelsPaint = new SolidColorPaint(fg),
-                SeparatorsPaint = new SolidColorPaint(grid) { StrokeThickness = 1 },
-                UnitWidth = TimeSpan.FromDays(1).Ticks,
-                MinStep = TimeSpan.FromHours(1).Ticks
+                TextSize = 12,
+                SeparatorsPaint = null,
+                UnitWidth = 1,
+                MinStep = 1,
+                ForceStepToMin = false,
+                MinLimit = -0.5,
+                MaxLimit = labels is { Length: > 0 } ? labels.Length - 0.5 : 0.5,
             }
         ];
-
         YAxes =
         [
             new Axis
             {
-                Name = Loc.T("Stats_Axis_Traffic"),
-                NamePaint = new SolidColorPaint(fg),
+                MinLimit = 0,
+                TextSize = 12,
                 LabelsPaint = new SolidColorPaint(fg),
                 SeparatorsPaint = new SolidColorPaint(grid) { StrokeThickness = 1 },
-                Labeler = value => FormatBytes((long)Math.Max(0, value))
+                Labeler = value => FormatBytes(Math.Max(0, value)),
             }
         ];
     }
@@ -323,8 +399,8 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
 
         PeriodText = Loc.T(
             "Stats_PeriodDataFmt",
-            _loadedFromUtc.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            _loadedToUtc.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            _loadedFromUtc.Value.ToLocalTime().ToString("g", Loc.FormatCulture),
+            _loadedToUtc.Value.ToLocalTime().ToString("g", Loc.FormatCulture));
     }
 
     private static OverviewGrouping ResolveGrouping(OverviewGrouping requested, DateTimeOffset from, DateTimeOffset to)
@@ -341,21 +417,12 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
     private void ResetFilters()
     {
         Grouping = OverviewGrouping.Auto;
-        var nowLocal = DateTime.Now.Date;
-        FromLocalDate = new DateTimeOffset(nowLocal.AddDays(-7));
-        ToLocalDate = new DateTimeOffset(nowLocal);
-        _loadedFromUtc = null;
-        _loadedToUtc = null;
-        UpdatePeriodTextPreview();
+        ApplyPreset("7d");
     }
 
     private void SetLastDays(string? daysText)
     {
-        if (!int.TryParse(daysText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) || days <= 0)
-            return;
-        var nowLocal = DateTime.Now.Date;
-        FromLocalDate = new DateTimeOffset(nowLocal.AddDays(-days));
-        ToLocalDate = new DateTimeOffset(nowLocal);
+        if (daysText is "7" or "30" or "90") ApplyPreset(daysText + "d");
     }
 
     private DateTimeOffset GetFromDateUtc()
@@ -374,15 +441,22 @@ public sealed class StatisticsViewModel : INotifyPropertyChanged
 
     private void UpdatePeriodTextPreview()
     {
+        if (_selectedPreset is { } preset)
+        {
+            var range = StatisticsRangePolicy.Resolve(preset, DateTimeOffset.Now);
+            PeriodText = Loc.T("Stats_PeriodDataFmt", range.From.ToLocalTime().ToString("g", Loc.FormatCulture),
+                range.To.ToLocalTime().ToString("g", Loc.FormatCulture));
+            return;
+        }
         var from = FromLocalDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "—";
         var to = ToLocalDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "—";
         PeriodText = Loc.T("Stats_PeriodDataFmt", from, to);
     }
 
-    private static string FormatBytes(long bytes)
+    private static string FormatBytes(double bytes)
     {
         const double k = 1024.0;
-        if (bytes < k) return $"{bytes.ToString(CultureInfo.InvariantCulture)} B";
+        if (bytes < k) return $"{bytes.ToString("F0", Loc.FormatCulture)} B";
         var kb = bytes / k;
         if (kb < k) return $"{kb:F1} KB";
         var mb = kb / k;

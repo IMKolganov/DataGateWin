@@ -11,8 +11,11 @@ public static class ReleaseVersionParser
     }
 
     public static bool IsUpgradeAvailable(Version latest, Version current)
-        => latest > current;
+        => Normalize(latest) > Normalize(current);
 
     public static string FormatForDisplay(Version version)
-        => version.ToString(3);
+        => version.Revision > 0 ? version.ToString(4) : Normalize(version).ToString(3);
+
+    private static Version Normalize(Version version)
+        => new(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
 }

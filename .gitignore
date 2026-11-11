@@ -81,3 +81,12 @@ third_party/libxray/
 # Local UI verification build
 /artifacts/access-grid/
 /artifacts/about-dialog-check/
+
+# Local verification outputs
+/artifacts/flag-check/
+/artifacts/installer-theme-check/
+/artifacts/installer-welcome-check/
+/artifacts/installer-welcome-layout/
+/artifacts/installer-welcome-tests/
+/artifacts/location-build/
+/artifacts/location-check/

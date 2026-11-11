@@ -348,8 +348,12 @@ public sealed class WinUiFailSoftContractTests
         Assert.Contains("ForceChartsLeftToRight", lang, StringComparison.Ordinal);
         Assert.Contains("IsLiveChartsOrSkia", lang, StringComparison.Ordinal);
         // Do not set FlowDirection in LiveCharts XAML — WinUI markup compiler WMC9999.
-        Assert.DoesNotContain("FlowDirection=\"LeftToRight\"", ReadWinUi("Pages", "Home", "HomePage.xaml"), StringComparison.Ordinal);
-        Assert.DoesNotContain("FlowDirection=\"LeftToRight\"", ReadWinUi("Pages", "StatisticsPage.xaml"), StringComparison.Ordinal);
+        foreach (var markup in new[] { ReadWinUi("Pages", "Home", "HomePage.xaml"), ReadWinUi("Pages", "StatisticsPage.xaml") })
+        {
+            var document = System.Xml.Linq.XDocument.Parse(markup);
+            foreach (var chart in document.Descendants().Where(e => e.Name.LocalName is "CartesianChart" or "LiveTrafficChart"))
+                Assert.Null(chart.Attribute("FlowDirection"));
+        }
     }
 
     [Fact]

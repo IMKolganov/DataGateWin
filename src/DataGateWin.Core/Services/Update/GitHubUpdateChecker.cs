@@ -13,6 +13,10 @@ public interface IUpdatePrompter
 }
 
 /// <summary>Looks up the latest GitHub release and asks <see cref="IUpdatePrompter"/> to offer it. UI-free.</summary>
+public enum UpdateCheckStatus { Unavailable, UpToDate, UpdateAvailable, Busy }
+
+public sealed record UpdateCheckResult(UpdateCheckStatus Status, Version? LatestVersion = null);
+
 public sealed class GitHubUpdateChecker
 {
     private static int _checkInFlight;
@@ -39,13 +43,14 @@ public sealed class GitHubUpdateChecker
         Interlocked.Exchange(ref _checkInFlight, 0);
     }
 
-    public async Task CheckForUpdateAsync(CancellationToken ct)
+    public async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken ct, bool manual = false)
     {
-        if (_updatePromptCompletedThisSession)
-            return;
+        ct.ThrowIfCancellationRequested();
+        if (!manual && _updatePromptCompletedThisSession)
+            return new(UpdateCheckStatus.Busy);
 
         if (Interlocked.CompareExchange(ref _checkInFlight, 1, 0) != 0)
-            return;
+            return new(UpdateCheckStatus.Busy);
 
         try
         {
@@ -55,18 +60,23 @@ public sealed class GitHubUpdateChecker
                 AppContext.BaseDirectory);
             var latest = await GetLatestReleaseAsync(ct).ConfigureAwait(false);
 
-            if (latest == null || !AppUpdatePolicy.ShouldOfferUpgrade(latest.Version, currentVersion))
-                return;
+            if (latest == null)
+                return new(UpdateCheckStatus.Unavailable);
+            if (!AppUpdatePolicy.ShouldOfferUpgrade(latest.Version, currentVersion))
+                return new(UpdateCheckStatus.UpToDate, latest.Version);
 
             if (_prompter is null)
-                return;
+                return new(UpdateCheckStatus.UpdateAvailable, latest.Version);
 
             if (await _prompter.PromptAsync(ct).ConfigureAwait(false))
                 _updatePromptCompletedThisSession = true;
+            return new(UpdateCheckStatus.UpdateAvailable, latest.Version);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "GitHubUpdateChecker.CheckForUpdate");
+            return new(UpdateCheckStatus.Unavailable);
         }
         finally
         {
@@ -81,6 +91,7 @@ public sealed class GitHubUpdateChecker
             var latest = await GetLatestReleaseAsync(ct);
             return latest == null ? null : ReleaseVersionParser.FormatForDisplay(latest.Version);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             CrashReporter.ReportNonFatal(ex, "GitHubUpdateChecker.GetLatestReleaseVersion");
@@ -97,13 +108,20 @@ public sealed class GitHubUpdateChecker
 
         var json = await resp.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl))
+        if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+            !doc.RootElement.TryGetProperty("tag_name", out var tagEl) || tagEl.ValueKind != JsonValueKind.String)
             return null;
         var tag = tagEl.GetString();
         if (string.IsNullOrWhiteSpace(tag))
             return null;
 
-        return new GitHubRelease { Version = ReleaseVersionParser.ParseTag(tag) };
+        var version = ReleaseVersionParser.ParseTag(tag);
+        if (version == new Version(0, 0, 0))
+            return null;
+        foreach (var flag in new[] { "draft", "prerelease" })
+            if (doc.RootElement.TryGetProperty(flag, out var value) && value.ValueKind != JsonValueKind.False)
+                return null;
+        return new GitHubRelease { Version = version };
     }
 
     private sealed class GitHubRelease

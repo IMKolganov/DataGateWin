@@ -192,6 +192,7 @@ public sealed class XrayClientLinksApiClientTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            BackendEndpointIdentityTests.AssertIdentity(request);
             Requests.Add(request);
             if (_responses.Count == 0)
                 throw new InvalidOperationException("No queued HTTP response");

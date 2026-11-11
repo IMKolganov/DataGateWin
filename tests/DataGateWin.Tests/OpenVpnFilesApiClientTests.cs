@@ -44,6 +44,7 @@ public sealed class OpenVpnFilesApiClientTests
         public int Calls { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            BackendEndpointIdentityTests.AssertIdentity(request);
             Calls++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
             {
@@ -61,6 +62,7 @@ public sealed class OpenVpnFilesApiClientTests
         public int Calls { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            BackendEndpointIdentityTests.AssertIdentity(request);
             Calls++;
             var response = Calls switch
             {

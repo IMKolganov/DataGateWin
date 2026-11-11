@@ -65,6 +65,7 @@ public static class UiThemeBrushes
     {
         public bool Background;
         public bool Stroke;
+        public bool Neutral;
     }
 
     private static readonly ConditionalWeakTable<FrameworkElement, ManagedChrome> Managed = new();
@@ -92,6 +93,13 @@ public static class UiThemeBrushes
             ManageChrome(target, background: true, stroke: false);
     }
 
+    public static void ApplyNeutralBackground(FrameworkElement target)
+    {
+        ManageChrome(target, background: false, stroke: false);
+        Managed.GetValue(target, _ => new ManagedChrome()).Neutral = true;
+        RefreshChrome(target, Managed.GetValue(target, _ => new ManagedChrome()));
+    }
+
     private static void ManageChrome(FrameworkElement target, bool background, bool stroke)
     {
         if (!Managed.TryGetValue(target, out var state))
@@ -111,6 +119,14 @@ public static class UiThemeBrushes
     private static void RefreshChrome(FrameworkElement target, ManagedChrome state, ElementTheme? requestedTheme = null)
     {
         var theme = requestedTheme ?? target.ActualTheme;
+        if (state.Neutral)
+        {
+            var brush = new SolidColorBrush(theme == ElementTheme.Dark
+                ? ColorHelper.FromArgb(255, 32, 32, 32)
+                : ColorHelper.FromArgb(255, 245, 245, 245));
+            if (target is Panel panel) panel.Background = brush;
+            else if (target is Control control) control.Background = brush;
+        }
         if (state.Background)
         {
             var brush = CardBackground(theme);

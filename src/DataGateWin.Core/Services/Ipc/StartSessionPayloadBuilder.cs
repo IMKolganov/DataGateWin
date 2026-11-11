@@ -12,6 +12,8 @@ using Newtonsoft.Json.Linq;
 
 namespace DataGateWin.Services.Ipc;
 
+public enum ConnectionPreparationStage { Selecting, Selected, Authorizing, Downloading, Downloaded, Routes, Ready }
+
 public sealed class StartSessionPayloadBuilder(
     WssServerSelector wssServerSelector,
     InstallationIdService installationIdService,
@@ -19,8 +21,13 @@ public sealed class StartSessionPayloadBuilder(
     XrayClientLinksApiClient xrayFilesApi,
     AuthSession session,
     IpListRoutesRepository ipListRoutes,
-    Action<string>? log = null)
+    Action<string>? log = null,
+    Func<string>? installationIdProvider = null)
 {
+    public event Action<ConnectionPreparationStage, VpnConnectionSessionInfo?>? ProgressChanged;
+
+    private void Report(ConnectionPreparationStage stage) => ProgressChanged?.Invoke(stage, LastSelection);
+
     public VpnConnectionSessionInfo? LastSelection { get; private set; }
 
     public void ClearLastSelection() => LastSelection = null;
@@ -30,6 +37,8 @@ public sealed class StartSessionPayloadBuilder(
 
     public async Task<JObject?> BuildAsync(bool autoPickServer, int? manualVpnServerId, CancellationToken ct)
     {
+        LastSelection = null;
+        Report(ConnectionPreparationStage.Selecting);
         log?.Invoke("[connect][catalog] Fetching and selecting VPN server...");
         var row = await wssServerSelector
             .GetServerRowAsync(autoPickServer, manualVpnServerId, ct)
@@ -42,10 +51,12 @@ public sealed class StartSessionPayloadBuilder(
 
         var server = row.VpnServerResponses.VpnServer;
         LastSelection = VpnConnectionSessionInfoFactory.FromStatusRow(row);
+        Report(ConnectionPreparationStage.Selected);
 
-        var installationId = installationIdService.GetOrCreate();
+        var installationId = installationIdProvider?.Invoke() ?? installationIdService.GetOrCreate();
 
         log?.Invoke($"[connect][profile] Server selected id={server.Id} protocol={server.ServerType}; checking authorization...");
+        Report(ConnectionPreparationStage.Authorizing);
         var token = await session.GetValidAccessTokenAsync(ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException("Access token not available");
@@ -78,6 +89,7 @@ public sealed class StartSessionPayloadBuilder(
         CancellationToken ct)
     {
         log?.Invoke("[connect][profile] Requesting and downloading Xray device profile...");
+        Report(ConnectionPreparationStage.Downloading);
         var downloaded = await xrayFilesApi.EnsureAndDownloadDeviceFileAsync(
             vpnServerId: vpnServerId,
             commonName: cn,
@@ -88,6 +100,7 @@ public sealed class StartSessionPayloadBuilder(
         if (downloaded.Content == null || downloaded.Content.Length == 0)
             throw new InvalidOperationException("Downloaded Xray content is empty");
 
+        Report(ConnectionPreparationStage.Downloaded);
         var raw = Encoding.UTF8.GetString(downloaded.Content);
         var shareOrOutbounds = XrayWindowsConfigBuilder.PrepareShareOrOutboundsInput(raw);
         if (string.IsNullOrWhiteSpace(shareOrOutbounds))
@@ -116,6 +129,7 @@ public sealed class StartSessionPayloadBuilder(
         };
 
         await AppendXrayIpListBypassAsync(payload, ct).ConfigureAwait(false);
+        Report(ConnectionPreparationStage.Ready);
         return payload;
     }
 
@@ -135,6 +149,7 @@ public sealed class StartSessionPayloadBuilder(
             return;
 
         log?.Invoke("[connect][routes] Loading IP bypass lists...");
+        Report(ConnectionPreparationStage.Routes);
         var routes = await ipListRoutes.GetRoutesForConnectionAsync(ct).ConfigureAwait(false);
         log?.Invoke($"[connect][routes] IP bypass lists ready count={routes.Count}");
         if (routes.Count == 0)
@@ -169,6 +184,7 @@ public sealed class StartSessionPayloadBuilder(
         CancellationToken ct)
     {
         log?.Invoke("[connect][profile] Requesting and downloading OpenVPN device profile...");
+        Report(ConnectionPreparationStage.Downloading);
         var downloaded = await filesApi.EnsureAndDownloadDeviceFileAsync(
             vpnServerId: server.Id,
             commonName: cn,
@@ -180,12 +196,14 @@ public sealed class StartSessionPayloadBuilder(
             throw new InvalidOperationException("Downloaded OVPN content is empty");
 
         log?.Invoke("[connect][profile] OpenVPN device profile downloaded.");
+        Report(ConnectionPreparationStage.Downloaded);
         var ovpnContent = Encoding.UTF8.GetString(downloaded.Content);
 
         var ipSettings = IpListStore.LoadSettings();
         if (ipSettings.CidrListsEnabled)
         {
             log?.Invoke("[connect][routes] Loading IP bypass lists...");
+        Report(ConnectionPreparationStage.Routes);
         var routes = await ipListRoutes.GetRoutesForConnectionAsync(ct).ConfigureAwait(false);
         log?.Invoke($"[connect][routes] IP bypass lists ready count={routes.Count}");
             var plan = IpListRouteConfig.PrepareConnectionRoutes(
@@ -202,6 +220,7 @@ public sealed class StartSessionPayloadBuilder(
         var port = apiUri.IsDefaultPort ? (apiUri.Scheme == "http" ? 80 : 443) : apiUri.Port;
         var useWssBridge = server.IsEnableWss;
 
+        Report(ConnectionPreparationStage.Ready);
         return new JObject
         {
             ["installationId"] = installationId,

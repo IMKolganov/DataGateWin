@@ -36,6 +36,8 @@ public sealed class SettingsPage : Page
     private ToggleSwitch _ipListsMainToggle = null!;
     private TextBlock _ipListsConfigureButtonText = null!;
     private TextBlock _versionHeader = null!;
+    private Button _checkUpdatesButton = null!;
+    private int _versionRequest;
     private TextBlock _currentVersionText = null!;
     private TextBlock _latestVersionText = null!;
     private TextBlock _aboutButtonText = null!;
@@ -89,6 +91,7 @@ public sealed class SettingsPage : Page
 
     private void ApplyLocalizedChrome()
     {
+        _checkUpdatesButton.Content = Loc.T("Settings_CheckUpdates");
         _titleText.Text = Loc.T("Settings_Title");
         _languageHeader.Text = Loc.T("Settings_Language");
         _languageHint.Text = Loc.T("Settings_LanguageHint");
@@ -273,10 +276,12 @@ public sealed class SettingsPage : Page
 
     private async Task LoadLatestVersionAsync()
     {
+        var request = ++_versionRequest;
         string text;
         try
         {
-            var checker = new GitHubUpdateChecker(new HttpClient(), "IMKolganov", "DataGateWin");
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            var checker = new GitHubUpdateChecker(http, "IMKolganov", "DataGateWin");
             var latest = await checker.TryGetLatestReleaseVersionForDisplayAsync(CancellationToken.None);
             text = latest is null
                 ? Loc.T("Settings_LatestVersionUnavailable")
@@ -290,7 +295,7 @@ public sealed class SettingsPage : Page
 
         DispatcherQueue.TryEnqueue(() =>
         {
-            try { _latestVersionText.Text = text; }
+            try { if (request == _versionRequest) _latestVersionText.Text = text; }
             catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "SettingsPage.LatestVersionUi"); }
         });
     }
@@ -398,6 +403,27 @@ public sealed class SettingsPage : Page
         _versionHeader = new TextBlock { FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
         _currentVersionText = new TextBlock();
         _latestVersionText = new TextBlock { Opacity = 0.75 };
+        _checkUpdatesButton = new Button { Content = Loc.T("Settings_CheckUpdates") };
+        _checkUpdatesButton.Click += async (_, _) =>
+        {
+            ++_versionRequest;
+            _checkUpdatesButton.IsEnabled = false;
+            _latestVersionText.Text = Loc.T("Settings_CheckingUpdates");
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+                var checker = new GitHubUpdateChecker(http, "IMKolganov", "DataGateWin", new WinUiUpdatePrompter());
+                var result = await checker.CheckForUpdateAsync(CancellationToken.None, manual: true);
+                _latestVersionText.Text = result.Status switch
+                {
+                    UpdateCheckStatus.UpToDate => Loc.T("Settings_UpToDate"),
+                    UpdateCheckStatus.UpdateAvailable => Loc.T("Settings_LatestVersion") + " " + ReleaseVersionParser.FormatForDisplay(result.LatestVersion!),
+                    UpdateCheckStatus.Busy => Loc.T("Settings_UpdateCheckBusy"),
+                    _ => Loc.T("Settings_LatestVersionUnavailable")
+                };
+            }
+            finally { _checkUpdatesButton.IsEnabled = true; }
+        };
         _aboutButtonText = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         var aboutBtn = new Button();
         aboutBtn.Content = Row(IconButtonContent.Info, _aboutButtonText, 14);
@@ -429,6 +455,7 @@ public sealed class SettingsPage : Page
             _versionHeader,
             _currentVersionText,
             _latestVersionText,
+            _checkUpdatesButton,
             aboutBtn));
         root.Children.Add(Card(
             _accountHeader,

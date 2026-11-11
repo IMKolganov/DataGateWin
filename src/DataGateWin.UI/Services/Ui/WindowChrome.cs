@@ -43,12 +43,16 @@ internal static class WindowChrome
             ApplyIcon(window, hwnd, appWindow);
             ApplyTheme(window);
 
-            var guardUntil = DateTime.UtcNow.AddSeconds(6);
+            var startupSizing = new StartupWindowSizingGuard(DateTimeOffset.UtcNow.AddSeconds(6));
             var reentry = false;
 
-          void Reapply(bool center)
+            bool CanApplyStartupSize() => startupSizing.CanResize(
+                appWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored },
+                DateTimeOffset.UtcNow);
+
+            void Reapply(bool center)
             {
-                if (reentry)
+                if (reentry || !CanApplyStartupSize())
                     return;
                 reentry = true;
                 try
@@ -65,14 +69,14 @@ internal static class WindowChrome
 
             void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
             {
-                if (!args.DidSizeChange)
-                    return;
-
-                if (DateTime.UtcNow > guardUntil)
+                if (!CanApplyStartupSize())
                 {
                     appWindow.Changed -= OnAppWindowChanged;
                     return;
                 }
+
+                if (!args.DidSizeChange)
+                    return;
 
                 if (!TryGetCurrentSize(hwnd, out var curW, out var curH))
                     return;
@@ -86,6 +90,11 @@ internal static class WindowChrome
             }
 
             appWindow.Changed += OnAppWindowChanged;
+            window.Closed += (_, _) =>
+            {
+                startupSizing.Cancel();
+                appWindow.Changed -= OnAppWindowChanged;
+            };
 
             void OnActivated(object sender, WindowActivatedEventArgs args)
             {

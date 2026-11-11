@@ -114,6 +114,52 @@ public sealed class GitHubUpdateCheckerTests
         Assert.Equal(1, requestCount);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    [InlineData("{\"tag_name\":123}")]
+    [InlineData("{\"tag_name\":\"junk\"}")]
+    [InlineData("{\"tag_name\":\"99.0.0\",\"prerelease\":true}")]
+    [InlineData("{\"tag_name\":\"99.0.0\",\"draft\":true}")]
+    public async Task InvalidRelease_IsUnavailable(string json)
+    {
+        using var http = CreateHttpClient(json);
+        var checker = new GitHubUpdateChecker(http, "owner", "repo");
+        Assert.Null(await checker.TryGetLatestReleaseVersionForDisplayAsync(default));
+        Assert.Equal(UpdateCheckStatus.Unavailable, (await checker.CheckForUpdateAsync(default, manual: true)).Status);
+    }
+
+    [Fact]
+    public async Task ManualCheck_BypassesCompletedPromptGate()
+    {
+        using var http = CreateHttpClient("{\"tag_name\":\"999.0.0\"}");
+        var prompt = new RecordingPrompter();
+        var checker = new GitHubUpdateChecker(http, "owner", "repo", prompt);
+        await checker.CheckForUpdateAsync(default);
+        await checker.CheckForUpdateAsync(default);
+        Assert.Equal(1, prompt.Count);
+        var result = await checker.CheckForUpdateAsync(default, manual: true);
+        Assert.Equal(UpdateCheckStatus.UpdateAvailable, result.Status);
+        Assert.Equal(2, prompt.Count);
+    }
+
+    [Fact]
+    public async Task Cancellation_ReleasesGateAndAllowsRetry()
+    {
+        using var http = CreateHttpClient("{\"tag_name\":\"999.0.0\"}");
+        var checker = new GitHubUpdateChecker(http, "owner", "repo");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => checker.CheckForUpdateAsync(cts.Token));
+        Assert.Equal(UpdateCheckStatus.UpdateAvailable, (await checker.CheckForUpdateAsync(default)).Status);
+    }
+
+    sealed class RecordingPrompter : IUpdatePrompter
+    {
+        public int Count;
+        public Task<bool> PromptAsync(CancellationToken ct) { Count++; return Task.FromResult(true); }
+    }
+
     static HttpClient CreateHttpClient(string body, HttpStatusCode status = HttpStatusCode.OK)
     {
         var handler = new StaticResponseHandler(body, status);

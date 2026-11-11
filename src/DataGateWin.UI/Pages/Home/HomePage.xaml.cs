@@ -27,6 +27,7 @@ public sealed partial class HomePage : Page
     private bool _suppressSettingsSave;
     private bool _suppressServerListFetch;
     private string? _heroServerName;
+    private int _heroServerId;
     private bool _languageHookAttached;
     private readonly List<string> _logLines = new();
     private readonly object _logUiLock = new();
@@ -46,6 +47,8 @@ public sealed partial class HomePage : Page
     {
         Traffic = new HomeLiveTrafficViewModel();
         InitializeComponent();
+        ServerMapViewport.AddHandler(UIElement.PointerWheelChangedEvent,
+            new Microsoft.UI.Xaml.Input.PointerEventHandler(ServerMapViewport_OnPointerWheelChanged), true);
         LogContent.ActualThemeChanged += (_, _) =>
         {
             _renderedLogText = null;
@@ -87,6 +90,7 @@ public sealed partial class HomePage : Page
         DetailsHeaderText.Text = Loc.T("Home_Details");
         StatusHeadline.Text = Loc.T("Home_Status_Idle");
         Traffic.ApplyChrome();
+        UpdateServerMap();
         Bindings.Update();
 
         var prev = ServerModeCombo.SelectedIndex;
@@ -99,6 +103,7 @@ public sealed partial class HomePage : Page
 
     private async void HomePage_OnLoaded(object sender, RoutedEventArgs e)
     {
+        _ = LoadUserLocationAsync();
         UiThemeBrushes.ApplyMissingCardChrome(this);
         ApplyHomeCardTheme();
         ApplyTrafficColors();
@@ -181,6 +186,7 @@ public sealed partial class HomePage : Page
 
     private void HomePage_OnUnloaded(object sender, RoutedEventArgs e)
     {
+        CancelUserLocationRequest();
         if (_languageHookAttached)
         {
             WinUiLanguageService.LanguageChanged -= OnUiLanguageChanged;
@@ -200,13 +206,15 @@ public sealed partial class HomePage : Page
         DispatcherQueue.TryEnqueue(() =>
         {
             ApplyHomeCardTheme();
+            ApplyHeroState(_controller.LastUiState);
             ApplyTrafficColors();
         });
     }
 
     private void ApplyHomeCardTheme()
     {
-        UiThemeBrushes.ApplyCardBackground(ConnectionCard);
+        // The hero sits directly on the page backdrop.
+        UiThemeBrushes.ApplyNeutralBackground(this);
         UiThemeBrushes.ApplyCardBackground(TrafficLogsCard);
     }
 
@@ -230,6 +238,7 @@ public sealed partial class HomePage : Page
                 RebuildImportedProfileCombo();
                 WinUiLanguageService.ForceChartsLeftToRight(this);
                 Traffic.ApplyChrome();
+        UpdateServerMap();
                 _controller.ReapplyUiToLastState();
             }
             catch (Exception ex)
@@ -383,7 +392,10 @@ public sealed partial class HomePage : Page
     }
 
     private void ManualServerCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
-        => SaveVpnHomeSettingsFromUi();
+    {
+        SaveVpnHomeSettingsFromUi();
+        if (!_suppressSettingsSave) UpdateServerMap();
+    }
 
     private void ImportedProfileCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         => SaveVpnHomeSettingsFromUi();
@@ -491,10 +503,16 @@ public sealed partial class HomePage : Page
             _ => Windows.UI.Color.FromArgb(255, 0x8A, 0x8A, 0x8A),
         };
         StatusDot.Fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+        StatusHeadline.Foreground = state == UiState.Connected
+            ? new SolidColorBrush(ActualTheme == ElementTheme.Dark
+                ? Windows.UI.Color.FromArgb(255, 0x93, 0xD8, 0x47)
+                : Windows.UI.Color.FromArgb(255, 0x35, 0x72, 0x15))
+            : new SolidColorBrush(ActualTheme == ElementTheme.Dark ? Microsoft.UI.Colors.White : Windows.UI.Color.FromArgb(255, 0x12, 0x32, 0x47));
         // One action at a time: Connect while idle, Disconnect for every other state.
         ConnectButton.Visibility = state == UiState.Idle ? Visibility.Visible : Visibility.Collapsed;
         DisconnectButton.Visibility = state == UiState.Idle ? Visibility.Collapsed : Visibility.Visible;
         SetStatusDetail(StatusText.Text);
+        UpdateServerMap();
     }
 
     /// <summary>Detail line under the headline; hidden when it only repeats the headline.</summary>
@@ -521,10 +539,12 @@ public sealed partial class HomePage : Page
 
             var dash = Loc.T("Home_Network_Unavailable");
             var server = string.IsNullOrWhiteSpace(network!.ServerName) ? dash : network.ServerName;
-            if (_heroServerName != server)
+            if (_heroServerName != server || _heroServerId != network.ServerId)
             {
                 HeroServerHost.Content = ServerNameUi.CreateRow(server, nameFontSize: 16);
                 _heroServerName = server;
+                _heroServerId = network.ServerId;
+                UpdateServerMap();
             }
             NetworkServerLabel.Text = Loc.T("Home_Network_Server") + ":";
             NetworkServerName.Text = ServerNameFlag.TrySplit(server, out _, out var rest) && !string.IsNullOrEmpty(rest)
@@ -931,6 +951,8 @@ public sealed partial class HomePage : Page
                         {
                             Id = srv.Id,
                             Name = srv.ServerName ?? "",
+                            Latitude = srv.Latitude,
+                            Longitude = srv.Longitude,
                             Clients = x.CountConnectedClients,
                             Online = srv.IsOnline,
                             IsXray = WssServerSelector.IsXrayWindowsSupported(srv),
@@ -965,6 +987,8 @@ public sealed partial class HomePage : Page
                 {
                     _suppressSettingsSave = false;
                 }
+
+                UpdateServerMap();
 
                 if ((rows is null || rows.Count == 0) && !fetchFailed)
                     _controller.AppendLogLine(Loc.T("Home_Log_NoWss"));
@@ -1112,6 +1136,8 @@ public sealed partial class HomePage : Page
 
     private sealed class CachedVpnServerRow
     {
+        public double? Latitude { get; init; }
+        public double? Longitude { get; init; }
         public int Id { get; init; }
         public string Name { get; init; } = "";
         public int Clients { get; init; }

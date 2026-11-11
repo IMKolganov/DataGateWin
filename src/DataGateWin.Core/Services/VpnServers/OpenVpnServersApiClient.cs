@@ -1,3 +1,4 @@
+using DataGateWin.CrashReporting;
 using System.Net.Http;
 using Newtonsoft.Json;
 using DataGateMonitor.SharedModels.DataGateMonitor.VpnServers.Responses;
@@ -17,7 +18,7 @@ public sealed class OpenVpnServersApiClient(HttpClient http)
             HttpMethod.Get,
             "api/v3/open-vpn-servers/get-all-with-status");
 
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await _http.SendBackendAsync(req, ct);
 
         var json = await resp.Content.ReadAsStringAsync(ct);
 

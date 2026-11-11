@@ -88,6 +88,7 @@ public sealed class FreeTierAccessApiClientTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            BackendEndpointIdentityTests.AssertIdentity(request);
             LastRequest = request;
             return Task.FromResult(_responder(request));
         }

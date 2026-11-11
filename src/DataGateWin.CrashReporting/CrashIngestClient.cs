@@ -33,7 +33,7 @@ public static class CrashIngestClient
         if (!string.IsNullOrWhiteSpace(crashToken))
             req.Headers.TryAddWithoutValidation("X-Crash-Token", crashToken);
 
-        return await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+        return await http.SendBackendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
     }
 }

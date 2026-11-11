@@ -544,8 +544,7 @@ namespace datagate::dns
         if (result.accessDenied)
         {
             result.ok = false;
-            std::cerr << "[engine][dns] ACCESS_DENIED writing HKLM — run as Administrator "
-                         "(Release UI elevates; Debug asInvoker may not)"
+            std::cerr << "[engine][dns] ACCESS_DENIED writing HKLM — run as Administrator"
                       << std::endl;
         }
 

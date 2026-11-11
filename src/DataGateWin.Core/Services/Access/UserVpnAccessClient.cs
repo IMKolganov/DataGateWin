@@ -32,7 +32,7 @@ public sealed class UserVpnAccessClient(HttpClient http)
             Content = quotaPlansBody
         };
 
-        using var plansResp = await _http.SendAsync(plansReq, ct).ConfigureAwait(false);
+        using var plansResp = await _http.SendBackendAsync(plansReq, ct).ConfigureAwait(false);
         var plansRaw = await plansResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!plansResp.IsSuccessStatusCode)
         {
@@ -60,7 +60,7 @@ public sealed class UserVpnAccessClient(HttpClient http)
         using var userReq = new HttpRequestMessage(
             HttpMethod.Get,
             $"api/user-quota-plans/get-by-user-id/{userId}");
-        using var userResp = await _http.SendAsync(userReq, ct).ConfigureAwait(false);
+        using var userResp = await _http.SendBackendAsync(userReq, ct).ConfigureAwait(false);
         var userRaw = await userResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!userResp.IsSuccessStatusCode)
         {
@@ -153,7 +153,7 @@ public sealed class UserVpnAccessClient(HttpClient http)
             var uri = $"api/open-vpn-clients/overview/summary?From={Uri.EscapeDataString(fromIso)}&To={Uri.EscapeDataString(toIso)}&ExternalId={Uri.EscapeDataString(ext)}";
             using var ovReq = new HttpRequestMessage(HttpMethod.Get, uri);
 
-            using var ovResp = await _http.SendAsync(ovReq, ct).ConfigureAwait(false);
+            using var ovResp = await _http.SendBackendAsync(ovReq, ct).ConfigureAwait(false);
             var ovRaw = await ovResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             if (ovResp.IsSuccessStatusCode)
             {

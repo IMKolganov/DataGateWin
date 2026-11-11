@@ -38,10 +38,14 @@ public static class ClientIdentity
 
     public static void Apply(HttpRequestMessage request, string? version = null)
     {
+        var requiredVersion = version ?? Version;
+        if (!ClientIdentityRules.IsValidVersion(requiredVersion))
+            throw new InvalidOperationException("A valid application version is required for backend requests.");
+
         request.Headers.Remove(ClientIdentityRules.NameHeader);
         request.Headers.Remove(ClientIdentityRules.VersionHeader);
         request.Headers.TryAddWithoutValidation(ClientIdentityRules.NameHeader, Name);
-        request.Headers.TryAddWithoutValidation(ClientIdentityRules.VersionHeader, version ?? Version);
+        request.Headers.TryAddWithoutValidation(ClientIdentityRules.VersionHeader, requiredVersion);
     }
 
     /// <summary>Appends <c>clientName</c> / <c>clientVersion</c> to a SignalR hub URL, keeping any existing query.</summary>

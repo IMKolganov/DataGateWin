@@ -29,6 +29,10 @@ public sealed class ReleaseVersionParserTests
     }
 
     [Theory]
+    [InlineData("1.0.19.0", "1.0.19", false)]
+    [InlineData("1.0.19", "1.0.19.0", false)]
+    [InlineData("1.0.19.1", "1.0.19", true)]
+    [InlineData("1.0", "1.0.0", false)]
     [InlineData("1.0.8", "1.0.7", true)]
     [InlineData("1.0.8", "1.0.8", false)]
     [InlineData("1.0.8", "1.0.9", false)]
@@ -56,8 +60,9 @@ public sealed class ReleaseVersionParserTests
 
 
     [Fact]
-    public void FormatForDisplay_UsesThreePartVersion()
+    public void FormatForDisplay_PreservesNonzeroRevision()
     {
-        Assert.Equal("1.0.8", ReleaseVersionParser.FormatForDisplay(new Version(1, 0, 8, 99)));
+        Assert.Equal("1.0.8.99", ReleaseVersionParser.FormatForDisplay(new Version(1, 0, 8, 99)));
+        Assert.Equal("1.0.0", ReleaseVersionParser.FormatForDisplay(new Version(1, 0)));
     }
 }

@@ -42,6 +42,27 @@ public sealed class HomeController : IDisposable
     private readonly StartSessionPayloadBuilder _payloadBuilder;
 
     private readonly object _uiLock = new();
+    private string? _attemptServerName;
+    private void AddConnectionProgress(string text) => Log(text);
+
+    private void OnPreparationProgress(ConnectionPreparationStage stage, VpnConnectionSessionInfo? selection)
+    {
+        if (stage == ConnectionPreparationStage.Selecting)
+        {
+            _attemptServerName = null;
+            _sessionInfo = null;
+        }
+        if (selection is not null)
+        {
+            _attemptServerName = selection.ServerName;
+            _sessionInfo = selection;
+        }
+        var key = "Home_Progress_" + stage;
+        var server = _attemptServerName ?? Loc.T("Home_Progress_Unknown");
+        AddConnectionProgress(Loc.T(key, server));
+        ApplyUiState(UiState.Connecting, () => Loc.T(key + "_Compact"));
+    }
+
 
     private Action<string>? _setStatusText;
     private Action<UiState, string, VpnConnectionSessionInfo?>? _applyUiState;
@@ -73,6 +94,8 @@ public sealed class HomeController : IDisposable
             session: App.Session,
             ipListRoutes: new IpListRoutesRepository(),
             log: Log);
+
+        _payloadBuilder.ProgressChanged += OnPreparationProgress;
 
         _engine = new EngineSessionService(
             enginePathResolver: new EnginePathResolver(),
@@ -224,6 +247,7 @@ public sealed class HomeController : IDisposable
         await _opLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            _attemptServerName = null;
             ApplyKeyed(UiState.Connecting, "Home_Status_Connecting");
 
             await _engine.AttachOrStartAsync(ct).ConfigureAwait(false);
@@ -381,6 +405,9 @@ public sealed class HomeController : IDisposable
             return false;
         }
 
+        _attemptServerName = profile.Name;
+        AddConnectionProgress(Loc.T("Home_Progress_Imported", profile.Name));
+        ApplyUiState(UiState.Connecting, () => Loc.T("Home_Progress_Imported_Compact"));
         try
         {
             var payload = profile.Protocol switch
@@ -804,9 +831,22 @@ public sealed class HomeController : IDisposable
 
     private void ApplyUiState(UiState state, Func<string> composer)
     {
+        var previous = _lastUiState;
+        var server = _attemptServerName;
+        var originalComposer = composer;
+        // Capture the attempt identity before cleanup/retry clears the engine selection.
+        if (!string.IsNullOrWhiteSpace(server) &&
+            state == UiState.Idle && originalComposer() != Loc.T("Home_Status_Idle"))
+            composer = () =>
+            {
+                var text = originalComposer();
+                return text.Contains(server, StringComparison.Ordinal) ? text : Loc.T("Home_Progress_Context", server, text);
+            };
         _lastUiState = state;
         _statusComposer = composer;
         var statusText = composer();
+        if (previous == UiState.Connecting && state is UiState.Idle or UiState.Connected)
+            AddConnectionProgress(statusText);
         _lastStatusText = statusText;
 
         var network = state is UiState.Connected or UiState.Connecting or UiState.Disconnecting

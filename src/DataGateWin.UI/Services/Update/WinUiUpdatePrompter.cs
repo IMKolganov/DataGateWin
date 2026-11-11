@@ -21,7 +21,7 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
         var completed = false;
 
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = dispatcher.TryEnqueue(async () =>
+        var enqueued = dispatcher.TryEnqueue(async () =>
         {
             try
             {
@@ -47,7 +47,6 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
                     return;
                 }
 
-                StopEngineIfRunning();
                 if (!TryLaunchUpdater(updaterPath))
                 {
                     await ShowUpdaterMissingAsync(xamlRoot).ConfigureAwait(true);
@@ -67,7 +66,9 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
             }
         });
 
-        await tcs.Task.ConfigureAwait(false);
+        if (!enqueued)
+            return false;
+        await tcs.Task.WaitAsync(ct).ConfigureAwait(false);
         return completed;
     }
 

@@ -1,3 +1,4 @@
+using DataGateWin.CrashReporting;
 using System.Net.Http;
 using System.Text;
 using DataGateMonitor.SharedModels.DataGateMonitor.Auth.Responses;
@@ -18,7 +19,7 @@ public sealed class FreeTierAccessApiClient(HttpClient http) : IFreeTierAccessAp
 
     public async Task<ApiResponse<FreeTierAccessStatusResponse>> GetStatusAsync(CancellationToken ct)
     {
-        using var resp = await _http.GetAsync("api/auth/free-tier-access/status", ct).ConfigureAwait(false);
+        using var resp = await _http.GetBackendAsync("api/auth/free-tier-access/status", ct).ConfigureAwait(false);
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
         if (!resp.IsSuccessStatusCode)
@@ -41,7 +42,7 @@ public sealed class FreeTierAccessApiClient(HttpClient http) : IFreeTierAccessAp
             Encoding.UTF8,
             "application/json");
 
-        using var resp = await _http.PostAsync("api/auth/telegram/request-account-link-code", content, ct)
+        using var resp = await _http.PostBackendAsync("api/auth/telegram/request-account-link-code", content, ct)
             .ConfigureAwait(false);
 
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);

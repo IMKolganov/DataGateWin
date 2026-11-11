@@ -23,7 +23,7 @@ public static class EngineDnsRecoveryRunner
         {
             log?.Invoke(
                 "[ui][dns] WARNING: process is not elevated — HKLM NRPT/SearchList cleanup may ACCESS_DENIED " +
-                "(Debug builds use asInvoker; run Release or elevate)");
+                "(run DataGateWin as Administrator)");
         }
 
         try

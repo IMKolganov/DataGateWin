@@ -1,3 +1,4 @@
+using DataGateWin.CrashReporting;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -53,7 +54,7 @@ public sealed class OpenVpnFilesApiClient(HttpClient http, Action<string>? log =
         };
 
         log?.Invoke("[connect][download] POST download-file-by-cn; waiting for response headers...");
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var resp = await _http.SendBackendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         log?.Invoke($"[connect][download] HTTP {(int)resp.StatusCode}; reading profile response body...");
         var raw = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         log?.Invoke($"[connect][download] Response body received chars={raw.Length}; decoding profile...");
@@ -110,7 +111,7 @@ public sealed class OpenVpnFilesApiClient(HttpClient http, Action<string>? log =
 
         log?.Invoke("[connect][issue] POST add-with-token; waiting for response headers...");
         // The issued profile is downloaded by CN below; the creation response body is unused.
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var resp = await _http.SendBackendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         log?.Invoke($"[connect][issue] HTTP {(int)resp.StatusCode}; proceeding to profile download.");
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException("profile_download_failed");

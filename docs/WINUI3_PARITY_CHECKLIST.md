@@ -8,7 +8,7 @@ Tracks feature parity vs WPF `DataGateWin.UI` @ 1.0.13.
 - [x] `DataGateWin.Core` class library; WPF + WinUI both reference Core
 - [x] Solution includes Core + WinUI; Debug x64 build green
 - [x] Assembly name `DataGateWin` (installer / ZIP / App Paths contract)
-- [x] Elevation manifests: Release `requireAdministrator`, Debug `asInvoker`
+- [x] Elevation manifest: Debug and Release both use `requireAdministrator`
 
 ## Phase 0 spike
 

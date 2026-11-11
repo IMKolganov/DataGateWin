@@ -134,13 +134,30 @@ public sealed class InstallerInfrastructureTests
     [Fact]
     public void WizardRules_GetInitialStep_UsesUpdateMode()
     {
-        Assert.Equal(InstallerWizardStep.Policy, InstallerWizardRules.GetInitialStep(isUpdateMode: false));
+        Assert.Equal(InstallerWizardStep.Welcome, InstallerWizardRules.GetInitialStep(isUpdateMode: false));
         Assert.Equal(InstallerWizardStep.Install, InstallerWizardRules.GetInitialStep(isUpdateMode: true));
+    }
+
+    [Fact]
+    public void WizardRules_BackNavigation()
+    {
+        foreach (var step in Enum.GetValues<InstallerWizardStep>())
+        {
+            InstallerWizardStep? expected = step switch
+            {
+                InstallerWizardStep.Policy => InstallerWizardStep.Welcome,
+                InstallerWizardStep.Path => InstallerWizardStep.Policy,
+                _ => null
+            };
+            Assert.Equal(expected, InstallerWizardRules.GetPreviousStep(step, isUpdateMode: false));
+            Assert.Null(InstallerWizardRules.GetPreviousStep(step, isUpdateMode: true));
+        }
     }
 
     [Fact]
     public void WizardRules_IsNextEnabled_MatchesStepRequirements()
     {
+        Assert.True(InstallerWizardRules.IsNextEnabled(InstallerWizardStep.Welcome, false, "", false));
         Assert.False(InstallerWizardRules.IsNextEnabled(InstallerWizardStep.Policy, false, "C:\\App", false));
         Assert.True(InstallerWizardRules.IsNextEnabled(InstallerWizardStep.Policy, true, "C:\\App", false));
         Assert.False(InstallerWizardRules.IsNextEnabled(InstallerWizardStep.Path, true, "", false));
@@ -238,8 +255,8 @@ public sealed class InstallerInfrastructureTests
                 CancellationToken.None);
 
             Assert.Equal("unknown", File.ReadAllText(destination));
-            Assert.Single(progress.Values);
-            Assert.Equal(100, progress.Values[0]);
+            Assert.NotEmpty(progress.Values);
+            Assert.Equal(100, progress.Values[^1]);
         }
         finally
         {
@@ -335,6 +352,44 @@ public sealed class InstallerInfrastructureTests
                 "DataGateWin.v",
                 ".zip",
                 CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Downloader_TruncatedDownloadPreservesExistingFileAndRemovesPartial()
+    {
+        var destination = Path.Combine(Path.GetTempPath(), "datagate_download_" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(destination, "original");
+        using var http = new HttpClient(new RecordingHandler(_ =>
+        {
+            var content = new ByteArrayContent(Encoding.UTF8.GetBytes("short"));
+            content.Headers.ContentLength = 100;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        }));
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() => InstallerDownloader.DownloadFileAsync(
+                http, "https://example.invalid/archive", destination, new RecordingProgress(), default));
+            Assert.Equal("original", File.ReadAllText(destination));
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(destination)!, Path.GetFileName(destination) + ".*.partial"));
+        }
+        finally { DeleteFileBestEffort(destination); }
+    }
+
+    [Fact]
+    public void PackageValidation_RejectsMissingAndEmptyExecutable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "datagate_package_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => InstallerOperations.ValidatePackage(root));
+            var executable = Path.Combine(root, InstallerConstants.ExeName);
+            File.WriteAllText(executable, "");
+            Assert.Throws<InvalidDataException>(() => InstallerOperations.ValidatePackage(root));
+            File.WriteAllText(executable, "app");
+            InstallerOperations.ValidatePackage(root);
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     static HttpResponseMessage JsonResponse(string json) =>

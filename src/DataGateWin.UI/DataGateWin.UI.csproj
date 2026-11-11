@@ -8,10 +8,9 @@
     <Product>DataGate</Product>
     <AssemblyTitle>DataGate</AssemblyTitle>
     <Description>DataGate</Description>
-    <AssemblyVersion>1.0.24</AssemblyVersion>
-    <FileVersion>1.0.24</FileVersion>
-    <ApplicationManifest Condition="'$(Configuration)'=='Debug'">app.manifest.debug.xml</ApplicationManifest>
-    <ApplicationManifest Condition="'$(Configuration)'!='Debug'">app.manifest</ApplicationManifest>
+    <AssemblyVersion>1.0.23</AssemblyVersion>
+    <FileVersion>1.0.23</FileVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\favicon.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
@@ -64,15 +63,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="LiveChartsCore.SkiaSharpView.WinUI" Version="2.0.0-rc6.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.6.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="LiveChartsCore.SkiaSharpView.WinUI" Version="2.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.8.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -96,9 +95,7 @@
       <_IntermediateTrimmed>$([System.String]::Copy('$(IntermediateOutputPath)').TrimEnd('\').TrimEnd('/'))</_IntermediateTrimmed>
       <_OutputPriCandidate>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(OutputPath)$(AssemblyName).pri'))</_OutputPriCandidate>
     </PropertyGroup>
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RebuildPriScript)&quot; -PublishDir &quot;$(_PublishDirTrimmed)&quot; -IntermediateDir &quot;$(_IntermediateTrimmed)&quot; -AssemblyName &quot;$(AssemblyName)&quot; -MakePri &quot;$(_MakePri)&quot; -OutputPri &quot;$(_OutputPriCandidate)&quot;"
-          Condition="Exists('$(_RebuildPriScript)') And '$(_PublishDirTrimmed)' != ''" />
-    <Warning Text="Skipped Rebuild-UnpackagedPri (script/PublishDir missing)."
-             Condition="!Exists('$(_RebuildPriScript)') Or '$(_PublishDirTrimmed)' == ''" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_RebuildPriScript)&quot; -PublishDir &quot;$(_PublishDirTrimmed)&quot; -IntermediateDir &quot;$(_IntermediateTrimmed)&quot; -AssemblyName &quot;$(AssemblyName)&quot; -MakePri &quot;$(_MakePri)&quot; -OutputPri &quot;$(_OutputPriCandidate)&quot;" Condition="Exists('$(_RebuildPriScript)') And '$(_PublishDirTrimmed)' != ''" />
+    <Warning Text="Skipped Rebuild-UnpackagedPri (script/PublishDir missing)." Condition="!Exists('$(_RebuildPriScript)') Or '$(_PublishDirTrimmed)' == ''" />
   </Target>
 </Project>
