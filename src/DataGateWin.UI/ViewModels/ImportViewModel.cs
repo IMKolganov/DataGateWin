@@ -23,13 +23,13 @@ public sealed partial class ImportViewModel : ObservableObject
     public ObservableCollection<ImportedProfileListItem> Profiles { get; } = new();
 
     [ObservableProperty]
-    private string statusText = "";
+    public partial string StatusText { get; set; } = "";
 
     [ObservableProperty]
-    private bool isBusy;
+    public partial bool IsBusy { get; set; }
 
     [ObservableProperty]
-    private int protocolIndex; // 0 OpenVPN, 1 Xray
+    public partial int ProtocolIndex { get; set; } // 0 OpenVPN, 1 Xray
 
     public bool IsOpenVpnSelected => ProtocolIndex == 0;
     public bool IsXraySelected => ProtocolIndex == 1;

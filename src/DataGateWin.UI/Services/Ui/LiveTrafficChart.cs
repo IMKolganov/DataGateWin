@@ -51,8 +51,8 @@ public sealed class LiveTrafficChart : Grid
             return;
         }
         // Keep historical sample heights unchanged; reveal one new sample by scrolling horizontally.
-        _incoming = _fromIn.Concat([incoming[^1]]).ToArray();
-        _outgoing = _fromOut.Concat([outgoing[^1]]).ToArray();
+        _incoming = _fromIn.Append(incoming[^1]).ToArray();
+        _outgoing = _fromOut.Append(outgoing[^1]).ToArray();
         _axisMaximum = _targetMaximum;
         _scrollProgress = 0;
         if (_animation is null)
