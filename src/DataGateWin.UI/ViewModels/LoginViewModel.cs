@@ -54,7 +54,7 @@ public sealed partial class LoginViewModel : ObservableObject
     public int Port { get; }
 
     [ObservableProperty]
-    private string _statusText = "";
+    public partial string StatusText { get; set; } = "";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotBusy))]
@@ -63,21 +63,21 @@ public sealed partial class LoginViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyCanExecuteChangedFor(nameof(VerifyTotpCommand))]
     [NotifyCanExecuteChangedFor(nameof(BackFromTotpCommand))]
-    private bool _isBusy;
+    public partial bool IsBusy { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsGoogleSignInVisible))]
     [NotifyCanExecuteChangedFor(nameof(VerifyTotpCommand))]
     [NotifyCanExecuteChangedFor(nameof(BackFromTotpCommand))]
     [NotifyCanExecuteChangedFor(nameof(SignInCommand))]
-    private bool _isTotpChallengeVisible;
+    public partial bool IsTotpChallengeVisible { get; set; }
 
     [ObservableProperty]
-    private string _totpLeadText = "";
+    public partial string TotpLeadText { get; set; } = "";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(VerifyTotpCommand))]
-    private string _totpCode = "";
+    public partial string TotpCode { get; set; } = "";
 
     public bool IsNotBusy => !IsBusy;
     public bool IsGoogleSignInVisible => !IsTotpChallengeVisible;

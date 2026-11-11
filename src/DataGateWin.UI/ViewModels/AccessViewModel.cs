@@ -53,56 +53,55 @@ public sealed partial class AccessViewModel : ObservableObject
     }
 
     [ObservableProperty]
-    private bool isLoading;
+    public partial bool IsLoading { get; set; }
 
     [ObservableProperty]
-    private string? errorText;
+    public partial string? ErrorText { get; set; }
 
     [ObservableProperty]
-    private IList<VpnServerWithStatusV2Dto> servers
-        = new List<VpnServerWithStatusV2Dto>();
+    public partial IList<VpnServerWithStatusV2Dto> Servers { get; set; } = new List<VpnServerWithStatusV2Dto>();
 
     [ObservableProperty]
-    private string totalClientsLineText = Loc.T("Access_TotalClientsUnknown");
+    public partial string TotalClientsLineText { get; set; } = Loc.T("Access_TotalClientsUnknown");
 
     [ObservableProperty]
-    private string planLineText = Loc.T("Access_PlanDash");
+    public partial string PlanLineText { get; set; } = Loc.T("Access_PlanDash");
 
     [ObservableProperty]
-    private bool showTrafficQuotaTitle = true;
+    public partial bool ShowTrafficQuotaTitle { get; set; } = true;
 
     [ObservableProperty]
-    private string quotaMetaText = "";
+    public partial string QuotaMetaText { get; set; } = "";
 
     [ObservableProperty]
-    private bool quotaMetaVisible;
+    public partial bool QuotaMetaVisible { get; set; }
 
     [ObservableProperty]
-    private bool quotaBarVisible;
+    public partial bool QuotaBarVisible { get; set; }
 
     [ObservableProperty]
-    private double quotaBarValue;
+    public partial double QuotaBarValue { get; set; }
 
     [ObservableProperty]
-    private bool quotaBarIsOver;
+    public partial bool QuotaBarIsOver { get; set; }
 
     [ObservableProperty]
-    private string quotaUsedCaption = "";
+    public partial string QuotaUsedCaption { get; set; } = "";
 
     [ObservableProperty]
-    private string quotaRemainingCaption = "";
+    public partial string QuotaRemainingCaption { get; set; } = "";
 
     [ObservableProperty]
-    private bool quotaUsageCaptionsVisible;
+    public partial bool QuotaUsageCaptionsVisible { get; set; }
 
     [ObservableProperty]
-    private string quotaDetailsText = "";
+    public partial string QuotaDetailsText { get; set; } = "";
 
     [ObservableProperty]
-    private bool quotaDetailsVisible;
+    public partial bool QuotaDetailsVisible { get; set; }
 
     [ObservableProperty]
-    private string validityFooterText = Loc.T("Access_Dash");
+    public partial string ValidityFooterText { get; set; } = Loc.T("Access_Dash");
 
     [RelayCommand]
     private Task LoadAsync() => LoadCoreAsync();
