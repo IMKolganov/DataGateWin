@@ -78,6 +78,7 @@ namespace datagate::vpn
 
             if (ev.name == "CONNECTED")
             {
+                _dynamicChallengeInfo.clear();
                 _connected = true;
 
                 ConnectedInfo ci{};
@@ -100,14 +101,39 @@ namespace datagate::vpn
                 if (_owner.OnConnected)
                     _owner.OnConnected(ci);
             }
-            else if (ev.name == "DISCONNECTED" || ev.name == "EXITING" || ev.fatal)
+            else
             {
-                _connected = false;
+                if (ev.name == "DYNAMIC_CHALLENGE")
+                {
+                    _dynamicChallengeInfo = ev.info;
+                    if (_owner.OnLog)
+                        _owner.OnLog("[vpn][auth] DYNAMIC_CHALLENGE");
+                    return;
+                }
 
-                if (_owner.OnDisconnected)
-                    _owner.OnDisconnected(ev.info.empty() ? ev.name : ev.info);
+                if (ev.name == "AUTH_FAILED")
+                {
+                    if (_owner.OnLog)
+                        _owner.OnLog(std::string("[vpn][auth] AUTH_FAILED") + (ev.info.empty() ? "" : (" " + ev.info)));
+                }
 
-                SignalDone();
+                if (ev.name == "DISCONNECTED" || ev.name == "EXITING" || ev.name == "AUTH_FAILED" || ev.fatal)
+                {
+                    _connected = false;
+
+                    std::string reason;
+                    if (!_dynamicChallengeInfo.empty())
+                        reason = std::string("DYNAMIC_CHALLENGE ") + _dynamicChallengeInfo;
+                    else if (ev.info.empty())
+                        reason = ev.name;
+                    else
+                        reason = ev.info;
+
+                    if (_owner.OnDisconnected)
+                        _owner.OnDisconnected(reason);
+
+                    SignalDone();
+                }
             }
         }
 
@@ -145,6 +171,8 @@ namespace datagate::vpn
                 _owner.OnLog(std::string("[vpn][eval] error=") + (ev.error ? "1" : "0") + " msg=" + ev.message);
                 _owner.OnLog(std::string("[vpn][eval] windowsDriver=") + (ev.windowsDriver.empty() ? "<empty>" : ev.windowsDriver));
                 _owner.OnLog(std::string("[vpn][eval] profileName=") + ev.profileName + " friendlyName=" + ev.friendlyName);
+                _owner.OnLog(std::string("[vpn][eval] autologin=") + (ev.autologin ? "1" : "0")
+                    + " staticChallengeLen=" + std::to_string(ev.staticChallenge.size()));
             }
 
             VpnClient::EvalResult r;
@@ -157,12 +185,40 @@ namespace datagate::vpn
             return r;
         }
 
-        VpnClient::StatusResult Connect()
+        bool ProvideCreds(const std::string& username, const std::string& password, const std::string& response, const std::string& cookie, std::string& outError)
+        {
+            openvpn::ClientAPI::ProvideCreds creds;
+            creds.username = username;
+            creds.password = password;
+            creds.response = response;
+            creds.dynamicChallengeCookie = cookie;
+
+            const auto st = provide_creds(creds);
+            if (_owner.OnLog)
+            {
+                _owner.OnLog(std::string("[vpn][creds] error=") + (st.error ? "1" : "0")
+                    + " status=" + st.status + " msg=" + st.message
+                    + " userLen=" + std::to_string(username.size())
+                    + " responseLen=" + std::to_string(response.size())
+                    + " cookieLen=" + std::to_string(cookie.size()));
+            }
+
+            if (st.error)
+            {
+                outError = st.message.empty() ? std::string("provide_creds failed") : st.message;
+                return false;
+            }
+
+            return true;
+        }
+
+        VpnClient::        StatusResult Connect()
         {
             VpnClient::StatusResult r;
 
             _done = false;
             _connected = false;
+            _dynamicChallengeInfo.clear();
 
             try
             {
@@ -248,6 +304,7 @@ namespace datagate::vpn
 
         std::string _lastEventName{};
         std::string _lastEventInfo{};
+        std::string _dynamicChallengeInfo{};
     };
 
     VpnClient::VpnClient()
@@ -265,6 +322,11 @@ namespace datagate::vpn
     VpnClient::StatusResult VpnClient::Connect()
     {
         return _impl->Connect();
+    }
+
+    bool VpnClient::ProvideCreds(const std::string& username, const std::string& password, const std::string& response, const std::string& cookie, std::string& outError)
+    {
+        return _impl->ProvideCreds(username, password, response, cookie, outError);
     }
 
     void VpnClient::Stop()

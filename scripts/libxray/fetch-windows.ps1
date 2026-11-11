@@ -1,7 +1,7 @@
 # Fetch official libXray Windows x64 release (no Go toolchain required).
-# Pin matches Android: XTLS/libXray v26.7.28 (Go mirror v1.260728.0).
+# Pin matches Android and Apple clients: XTLS/libXray v26.10.31, API version 3.
 param(
-    [string]$Version = "v26.7.28",
+    [string]$Version = "v26.10.31",
     [string]$OutDir = ""
 )
 
@@ -14,16 +14,18 @@ if (-not $OutDir) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $dllOut = Join-Path $OutDir "libXray.dll"
 $hdrOut = Join-Path $OutDir "libXray.h"
+$stampOut = Join-Path $OutDir "VERSION.txt"
+$cachedVersion = if (Test-Path -LiteralPath $stampOut) { (Get-Content -LiteralPath $stampOut -Raw).Trim() } else { "" }
 
-if ((Test-Path -LiteralPath $dllOut) -and (Test-Path -LiteralPath $hdrOut)) {
+if ((Test-Path -LiteralPath $dllOut) -and (Test-Path -LiteralPath $hdrOut) -and $cachedVersion -eq $Version) {
     Write-Host "Already present: $dllOut"
     Write-Host "Already present: $hdrOut"
     exit 0
 }
 
 $zipCandidates = @(
-    (Join-Path $RepoRoot "third_party\libxray\libxray-windows-x64.zip"),
-    (Join-Path $OutDir "libxray-windows-x64.zip")
+    (Join-Path $RepoRoot "third_party\libxray\libxray-windows-x64-$Version.zip"),
+    (Join-Path $OutDir "libxray-windows-x64-$Version.zip")
 )
 
 $zip = $null
@@ -36,7 +38,7 @@ foreach ($c in $zipCandidates) {
 }
 
 if (-not $zip) {
-    $zip = Join-Path $OutDir "libxray-windows-x64.zip"
+    $zip = Join-Path $OutDir "libxray-windows-x64-$Version.zip"
     $url = "https://github.com/XTLS/libXray/releases/download/$Version/libxray-windows-x64.zip"
     Write-Host "Downloading $url ..."
     Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
@@ -55,7 +57,7 @@ Copy-Item -Force $hdr.FullName $hdrOut
 Remove-Item -Recurse -Force $extract
 
 # Keep a pin stamp for docs/CI.
-Set-Content -Path (Join-Path $OutDir "VERSION.txt") -Value $Version -NoNewline
+Set-Content -Path $stampOut -Value $Version -NoNewline
 
 Write-Host "OK: $dllOut ($((Get-Item $dllOut).Length) bytes)"
 Write-Host "OK: $hdrOut"

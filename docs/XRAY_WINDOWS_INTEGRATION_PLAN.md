@@ -10,7 +10,7 @@ Goal of the starter: **prove Windows can run one Xray share-link through `engine
 
 | # | Task | Done when |
 |---|------|-----------|
-| **S0** | Spike runtime | ✅ Official `libXray.dll` (v26.7.28) via `CGoInvoke` — see `docs/BUILD_LIBXRAY_WINDOWS.md`. |
+| **S0** | Spike runtime | ✅ Official `libXray.dll` (v26.10.31) via `CGoInvoke` — see `docs/BUILD_LIBXRAY_WINDOWS.md`. |
 | **S1** | Submodule / artifact | ✅ `scripts/libxray/fetch-windows.ps1` → `engine/third_party/libxray/`; CMake + Build-* copy beside `engine.exe`. |
 | **S2** | Engine facade | ✅ `XrayRuntime` + `XrayConfigBuilder` (Windows TUN JSON). |
 | **S3** | IPC | ✅ `protocol:"xray"` + `xrayShareLinks` / `xrayConfigJson`; mutual exclusion via single session. |
@@ -50,7 +50,7 @@ flowchart LR
 | Item | Decision |
 |------|----------|
 | Submodule | `native-libxray` → `https://github.com/XTLS/libXray.git` (same as Android) |
-| Pin | Match Android: tag **v1.260728.0** / release **v26.7.28** |
+| Pin | Match Android: tag **v1.261031.0** / release **v26.10.31** |
 | Server list API | **Only** `GET api/v3/open-vpn-servers/get-all-with-status` |
 | Xray credentials API | `api/xray-client-links/download-file-by-cn` + `add-with-token` (Android parity) |
 | Process model | Engine owns tunnel; UI only IPC |
@@ -64,7 +64,7 @@ flowchart LR
 - Filter: [`WssServerSelector.IsWindowsSupported`](../DataGateWin.Core/Services/VpnServers/WssServerSelector.cs) = OpenVpn + WSS → **Xray hidden**.
 - Import: Xray = coming soon ([`ImportPage`](../DataGateWin.WinUI/Pages/ImportPage.xaml.cs)).
 - Engine: OpenVPN3 + WSS bridge only.
-- Android: `XrayCoreFacade` (`convertShareLinksToXrayJson` / `runXrayFromJson` / `stopXray`), `XrayClientLinksApiClient`.
+- Android: `XrayCoreFacade` (`convertShareLinksToXrayJson` / `runXray` / `stopXray`), `XrayClientLinksApiClient`.
 
 ---
 

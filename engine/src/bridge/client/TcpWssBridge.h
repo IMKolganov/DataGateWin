@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <optional>
 
 #include "WssBridgeOptionsView.h"
@@ -22,6 +23,8 @@ public:
         std::mutex& targetMtx,
         std::optional<BridgeTargetView>& target,
         std::atomic<uint64_t>& activeSessions);
+
+    ~TcpWssBridge() { callbackLifetime_->store(false); }
 
     // Returns true if bind+listen succeeded.
     bool Start();
@@ -42,4 +45,5 @@ private:
     std::atomic<uint64_t>& activeSessions_;
 
     btcp::acceptor acceptor_;
+    std::shared_ptr<std::atomic<bool>> callbackLifetime_ = std::make_shared<std::atomic<bool>>(true);
 };

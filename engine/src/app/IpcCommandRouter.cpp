@@ -289,6 +289,17 @@ void IpcCommandRouter::Install()
                 opt.useWssBridge = true;
                 TryExtractJsonBoolField(cmd.payloadJson, "useWssBridge", opt.useWssBridge);
 
+                if (TryExtractJsonStringField(cmd.payloadJson, "openVpnUsername", opt.openVpnUsername)
+                    || TryExtractJsonStringField(cmd.payloadJson, "openVpnPassword", opt.openVpnPassword)
+                    || TryExtractJsonStringField(cmd.payloadJson, "openVpnResponse", opt.openVpnResponse)
+                    || TryExtractJsonStringField(cmd.payloadJson, "openVpnChallengeCookie", opt.openVpnChallengeCookie))
+                {
+                    opt.hasOpenVpnCreds = true;
+                    TryExtractJsonStringField(cmd.payloadJson, "openVpnPassword", opt.openVpnPassword);
+                    TryExtractJsonStringField(cmd.payloadJson, "openVpnResponse", opt.openVpnResponse);
+                    TryExtractJsonStringField(cmd.payloadJson, "openVpnChallengeCookie", opt.openVpnChallengeCookie);
+                }
+
                 // Force loopback regardless of IPC payload (defense in depth vs permissive pipe ACL).
                 opt.bridge.listenIp = "127.0.0.1";
                 if (opt.bridge.listenPort == 0)

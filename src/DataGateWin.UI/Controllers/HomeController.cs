@@ -1,0 +1,946 @@
+using System.Globalization;
+using DataGateWin.Configuration;
+using DataGateWin.CrashReporting;
+using DataGateWin.Localization;
+using DataGateWin.Models.Ipc;
+using DataGateWin.Services.Installation;
+using DataGateWin.Services.Ipc;
+using DataGateWin.Services.IpList;
+using DataGateWin.Services.OpenVpnFiles;
+using DataGateWin.Services.Profiles;
+using DataGateWin.Services.Ui;
+using DataGateWin.Services.VpnServers;
+using DataGateWin.Services.Xray;
+
+namespace DataGateWin.Controllers;
+
+public sealed class HomeController : IDisposable
+{
+    private readonly SemaphoreSlim _opLock = new(1, 1);
+
+    private CancellationTokenSource? _lifetimeCts;
+    private CancellationTokenSource? _connectCts;
+    private CancellationTokenSource? _connectWatchdogCts;
+    private int _connectWatchdogGeneration;
+    private bool _desiredConnected;
+    private int _reconnectAttempt;
+    private int _reconnectScheduled;
+    private VpnConnectionSessionInfo? _networkInfoRefreshTarget;
+    private VpnConnectionSessionInfo? _rememberedSelection;
+    private bool _connectAutoPick = true;
+    private int? _connectManualId;
+    private Guid? _connectImportedProfileId;
+    private OpenVpnAuthCredentials? _connectImportedCreds;
+    private int _dynamicChallengeBusy;
+
+    /// <summary>UI host shows username / password / OTP. Dynamic CRV1 uses this after connect.</summary>
+    public Func<OpenVpnAuthRequirement, Task<OpenVpnAuthCredentials?>>? PromptOpenVpnAuthAsync { get; set; }
+
+    private readonly EngineSessionService _engine;
+    private readonly InstallationIdService _installation = new();
+    private readonly ImportedVpnProfileStore _importedProfiles = new();
+    private readonly StartSessionPayloadBuilder _payloadBuilder;
+
+    private readonly object _uiLock = new();
+    private string? _attemptServerName;
+    private void AddConnectionProgress(string text) => Log(text);
+
+    private void OnPreparationProgress(ConnectionPreparationStage stage, VpnConnectionSessionInfo? selection)
+    {
+        if (stage == ConnectionPreparationStage.Selecting)
+        {
+            _attemptServerName = null;
+            _sessionInfo = null;
+        }
+        if (selection is not null)
+        {
+            _attemptServerName = selection.ServerName;
+            _sessionInfo = selection;
+        }
+        var key = "Home_Progress_" + stage;
+        var server = _attemptServerName ?? Loc.T("Home_Progress_Unknown");
+        AddConnectionProgress(Loc.T(key, server));
+        ApplyUiState(UiState.Connecting, () => Loc.T(key + "_Compact"));
+    }
+
+
+    private Action<string>? _setStatusText;
+    private Action<UiState, string, VpnConnectionSessionInfo?>? _applyUiState;
+    private Action<string>? _log;
+
+    private UiState _lastUiState = UiState.Idle;
+    private string _lastStatusText = Loc.T("Home_Status_Idle");
+    private Func<string>? _statusComposer;
+    private VpnConnectionSessionInfo? _sessionInfo;
+
+    /// <summary>Fired on every VPN UI state change (engine and user actions). Used by tray toasts.</summary>
+    public event Action<UiState, string>? UiStateChanged;
+
+    public UiState LastUiState => _lastUiState;
+    public string LastStatusText => _lastStatusText;
+
+    public HomeController()
+    {
+        var serversApi = new OpenVpnServersApiClient(App.AuthedApiHttp);
+        var selector = new WssServerSelector(serversApi);
+        var filesApi = new OpenVpnFilesApiClient(App.AuthedApiHttp, Log);
+        var xrayFilesApi = new XrayClientLinksApiClient(App.AuthedApiHttp);
+
+        _payloadBuilder = new StartSessionPayloadBuilder(
+            wssServerSelector: selector,
+            installationIdService: _installation,
+            filesApi: filesApi,
+            xrayFilesApi: xrayFilesApi,
+            session: App.Session,
+            ipListRoutes: new IpListRoutesRepository(),
+            log: Log);
+
+        _payloadBuilder.ProgressChanged += OnPreparationProgress;
+
+        _engine = new EngineSessionService(
+            enginePathResolver: new EnginePathResolver(),
+            payloadBuilder: _payloadBuilder,
+            log: Log,
+            onEngineEvent: HandleEngineEvent
+        );
+    }
+
+    public void AppendLogLine(string line) => Log(line);
+
+    public void ReapplyUiToLastState()
+        => ApplyUiState(_lastUiState, _statusComposer ?? (() => Loc.T("Home_Status_Idle")));
+
+    /// <summary>Last humanized start failure (for Import/tray status).</summary>
+    public string? LastConnectErrorHuman => _engine.LastStartErrorHuman;
+
+    public IReadOnlyList<ImportedVpnProfile> ListImportedProfiles() => _importedProfiles.List();
+
+    public void RememberImportedHomeSelection(Guid profileId)
+    {
+        var s = App.Settings;
+        s.HomeVpnAutoPickServer = false;
+        s.HomeVpnImportedProfileId = profileId;
+        AppSettingsStore.SaveSafe(s);
+    }
+
+    public void RememberImportedAuthUsername(Guid profileId, string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return;
+        var profile = _importedProfiles.Get(profileId);
+        if (profile is null)
+            return;
+        profile.LastAuthUsername = username.Trim();
+        _importedProfiles.Upsert(profile);
+    }
+
+    public void AttachUi(
+        Action<string> statusTextSetter,
+        Action<UiState, string, VpnConnectionSessionInfo?> uiStateApplier,
+        Action<string> logAppender)
+    {
+        lock (_uiLock)
+        {
+            _setStatusText = statusTextSetter;
+            _applyUiState = uiStateApplier;
+            _log = logAppender;
+        }
+
+        ReapplyUiToLastState();
+        Log(Loc.T("Home_Log_UiAttached"));
+    }
+
+    public void DetachUi()
+    {
+        lock (_uiLock)
+        {
+            _setStatusText = null;
+            _applyUiState = null;
+            _log = null;
+        }
+    }
+
+    public async Task OnLoadedAsync()
+    {
+        // Page navigation must not reset VPN intent / session identity.
+        // Only ensure a live CTS for future connect/disconnect/reconnect work.
+        if (_lifetimeCts == null || _lifetimeCts.IsCancellationRequested)
+            _lifetimeCts = new CancellationTokenSource();
+
+        var ct = _lifetimeCts.Token;
+        var returningToPage =
+            _lastUiState is UiState.Connected or UiState.Connecting or UiState.Disconnecting
+            || _sessionInfo is { HasIdentity: true }
+            || _desiredConnected;
+
+        try
+        {
+            if (!returningToPage)
+                ApplyKeyed(UiState.Connecting, "Home_Status_Attaching");
+            else
+                ReapplyUiToLastState();
+
+            await _engine.AttachOrStartAsync(ct).ConfigureAwait(false);
+            RememberSelectionFromEngine();
+            await RefreshStatusAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+        }
+        catch (Exception ex)
+        {
+            if (TryHandleEngineMissing(ex))
+                return;
+
+            CrashReporter.ReportNonFatal(ex, "HomeController.OnLoaded");
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
+            // Always surface attach failure (including return-to-Home), so we never leave a
+            // stale Connected UI when the engine IPC is dead.
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_AttachFailedFmt", VpnUserFacingError.FromException(ex)));
+        }
+    }
+
+    public void OnUnloaded()
+    {
+        // Keep controller CTS + session info alive across menu navigation.
+        // Cancelling here used to kill reconnect and force a cold "Attaching" reset on return.
+        DetachUi();
+    }
+
+    public async Task<bool> ConnectAsync(bool autoPickServer, int? manualVpnServerId)
+    {
+        _desiredConnected = true;
+        _connectAutoPick = autoPickServer;
+        _connectManualId = manualVpnServerId;
+        _connectImportedProfileId = null;
+        _connectImportedCreds = null;
+        return await Task.Run(EnsureConnectedAsync).ConfigureAwait(false);
+    }
+
+    /// <returns>True when a start was accepted (or the desired session was already up).</returns>
+    public async Task<bool> ConnectImportedProfileAsync(Guid profileId, OpenVpnAuthCredentials? credentials = null)
+    {
+        _desiredConnected = true;
+        _connectImportedProfileId = profileId;
+        _connectManualId = null;
+        _connectImportedCreds = credentials;
+        return await Task.Run(EnsureConnectedAsync).ConfigureAwait(false);
+    }
+
+    public async Task DisconnectAsync()
+    {
+        _desiredConnected = false;
+        _connectImportedCreds = null;
+        CancelConnectWatchdog();
+        try { _connectCts?.Cancel(); } catch { /* ignore */ }
+        await EnsureDisconnectedAsync(userInitiated: true);
+    }
+
+    private async Task<bool> EnsureConnectedAsync()
+    {
+        var lifetime = _lifetimeCts?.Token ?? CancellationToken.None;
+        BeginConnectCts(lifetime);
+        var ct = _connectCts?.Token ?? lifetime;
+
+        await _opLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            _attemptServerName = null;
+            ApplyKeyed(UiState.Connecting, "Home_Status_Connecting");
+
+            await _engine.AttachOrStartAsync(ct).ConfigureAwait(false);
+
+            var state = await _engine.GetEngineStateAsync(ct).ConfigureAwait(false);
+            if (EngineState.IsUnknown(state))
+            {
+                Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage("GetStatus failed")));
+                ApplyUiState(UiState.Idle, () =>
+                    Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage("GetStatus failed")));
+                TryScheduleReconnect();
+                return false;
+            }
+
+            var needsRestart = NeedsSessionRestart(state) || EngineState.NeedsCleanup(state);
+            if (EngineState.IsLiveSession(state) && !needsRestart)
+            {
+                RememberSelectionFromEngine();
+                if (EngineState.IsConnected(state))
+                {
+                    ApplyConnected(state);
+                    return true;
+                }
+
+                // Already starting/connecting for the desired target — wait for Connected/Error.
+                ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+                ArmConnectWatchdog();
+                return true;
+            }
+
+            if (!EngineState.IsIdle(state))
+            {
+                ApplyKeyed(UiState.Disconnecting, "Home_Status_Disconnecting");
+                var stopped = await _engine.StopSessionSafeAsync(ct).ConfigureAwait(false);
+                ClearSessionInfo();
+                var afterStop = await _engine.GetEngineStateAsync(ct).ConfigureAwait(false);
+                if (!stopped || (!EngineState.IsUnknown(afterStop) && !EngineState.IsIdle(afterStop)))
+                {
+                    Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage("StopSession incomplete")));
+                    ApplyUiState(UiState.Idle, () =>
+                        Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage("StopSession incomplete")));
+                    TryScheduleReconnect();
+                    return false;
+                }
+
+                ApplyKeyed(UiState.Connecting, "Home_Status_Connecting");
+            }
+
+            bool started;
+            if (_connectImportedProfileId is Guid importedId)
+            {
+                started = await StartImportedProfileAsync(importedId, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                started = await _engine.StartSessionAsync(_connectAutoPick, _connectManualId, ct).ConfigureAwait(false);
+                if (started)
+                    RememberSelectionFromEngine();
+            }
+
+            if (!started)
+            {
+                ClearSessionInfo();
+                if (_engine.LastStartPreparationTimedOut)
+                    _desiredConnected = false;
+
+                if (_engine.LastStartFailedNoEligibleServers && _connectImportedProfileId is null)
+                {
+                    Log(Loc.T("Home_Log_NoWss"));
+                    _desiredConnected = false;
+                }
+
+                // Imported start failed: do not retry (2FA codes expire; user must click Connect).
+                if (_connectImportedProfileId is not null)
+                    _desiredConnected = false;
+
+                ApplyUiState(UiState.Idle, ComposeStartFailedStatus);
+                if (_desiredConnected)
+                    _ = ScheduleReconnectAsync();
+                return false;
+            }
+
+            // ReplyOk means accepted — Connected/Error events decide the real outcome.
+            ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+            _reconnectAttempt = 0;
+            ArmConnectWatchdog();
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            CancelConnectWatchdog();
+            if (!_desiredConnected)
+            {
+                ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+                return false;
+            }
+
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            CancelConnectWatchdog();
+            if (TryHandleEngineMissing(ex))
+                return false;
+
+            CrashReporter.ReportNonFatal(ex, "HomeController.EnsureConnected");
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
+
+            TryScheduleReconnect();
+            return false;
+        }
+        finally
+        {
+            _opLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// True when the active engine session should be stopped before starting the desired target.
+    /// </summary>
+    private bool NeedsSessionRestart(string? engineState)
+    {
+        // Terminal phases are handled via NeedsCleanup; here we compare desired vs remembered identity.
+        if (!EngineState.IsLiveSession(engineState) && !EngineState.NeedsCleanup(engineState))
+            return false;
+
+        if (_connectImportedProfileId is not null)
+        {
+            // Explicit Import Connect always restarts (profile identity is not in engine state).
+            return EngineState.IsLiveSession(engineState) || EngineState.NeedsCleanup(engineState);
+        }
+
+        // Catalog desired: restart if an imported session is active (ServerId == 0 with a name).
+        if (_sessionInfo is { ServerId: 0, ServerName: var name } && !string.IsNullOrWhiteSpace(name))
+            return true;
+
+        if (_connectManualId is int wantId
+            && _sessionInfo is { ServerId: var haveId }
+            && haveId > 0
+            && haveId != wantId)
+            return true;
+
+        return false;
+    }
+
+    private async Task<bool> StartImportedProfileAsync(Guid profileId, CancellationToken ct)
+    {
+        var profile = _importedProfiles.Get(profileId);
+        if (profile is null)
+        {
+            Log(Loc.T("Import_Log_ProfileMissing"));
+            return false;
+        }
+
+        _attemptServerName = profile.Name;
+        AddConnectionProgress(Loc.T("Home_Progress_Imported", profile.Name));
+        ApplyUiState(UiState.Connecting, () => Loc.T("Home_Progress_Imported_Compact"));
+        try
+        {
+            var payload = profile.Protocol switch
+            {
+                ImportedVpnProtocol.OpenVpn => ImportedOpenVpnPayloadBuilder.Build(profile, _installation, _connectImportedCreds),
+                ImportedVpnProtocol.Xray => ImportedXrayPayloadBuilder.Build(profile, _installation),
+                _ => throw new InvalidOperationException("Unsupported imported protocol: " + profile.Protocol),
+            };
+            _sessionInfo = new VpnConnectionSessionInfo
+            {
+                ServerId = 0,
+                ServerName = profile.Name,
+                PreferredAdapterName = profile.Protocol == ImportedVpnProtocol.Xray ? "xray0" : "DataGate",
+                ExternalIp = null,
+                DnsServers = profile.Protocol == ImportedVpnProtocol.Xray
+                    ? XrayWindowsConfigBuilder.ExtractExplicitDnsServers(profile.ConfigText)
+                    : null,
+            };
+            _payloadBuilder.ClearLastSelection();
+            Log(Loc.T("Import_Log_ConnectingFmt", profile.Name));
+            return await _engine.StartSessionWithPayloadAsync(payload, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.StartImportedProfile");
+            _engine.RememberStartError(ex);
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
+            return false;
+        }
+    }
+
+    private async Task EnsureDisconnectedAsync(bool userInitiated)
+    {
+        var ct = _lifetimeCts?.Token ?? CancellationToken.None;
+
+        await _opLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ApplyKeyed(UiState.Disconnecting, "Home_Status_Disconnecting");
+
+            await _engine.StopSessionSafeAsync(ct).ConfigureAwait(false);
+            ClearSessionInfo();
+
+            ApplyKeyed(UiState.Idle, userInitiated ? "Home_Status_Idle" : "Home_Status_IdleDisconnected");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.EnsureDisconnected");
+            ClearSessionInfo();
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
+        }
+        finally
+        {
+            _opLock.Release();
+        }
+    }
+
+    private async Task RefreshStatusAsync(CancellationToken ct)
+    {
+        if (!await _engine.IsAttachedAsync(ct).ConfigureAwait(false))
+        {
+            if (!_desiredConnected)
+                ClearSessionInfo();
+            ApplyKeyed(UiState.Idle, "Home_Status_IdleNotAttached");
+            return;
+        }
+
+        var state = await _engine.GetEngineStateAsync(ct).ConfigureAwait(false);
+        if (EngineState.IsUnknown(state))
+        {
+            ApplyKeyed(UiState.Idle, "Home_Status_IdleNotAttached");
+            return;
+        }
+
+        if (EngineState.IsIdle(state) || EngineState.NeedsCleanup(state))
+        {
+            if (!_desiredConnected)
+                ClearSessionInfo();
+            ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+            return;
+        }
+
+        if (EngineState.IsConnected(state))
+        {
+            RememberSelectionFromEngine();
+            ApplyConnected(state);
+            return;
+        }
+
+        // starting / connecting / stopping
+        RememberSelectionFromEngine();
+        ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+    }
+
+    private bool TryHandleEngineMissing(Exception ex)
+    {
+        if (!EngineMissingUi.IsEngineMissingException(ex))
+            return false;
+
+        EngineMissingUi.ShowDialog(App.GetActiveXamlRoot());
+        ClearSessionInfo();
+        ApplyKeyed(UiState.Idle, "Home_Status_EngineMissing");
+        Log(Loc.T("Home_Log_EngineMissing"));
+        _desiredConnected = false;
+        _reconnectAttempt = 0;
+        return true;
+    }
+
+    /// <summary>
+    /// OpenVPN TOTP / static-challenge / CRV1 must not be replayed by auto-reconnect.
+    /// </summary>
+    private bool ShouldSkipImportedAuthReconnect()
+    {
+        if (_dynamicChallengeBusy != 0)
+            return true;
+        if (_connectImportedProfileId is not Guid id)
+            return false;
+        if (!string.IsNullOrWhiteSpace(_connectImportedCreds?.Response)
+            || !string.IsNullOrWhiteSpace(_connectImportedCreds?.DynamicChallengeCookie))
+            return true;
+        var profile = _importedProfiles.Get(id);
+        return profile is not null && OpenVpnAuthDetector.Analyze(profile.ConfigText).NeedsPrompt;
+    }
+
+    private bool TryBeginOpenVpnDynamicChallenge(string? raw)
+    {
+        if (!OpenVpnDynamicChallengeParser.TryParse(raw, out var challenge) || challenge is null)
+            return false;
+
+        if (Interlocked.CompareExchange(ref _dynamicChallengeBusy, 1, 0) != 0)
+            return true;
+
+        _desiredConnected = false;
+        CancelConnectWatchdog();
+        ClearSessionInfo();
+        Log(Loc.T("Home_Error_OpenVpnAuth"));
+        ApplyKeyed(UiState.Idle, "Home_Error_OpenVpnAuth");
+        _ = ContinueOpenVpnDynamicChallengeAsync(challenge);
+        return true;
+    }
+
+    private async Task ContinueOpenVpnDynamicChallengeAsync(OpenVpnDynamicChallenge challenge)
+    {
+        try
+        {
+            var prompt = PromptOpenVpnAuthAsync;
+            if (prompt is null)
+                return;
+
+            var creds = await prompt(challenge.ToRequirement()).ConfigureAwait(false);
+            if (creds is null)
+            {
+                ApplyKeyed(UiState.Idle, "Home_Error_Canceled");
+                return;
+            }
+
+            if (_connectImportedProfileId is not Guid id)
+                return;
+
+            RememberImportedAuthUsername(id, creds.Username);
+            await ConnectImportedProfileAsync(id, creds).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.DynamicChallenge");
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromException(ex)));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromException(ex)));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _dynamicChallengeBusy, 0);
+        }
+    }
+
+    private bool TryScheduleReconnect()
+    {
+        if (!_desiredConnected)
+            return false;
+        if (ShouldSkipImportedAuthReconnect())
+        {
+            _desiredConnected = false;
+            return false;
+        }
+
+        _ = ScheduleReconnectAsync();
+        return true;
+    }
+
+    private async Task ScheduleReconnectAsync()
+    {
+        if (Interlocked.CompareExchange(ref _reconnectScheduled, 1, 0) != 0)
+            return;
+        var ct = _connectCts?.Token ?? _lifetimeCts?.Token ?? CancellationToken.None;
+        try
+        {
+            if (!_desiredConnected || ShouldSkipImportedAuthReconnect())
+                return;
+            _reconnectAttempt++;
+            var delay = ReconnectPolicy.GetDelay(_reconnectAttempt);
+            var seconds = delay.TotalSeconds.ToString("0", CultureInfo.InvariantCulture);
+            ApplyUiState(UiState.Connecting, () => Loc.T("Home_Status_ReconnectingFmt", seconds));
+            Log(Loc.T("Home_Log_ReconnectScheduledFmt", _reconnectAttempt.ToString(CultureInfo.InvariantCulture), seconds));
+            await Task.Delay(delay, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { return; }
+        finally { Interlocked.Exchange(ref _reconnectScheduled, 0); }
+
+        if (_desiredConnected && !ct.IsCancellationRequested)
+            await EnsureConnectedAsync().ConfigureAwait(false);
+    }
+
+    private void HandleEngineEvent(EngineEvent ev)
+    {
+        if (ev.Kind == EngineEventKind.StateChanged)
+        {
+            if (EngineState.IsIdle(ev.State) || EngineState.NeedsCleanup(ev.State))
+            {
+                if (HomeSessionUiPolicy.ShouldClearSessionIdentity(_desiredConnected))
+                    ClearSessionInfo();
+
+                if (_desiredConnected)
+                {
+                    if (ShouldSkipImportedAuthReconnect())
+                        _desiredConnected = false;
+                    else
+                    {
+                        ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+                        _ = ScheduleReconnectAsync();
+                        return;
+                    }
+                }
+
+                CancelConnectWatchdog();
+                ApplyKeyed(UiState.Idle, "Home_Status_Idle");
+                return;
+            }
+
+            if (EngineState.IsConnected(ev.State))
+            {
+                CancelConnectWatchdog();
+                ApplyConnected(ev.State);
+                return;
+            }
+
+            // starting / connecting / stopping — never show Connected
+            ApplyKeyed(UiState.Connecting, "Home_Status_ConnectingWaiting");
+            return;
+        }
+
+        if (ev.Kind == EngineEventKind.Connected)
+        {
+            CancelConnectWatchdog();
+            _reconnectAttempt = 0;
+            RememberSelectionFromEngine();
+            if (_sessionInfo != null && !string.IsNullOrWhiteSpace(ev.Ip))
+                _sessionInfo.VpnIp = ev.Ip.Trim();
+
+            ApplyConnected(null);
+            return;
+        }
+
+        if (ev.Kind == EngineEventKind.Disconnected)
+        {
+            var rawReason = ev.Reason;
+            if (TryBeginOpenVpnDynamicChallenge(rawReason))
+                return;
+
+            Log(Loc.T("Home_Log_DisconnectedLineFmt",
+                string.IsNullOrWhiteSpace(rawReason)
+                    ? Loc.T("Common_Unknown")
+                    : VpnUserFacingError.FromMessage(rawReason)));
+
+            string ComposeDisconnect()
+            {
+                var reason = string.IsNullOrWhiteSpace(rawReason)
+                    ? Loc.T("Common_Unknown")
+                    : VpnUserFacingError.FromMessage(rawReason);
+                return Loc.T("Home_Status_IdleDisconnectedReasonFmt", reason);
+            }
+
+            if (_desiredConnected)
+            {
+                if (ShouldSkipImportedAuthReconnect())
+                    _desiredConnected = false;
+                else
+                {
+                    // Keep footer identity while ScheduleReconnect rebuilds the session.
+                    ApplyUiState(UiState.Connecting, ComposeDisconnect);
+                    _ = ScheduleReconnectAsync();
+                    return;
+                }
+            }
+
+            CancelConnectWatchdog();
+            ClearSessionInfo();
+            ApplyUiState(UiState.Idle, ComposeDisconnect);
+            return;
+        }
+
+        if (ev.Kind == EngineEventKind.Error)
+        {
+            if (TryBeginOpenVpnDynamicChallenge(ev.Message) || TryBeginOpenVpnDynamicChallenge(ev.Code))
+                return;
+
+            CancelConnectWatchdog();
+            var raw = ev.Message;
+            if (VpnUserFacingError.FromMessage(raw) == Loc.T("Home_Error_Permission"))
+            {
+                _desiredConnected = false;
+                try { _connectCts?.Cancel(); } catch { /* ignore */ }
+            }
+            Log(Loc.T("Home_Log_ErrorFmt", VpnUserFacingError.FromMessage(raw)));
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", VpnUserFacingError.FromMessage(raw)));
+            TryScheduleReconnect();
+            return;
+        }
+
+        if (ev.Kind == EngineEventKind.EngineExited)
+        {
+            Log(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_EngineExit")));
+            ClearSessionInfo();
+            ApplyUiState(UiState.Idle, () =>
+                Loc.T("Home_Status_IdleErrorFmt", Loc.T("Home_Error_EngineExit")));
+            TryScheduleReconnect();
+        }
+    }
+
+    private void RememberSelectionFromEngine()
+    {
+        var sel = _engine.LastSelection;
+        if (sel == null || ReferenceEquals(sel, _rememberedSelection))
+            return;
+        _rememberedSelection = sel;
+
+        // A new payload/connection must not inherit the old tunnel address or DNS.
+        _sessionInfo = new VpnConnectionSessionInfo
+        {
+            ServerId = sel.ServerId,
+            ServerName = sel.ServerName,
+            ExternalIp = sel.ExternalIp,
+            PreferredAdapterName = sel.PreferredAdapterName,
+            VpnIp = sel.VpnIp,
+            DnsServers = sel.DnsServers,
+        };
+    }
+
+    private void ClearSessionInfo()
+    {
+        _sessionInfo = null;
+        _rememberedSelection = null;
+        _networkInfoRefreshTarget = null;
+        _engine.ClearLastSelection();
+    }
+
+    private string ComposeStartFailedStatus()
+    {
+        var human = _engine.LastStartErrorHuman;
+        return string.IsNullOrWhiteSpace(human)
+            ? Loc.T("Home_Status_IdleStartFailed")
+            : Loc.T("Home_Status_IdleErrorFmt", human);
+    }
+
+    private void ApplyConnected(string? engineState)
+    {
+        ApplyUiState(UiState.Connected, () => ConnectedStatusText(engineState));
+        var target = _sessionInfo;
+        if (target is not null && !ReferenceEquals(_networkInfoRefreshTarget, target))
+        {
+            _networkInfoRefreshTarget = target;
+            _ = RefreshConnectedNetworkInfoAsync(target);
+        }
+    }
+
+    private async Task RefreshConnectedNetworkInfoAsync(VpnConnectionSessionInfo target)
+    {
+        var ct = _connectCts?.Token ?? _lifetimeCts?.Token ?? CancellationToken.None;
+        try
+        {
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                if (_lastUiState != UiState.Connected || !ReferenceEquals(_sessionInfo, target)) return;
+                var adapter = await Task.Run(() => DataGateWin.Services.Traffic.VpnAdapterNetworkInfoReader.Read(
+                    target.PreferredAdapterName, target.VpnIp), ct).ConfigureAwait(false);
+                if (_lastUiState != UiState.Connected || !ReferenceEquals(_sessionInfo, target)) return;
+                if (adapter is not null)
+                {
+                    if (!string.IsNullOrWhiteSpace(adapter.VpnIp)) target.VpnIp = adapter.VpnIp;
+                    if (adapter.DnsServers.Count > 0) target.DnsServers = adapter.DnsServers;
+                    ApplyUiState(UiState.Connected, () => ConnectedStatusText(null));
+                    if (!string.IsNullOrWhiteSpace(target.VpnIp) && target.DnsServers is { Count: > 0 }) return;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomeController.ReadTunnelNetworkInfo"); }
+    }
+
+    private void ApplyKeyed(UiState state, string key)
+        => ApplyUiState(state, () => Loc.T(key));
+
+    private string ConnectedStatusText(string? engineState) =>
+        HomeSessionUiPolicy.ComposeConnectedStatus(
+            serverName: _sessionInfo?.ServerName,
+            vpnIp: _sessionInfo?.VpnIp,
+            engineState: engineState,
+            lastStatusText: null,
+            lastWasConnected: false,
+            connectedPlain: Loc.T("Home_Status_Connected"),
+            connectedServerFmt: Loc.T("Home_Status_ConnectedServerFmt"),
+            connectedIpFmt: Loc.T("Home_Status_ConnectedIpFmt"),
+            connectedFmt: Loc.T("Home_Status_ConnectedFmt"));
+
+    private void ApplyUiState(UiState state, Func<string> composer)
+    {
+        var previous = _lastUiState;
+        var server = _attemptServerName;
+        var originalComposer = composer;
+        // Capture the attempt identity before cleanup/retry clears the engine selection.
+        if (!string.IsNullOrWhiteSpace(server) &&
+            state == UiState.Idle && originalComposer() != Loc.T("Home_Status_Idle"))
+            composer = () =>
+            {
+                var text = originalComposer();
+                return text.Contains(server, StringComparison.Ordinal) ? text : Loc.T("Home_Progress_Context", server, text);
+            };
+        _lastUiState = state;
+        _statusComposer = composer;
+        var statusText = composer();
+        if (previous == UiState.Connecting && state is UiState.Idle or UiState.Connected)
+            AddConnectionProgress(statusText);
+        _lastStatusText = statusText;
+
+        var network = state is UiState.Connected or UiState.Connecting or UiState.Disconnecting
+            ? _sessionInfo
+            : null;
+
+        Action<UiState, string, VpnConnectionSessionInfo?>? apply;
+        Action<UiState, string>? tray;
+        lock (_uiLock)
+        {
+            apply = _applyUiState;
+            tray = UiStateChanged;
+        }
+
+        apply?.Invoke(state, statusText, network);
+        tray?.Invoke(state, statusText);
+    }
+
+    private void Log(string line)
+    {
+        Action<string>? sink;
+        lock (_uiLock) { sink = _log; }
+        sink?.Invoke(line);
+    }
+
+    private void BeginConnectCts(CancellationToken lifetime)
+    {
+        try { _connectCts?.Cancel(); } catch { /* ignore */ }
+        try { _connectCts?.Dispose(); } catch { /* ignore */ }
+        _connectCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+    }
+
+    private void ArmConnectWatchdog()
+    {
+        CancelConnectWatchdog();
+        var generation = Interlocked.Increment(ref _connectWatchdogGeneration);
+        var cts = new CancellationTokenSource();
+        _connectWatchdogCts = cts;
+        _ = RunConnectWatchdogAsync(generation, cts.Token);
+    }
+
+    private void CancelConnectWatchdog()
+    {
+        Interlocked.Increment(ref _connectWatchdogGeneration);
+        try { _connectWatchdogCts?.Cancel(); } catch { /* ignore */ }
+        try { _connectWatchdogCts?.Dispose(); } catch { /* ignore */ }
+        _connectWatchdogCts = null;
+    }
+
+    private async Task RunConnectWatchdogAsync(int generation, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(HomeSessionUiPolicy.ConnectEventWatchdog, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (generation != Volatile.Read(ref _connectWatchdogGeneration))
+            return;
+        if (_lastUiState != UiState.Connecting)
+            return;
+
+        Log(Loc.T("Home_Log_ErrorFmt", Loc.T("Home_Error_Timeout")));
+        _desiredConnected = false;
+        CancelConnectWatchdog();
+        try
+        {
+            await EnsureDisconnectedAsync(userInitiated: false).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CrashReporter.ReportNonFatal(ex, "HomeController.ConnectWatchdogStop");
+        }
+
+        ApplyUiState(UiState.Idle, () =>
+            Loc.T("Home_Status_IdleErrorFmt", Loc.T("Home_Error_Timeout")));
+    }
+
+    public void Dispose()
+    {
+        _desiredConnected = false;
+        CancelConnectWatchdog();
+        try { _connectCts?.Cancel(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomeController.DisposeConnectCancel"); }
+        try { _connectCts?.Dispose(); } catch { /* ignore */ }
+        _connectCts = null;
+        try { _lifetimeCts?.Cancel(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "HomeController.DisposeCancel"); }
+        _lifetimeCts = null;
+
+        DetachUi();
+        _engine.Dispose();
+        _opLock.Dispose();
+    }
+}
+

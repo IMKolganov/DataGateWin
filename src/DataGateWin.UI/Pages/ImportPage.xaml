@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DataGateWin.Pages.ImportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Margin="{StaticResource PageMargin}" RowSpacing="20"  HorizontalAlignment="Stretch">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="4">
+            <TextBlock x:Name="TitleText" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock
+                x:Name="SubtitleText"
+                Style="{StaticResource MutedTextStyle}"
+                TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Border
+            Grid.Row="1"
+            Padding="{StaticResource CardPadding}"
+            CornerRadius="{StaticResource CardCornerRadius}">
+            <StackPanel Spacing="10">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ProtocolLabel" Style="{StaticResource SectionTitleStyle}" />
+                    <ComboBox
+                        x:Name="ProtocolCombo"
+                        Grid.Column="1"
+                        MinWidth="200"
+                        SelectionChanged="ProtocolCombo_OnSelectionChanged" />
+                </Grid>
+                <TextBlock
+                    x:Name="XrayHintText"
+                    Style="{StaticResource MutedTextStyle}"
+                    Visibility="Collapsed" />
+            </StackPanel>
+        </Border>
+
+        <Border
+            Grid.Row="2"
+            Padding="{StaticResource CardPadding}"
+            CornerRadius="{StaticResource CardCornerRadius}">
+            <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock x:Name="ImportSectionLabel" Style="{StaticResource SectionTitleStyle}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button
+                        x:Name="BrowseButton"
+                        MinWidth="140"
+                        Click="BrowseButton_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xF42F;" FontFamily="{StaticResource IconFont}" FontSize="14" />
+                            <TextBlock x:Name="BrowseButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        x:Name="PasteButton"
+                        MinWidth="140"
+                        Click="PasteButton_OnClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xF2D6;" FontFamily="{StaticResource IconFont}" FontSize="14" />
+                            <TextBlock x:Name="PasteButtonText" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                <TextBlock
+                    x:Name="ImportHintText"
+                    Opacity="0.75"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <Border
+            Grid.Row="3"
+            Padding="0"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Margin="20,16,20,8" Orientation="Horizontal" Spacing="8">
+                    <TextBlock x:Name="ProfilesLabel" Style="{StaticResource SectionTitleStyle}" />
+                </StackPanel>
+                <ListView
+                    x:Name="ProfilesList"
+                    Grid.Row="1"
+                    Padding="8,0,8,8"
+                    SelectionMode="None" />
+                <TextBlock
+                    x:Name="EmptyProfilesText"
+                    Grid.Row="1"
+                    Margin="16"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Opacity="0.6"
+                    Visibility="Collapsed" />
+            </Grid>
+        </Border>
+
+        <TextBlock
+            x:Name="StatusText"
+            Grid.Row="4"
+            Opacity="0.75"
+            TextWrapping="Wrap" />
+    </Grid>
+</Page>

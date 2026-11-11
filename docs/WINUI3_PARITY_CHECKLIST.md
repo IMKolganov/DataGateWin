@@ -8,7 +8,7 @@ Tracks feature parity vs WPF `DataGateWin.UI` @ 1.0.13.
 - [x] `DataGateWin.Core` class library; WPF + WinUI both reference Core
 - [x] Solution includes Core + WinUI; Debug x64 build green
 - [x] Assembly name `DataGateWin` (installer / ZIP / App Paths contract)
-- [x] Elevation manifests: Release `requireAdministrator`, Debug `asInvoker`
+- [x] Elevation manifest: Debug and Release both use `requireAdministrator`
 
 ## Phase 0 spike
 
@@ -70,7 +70,7 @@ Tracks feature parity vs WPF `DataGateWin.UI` @ 1.0.13.
 
 ## Ship cutover (Phase 3)
 
-- [x] Installer / deploy scripts point at WinUI publish layout (`Build-Release.ps1`, `Build-Engine.ps1`, `_local_deploy_elevated.ps1`)
+- [x] Installer / deploy scripts point at WinUI publish layout (`Build-Release.ps1`, `Build-Engine.ps1`, `scripts/local-deploy-elevated.ps1`)
 - [x] Portable zip layout documented (full publish folder + engine + Installer)
 - [x] Updater still expects `DataGateWin.exe` (`InstallerConstants.ExeName` unchanged)
 - [x] `ARCHITECTURE.md` updated (UI = WinUI 3 + Core)
