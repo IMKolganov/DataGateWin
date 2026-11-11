@@ -115,6 +115,8 @@ public sealed class GitHubUpdateCheckerTests
     }
 
     [Theory]
+    [InlineData("{\"tag_name\":\"0.0.0.0\"}")]
+    [InlineData("{\"tag_name\":\"0.0\"}")]
     [InlineData("{}")]
     [InlineData("[]")]
     [InlineData("{\"tag_name\":123}")]

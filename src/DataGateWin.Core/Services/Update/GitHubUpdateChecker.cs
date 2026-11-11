@@ -116,7 +116,7 @@ public sealed class GitHubUpdateChecker
             return null;
 
         var version = ReleaseVersionParser.ParseTag(tag);
-        if (version == new Version(0, 0, 0))
+        if (version.Major == 0 && version.Minor == 0 && version.Build <= 0 && version.Revision <= 0)
             return null;
         foreach (var flag in new[] { "draft", "prerelease" })
             if (doc.RootElement.TryGetProperty(flag, out var value) && value.ValueKind != JsonValueKind.False)

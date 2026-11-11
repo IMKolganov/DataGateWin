@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO;
 using DataGateWin.CrashReporting;
 using DataGateWin.Localization;
 using Microsoft.UI.Xaml;
@@ -7,11 +6,9 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace DataGateWin.Services.Update;
 
-/// <summary>WinUI side of the update flow: ContentDialog prompt, stop engine, launch installer.</summary>
+/// <summary>WinUI side of the update flow: ContentDialog prompt and installer handoff.</summary>
 public sealed class WinUiUpdatePrompter : IUpdatePrompter
 {
-    private const string EngineExeRelativePath = "engine";
-
     public async Task<bool> PromptAsync(CancellationToken ct)
     {
         var dispatcher = App.UiDispatcher;
@@ -25,6 +22,7 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
         {
             try
             {
+                ct.ThrowIfCancellationRequested();
                 var xamlRoot = App.GetActiveXamlRoot();
                 if (xamlRoot is null)
                     return;
@@ -35,6 +33,8 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
                     completed = true;
                     return;
                 }
+
+                ct.ThrowIfCancellationRequested();
 
                 // Mark completed before launching so a failed/partial update cannot re-open the dialog
                 // if this process somehow stays alive or a second check races.
@@ -99,13 +99,6 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
         await dlg.ShowAsync();
     }
 
-    private static void StopEngineIfRunning()
-    {
-        var enginePath = Path.Combine(AppContext.BaseDirectory, EngineExeRelativePath, "engine.exe");
-        if (File.Exists(enginePath))
-            KillEngineProcessesByExactPathOnce(enginePath);
-    }
-
     private static bool TryLaunchUpdater(string updaterPath)
     {
         try
@@ -126,47 +119,4 @@ public sealed class WinUiUpdatePrompter : IUpdatePrompter
         }
     }
 
-    private static void KillEngineProcessesByExactPathOnce(string engineExePath)
-    {
-        var targetPath = Path.GetFullPath(engineExePath).TrimEnd(Path.DirectorySeparatorChar);
-        foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(targetPath)))
-        {
-            try
-            {
-                var procPath = p.MainModule?.FileName;
-                if (string.IsNullOrWhiteSpace(procPath))
-                    continue;
-                procPath = Path.GetFullPath(procPath).TrimEnd(Path.DirectorySeparatorChar);
-                if (!string.Equals(procPath, targetPath, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                try
-                {
-                    if (!p.HasExited)
-                    {
-                        p.CloseMainWindow();
-                        p.WaitForExit(500);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    CrashReporter.ReportNonFatal(ex, "WinUiUpdatePrompter.KillEngine.CloseMainWindow");
-                }
-
-                if (!p.HasExited)
-                {
-                    p.Kill(entireProcessTree: true);
-                    p.WaitForExit(1500);
-                }
-            }
-            catch (Exception ex)
-            {
-                CrashReporter.ReportNonFatal(ex, "WinUiUpdatePrompter.KillEngine");
-            }
-            finally
-            {
-                try { p.Dispose(); } catch (Exception ex) { CrashReporter.ReportNonFatal(ex, "WinUiUpdatePrompter.KillEngine.Dispose"); }
-            }
-        }
-    }
 }
