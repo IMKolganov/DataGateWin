@@ -120,10 +120,7 @@ public static class AppUpdatePolicy
     {
         if (onDisk is null || other is null)
             return false;
-        return onDisk.Major == other.Major
-            && onDisk.Minor == other.Minor
-            && onDisk.Build == other.Build
-            && onDisk.Revision == other.Revision;
+        return Normalize(onDisk) == Normalize(other);
     }
 
     public static Version? TryParseVersion(string? s)
