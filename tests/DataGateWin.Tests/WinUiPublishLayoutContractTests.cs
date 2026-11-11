@@ -19,6 +19,9 @@ public sealed class WinUiPublishLayoutContractTests
         Assert.Contains("Remove-Item -Recurse -Force $EngineOut", script, StringComparison.Ordinal);
         Assert.Contains("DataGateWin.Installer.exe", script, StringComparison.Ordinal);
         Assert.Contains("libXray.dll", script, StringComparison.Ordinal);
+        Assert.Contains("msvcp140.dll", script, StringComparison.Ordinal);
+        Assert.Contains("vcruntime140_1.dll", script, StringComparison.Ordinal);
+        Assert.Contains("-p:PublishDir=", script, StringComparison.Ordinal);
     }
 
     [Fact]
