@@ -254,7 +254,7 @@ public sealed partial class ImportPage : Page
             return;
 
         if (creds is not null)
-            _vm.RememberAuthUsername(id, creds.Username);
+            _vm.RememberAuth(id, creds);
 
         _vm.RememberHomeSelection(id);
         if (App.CurrentMainWindow is MainWindow main)

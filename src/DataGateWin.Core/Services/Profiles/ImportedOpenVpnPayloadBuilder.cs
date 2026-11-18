@@ -42,6 +42,21 @@ public static class ImportedOpenVpnPayloadBuilder
             };
         }
 
+        if (string.IsNullOrEmpty(credentials?.DynamicChallengeCookie)
+            && string.IsNullOrEmpty(credentials?.Password))
+        {
+            var saved = OpenVpnAuthDetector.ForConnect(profile);
+            if (saved.NeedUsernamePassword && saved.HasSavedPassword && !string.IsNullOrWhiteSpace(saved.PrefillUsername))
+            {
+                credentials = new OpenVpnAuthCredentials
+                {
+                    Username = saved.PrefillUsername,
+                    Password = saved.PrefillPassword!,
+                    Response = credentials?.Response ?? "",
+                };
+            }
+        }
+
         if (credentials is not null)
         {
             payload["openVpnUsername"] = credentials.Username ?? "";

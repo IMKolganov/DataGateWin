@@ -344,6 +344,8 @@
     <x:String x:Key="Import_Auth_OtpHint">Код из приложения или SMS</x:String>
     <x:String x:Key="Import_Auth_OtpOptional">Если сервер просит 2FA, введите код тоже.</x:String>
     <x:String x:Key="Import_Auth_Connect">Продолжить</x:String>
+    <x:String x:Key="Import_Auth_RememberPassword">Запомнить пароль (не рекомендуется)</x:String>
+    <x:String x:Key="Import_Auth_RememberWarning">Не рекомендуется. Пароль хранится в зашифрованном виде и расшифровывается только вашей учётной записью Windows, но любой, кто работает под ней, сможет подключиться. Если компьютер общий, вводите пароль каждый раз.</x:String>
     <x:String x:Key="Nav_Telegram">Telegram</x:String>
     <x:String x:Key="Access_SearchPlaceholder">Поиск серверов</x:String>
     <x:String x:Key="Home_Details">Подробности</x:String>

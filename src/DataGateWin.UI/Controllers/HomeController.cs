@@ -123,15 +123,31 @@ public sealed class HomeController : IDisposable
         AppSettingsStore.SaveSafe(s);
     }
 
-    public void RememberImportedAuthUsername(Guid profileId, string? username)
+    public void RememberImportedAuth(Guid profileId, OpenVpnAuthCredentials creds)
     {
-        if (string.IsNullOrWhiteSpace(username))
-            return;
         var profile = _importedProfiles.Get(profileId);
         if (profile is null)
             return;
-        profile.LastAuthUsername = username.Trim();
-        _importedProfiles.Upsert(profile);
+
+        var changed = false;
+        if (!string.IsNullOrWhiteSpace(creds.Username) && profile.LastAuthUsername != creds.Username.Trim())
+        {
+            profile.LastAuthUsername = creds.Username.Trim();
+            changed = true;
+        }
+
+        if (creds.RememberPassword is { } remember)
+        {
+            var protectedPass = remember ? SavedAuthPassword.Protect(creds.Password) : null;
+            if (profile.EncryptedAuthPassword != protectedPass)
+            {
+                profile.EncryptedAuthPassword = protectedPass;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            _importedProfiles.Upsert(profile);
     }
 
     public void AttachUi(
@@ -573,7 +589,7 @@ public sealed class HomeController : IDisposable
             if (_connectImportedProfileId is not Guid id)
                 return;
 
-            RememberImportedAuthUsername(id, creds.Username);
+            RememberImportedAuth(id, creds);
             await ConnectImportedProfileAsync(id, creds).ConfigureAwait(false);
         }
         catch (Exception ex)

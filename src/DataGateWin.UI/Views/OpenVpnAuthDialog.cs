@@ -14,7 +14,7 @@ internal static class OpenVpnAuthDialog
         if (profile.Protocol != ImportedVpnProtocol.OpenVpn)
             return (true, null);
 
-        var requirement = OpenVpnAuthDetector.ForConnect(profile.ConfigText, profile.LastAuthUsername);
+        var requirement = OpenVpnAuthDetector.ForConnect(profile);
         if (!requirement.NeedsPrompt)
             return (true, null);
 
@@ -31,6 +31,7 @@ internal static class OpenVpnAuthDialog
 
         TextBox? userBox = null;
         PasswordBox? passBox = null;
+        CheckBox? rememberBox = null;
         if (requirement.NeedUsernamePassword)
         {
             userBox = new TextBox
@@ -39,9 +40,29 @@ internal static class OpenVpnAuthDialog
                 Text = requirement.PrefillUsername ?? "",
                 IsSpellCheckEnabled = false,
             };
-            passBox = new PasswordBox { Header = Loc.T("Import_Auth_Password") };
+            passBox = new PasswordBox
+            {
+                Header = Loc.T("Import_Auth_Password"),
+                Password = requirement.PrefillPassword ?? "",
+            };
+            rememberBox = new CheckBox
+            {
+                Content = Loc.T("Import_Auth_RememberPassword"),
+                IsChecked = requirement.HasSavedPassword,
+            };
+            var warning = new InfoBar
+            {
+                Severity = InfoBarSeverity.Warning,
+                IsClosable = false,
+                IsOpen = rememberBox.IsChecked == true,
+                Message = Loc.T("Import_Auth_RememberWarning"),
+            };
+            rememberBox.Checked += (_, _) => warning.IsOpen = true;
+            rememberBox.Unchecked += (_, _) => warning.IsOpen = false;
             stack.Children.Add(userBox);
             stack.Children.Add(passBox);
+            stack.Children.Add(rememberBox);
+            stack.Children.Add(warning);
         }
 
         var otpHeader = string.IsNullOrWhiteSpace(requirement.ChallengePrompt)
@@ -117,6 +138,7 @@ internal static class OpenVpnAuthDialog
             Password = pass,
             Response = otp,
             DynamicChallengeCookie = requirement.DynamicChallengeCookie,
+            RememberPassword = rememberBox is null ? null : rememberBox.IsChecked == true,
         };
     }
 }

@@ -387,7 +387,7 @@ public sealed partial class MainWindow : Window
                     var profile = _homeController.ListImportedProfiles().FirstOrDefault(p => p.Id == profileId);
                     if (profile is null
                         || (profile.Protocol == ImportedVpnProtocol.OpenVpn
-                            && OpenVpnAuthDetector.ForConnect(profile.ConfigText, profile.LastAuthUsername).NeedsPrompt))
+                            && OpenVpnAuthDetector.ForConnect(profile).NeedsPrompt))
                     {
                         AppWindow.Show();
                         Activate();

@@ -344,6 +344,8 @@
     <x:String x:Key="Import_Auth_OtpHint">Authenticator or SMS code</x:String>
     <x:String x:Key="Import_Auth_OtpOptional">If this server asks for 2FA, enter the code too.</x:String>
     <x:String x:Key="Import_Auth_Connect">Continue</x:String>
+    <x:String x:Key="Import_Auth_RememberPassword">Remember password (not recommended)</x:String>
+    <x:String x:Key="Import_Auth_RememberWarning">Not recommended. The password is stored encrypted and can only be decrypted by your Windows account, but anyone using this account can connect with it. Enter it each time if you share this PC.</x:String>
     <x:String x:Key="Nav_Telegram">Telegram</x:String>
     <x:String x:Key="Access_SearchPlaceholder">Search servers</x:String>
     <x:String x:Key="Home_Details">Details</x:String>

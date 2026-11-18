@@ -326,7 +326,7 @@ public sealed partial class HomePage : Page
             return;
 
         if (creds is not null)
-            _controller.RememberImportedAuthUsername(profile.Id, creds.Username);
+            _controller.RememberImportedAuth(profile.Id, creds);
 
         SaveVpnHomeSettingsFromUi();
         ConnectButton.IsEnabled = false;

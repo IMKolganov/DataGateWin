@@ -125,8 +125,8 @@ public sealed partial class ImportViewModel : ObservableObject
 
     public ImportedVpnProfile? GetProfile(Guid id) => _store.Get(id);
 
-    public void RememberAuthUsername(Guid id, string? username)
-        => _home.RememberImportedAuthUsername(id, username);
+    public void RememberAuth(Guid id, OpenVpnAuthCredentials creds)
+        => _home.RememberImportedAuth(id, creds);
 
     public void RememberHomeSelection(Guid id)
         => _home.RememberImportedHomeSelection(id);

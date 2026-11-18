@@ -47,15 +47,21 @@ public static class OpenVpnAuthDetector
     /// <summary>
     /// Same as <see cref="Analyze"/>, plus last typed username when the file has no inline user.
     /// </summary>
-    public static OpenVpnAuthRequirement ForConnect(string? configText, string? lastUsername)
+    public static OpenVpnAuthRequirement ForConnect(ImportedVpnProfile profile)
+        => ForConnect(profile.ConfigText, profile.LastAuthUsername, SavedAuthPassword.Unprotect(profile.EncryptedAuthPassword));
+
+    public static OpenVpnAuthRequirement ForConnect(string? configText, string? lastUsername, string? savedPassword = null)
     {
         var parsed = Analyze(configText);
-        if (!parsed.NeedUsernamePassword
-            || !string.IsNullOrWhiteSpace(parsed.PrefillUsername)
-            || string.IsNullOrWhiteSpace(lastUsername))
-        {
+        if (!parsed.NeedUsernamePassword)
             return parsed;
-        }
+
+        var username = !string.IsNullOrWhiteSpace(parsed.PrefillUsername)
+            ? parsed.PrefillUsername
+            : string.IsNullOrWhiteSpace(lastUsername) ? null : lastUsername.Trim();
+        var password = string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(savedPassword) ? null : savedPassword;
+        if (username == parsed.PrefillUsername && password is null)
+            return parsed;
 
         return new OpenVpnAuthRequirement
         {
@@ -63,7 +69,8 @@ public static class OpenVpnAuthDetector
             NeedChallenge = parsed.NeedChallenge,
             ChallengePrompt = parsed.ChallengePrompt,
             ChallengeEcho = parsed.ChallengeEcho,
-            PrefillUsername = lastUsername.Trim(),
+            PrefillUsername = username,
+            PrefillPassword = password,
         };
     }
 
